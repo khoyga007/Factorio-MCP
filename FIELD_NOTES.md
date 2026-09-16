@@ -424,7 +424,13 @@ luật thật của Factorio, rồi biến các va chạm đó thành quy tắc 
     - Cấp liệu tự động: Inserter (26.5, 5.5) rút tay gắp thường từ Rương buffer (26.5, 4.5); Long inserter (24.5, 7.5) rút sắt từ Bus X=22.5; Inserter (28.5, 7.5) rút mạch xanh từ belt X=29.5.
     - Rương buffer Fast Inserter tại (26.5, 10.5) hứng sản phẩm qua inserter (26.5, 9.5).
     - Cột điện nhỏ tại (24.5, 8.5) và (30.5, 7.5) cấp điện 100%. Rương buffer đã bắt đầu tích lũy Fast Inserters.
-    - Nghiên cứu: `heavy-armor` (30 bình đỏ) hoàn tất 100%. Tiếp tục kích hoạt `physical-projectile-damage-1` (100 bình đỏ) duy trì tải ổn định.
+55. Mở rộng Nung Sắt Gấp Đôi Sản Lượng & Giải Tỏa Nghẽn The Mall (agent 2026-09-17):
+    - Phát hiện nút cổ chai: Tải tiêu thụ sắt của Red Science + The Mall vọt lên 111 đĩa/phút trong khi 3 lò đá ban đầu chỉ ra 55 đĩa/phút -> Main Bus cạn đáy, The Mall thiếu sắt trầm trọng.
+    - Thi công Dãy Lò 2: Đặt thêm 3 lò đá tại Y=-35 (X=8, 11, 14).
+    - Cấp liệu: Nhánh quặng+than rẽ từ trục X=5.5 xuôi Nam tới Y=-37.5, chạy ngang sang Đông dir=east. 3 tay máy nạp liệu tại Y=-36.5 dir=north (pick từ belt -37.5 thả Nam vào lò -35).
+    - Xuất đĩa: 3 tay máy xuất liệu tại Y=-33.5 dir=north (pick từ lò -35 thả Nam xuống belt -32.5). Belt -32.5 chạy ngang sang Đông đâm thẳng vào Main Bus X=22.5.
+    - Nghiệm thu bằng số thật (Audit): Sản lượng sắt vọt từ 55 lên 108 đĩa/phút (+96%). Main Bus ngập sắt chảy thông suốt từ Y=-31.5 xuống tận Y=5.5.
+    - Kết quả The Mall: Rương buffer Fast Inserter tại (26.5, 10.5) tích lũy vượt 150 units; Rương Inserter thường tại (26.5, 4.5) tích lũy vượt 230 units.
 
 ## Điều chưa được kiểm chứng
 

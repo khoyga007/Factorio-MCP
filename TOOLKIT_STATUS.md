@@ -1,5 +1,10 @@
 # Toolkit Status — cập nhật 2026-09-16 (agent)
 
+## Bổ sung 2026-09-17 (agent)
+- `survey.py` nay đọc hết các trang snapshot rồi tóm tắt máy/trạng thái/vật tư trong một lệnh; `--details` mới in từng entity. Có test phân trang.
+- Read-only `brief` đã thêm vào mod + CLI + `actions.json` (18 action): tóm tắt máy lỗi và địch gần nhất trong một gói UDP. **Đã live-verified sau khi maintainer save/restart/load**: ping build `2026-09-17-brief`, vùng trung tâm có 697 entity và `brief` trả trong 1 call thay vì 11 trang snapshot; vùng tây nam phát hiện biter/spawner/worm. Chỉ quan sát, lệnh DỪNG xây/khai thác/chuyển vật phẩm của maintainer vẫn còn hiệu lực.
+- maintainer đã cho phép chuyển sang phòng thủ. `insert` được mở rộng cho kho đạn gun turret với item thật và kiểm tra sức chứa; build `2026-09-17-turret-ammo` **đang staged, chưa live-verified**. Cần save/reload an toàn trước khi tự nạp đạn bằng bridge.
+
 ## Đã xong (offline, không cần game)
 - **Bước 0**: git init + backup toàn bộ hiện trạng (root commit `9280c62`).
 - **Bước 1 — spec dump**: `spec_loader.py` (schema + loader đọc `spec.json`),

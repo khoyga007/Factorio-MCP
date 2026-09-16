@@ -1,9 +1,10 @@
 {
-  "_comment": "Single source of truth for the 17 bridge actions. `client` is the CLI subcommand when it differs from the action name. `required`/`optional` are the client argparse positional/flag args. Checked against HANDLERS (control.lua) and factorio_ai.py by contract_check.py.",
+  "_comment": "Contract for bridge actions. `client` is the CLI subcommand when it differs from the action name. `required`/`optional` are the client argparse positional/flag args. Checked against HANDLERS (control.lua) and factorio_ai.py by contract_check.py.",
   "schema_version": 1,
   "actions": {
     "ping":         { "required": [], "optional": [] },
     "snapshot":     { "required": [], "optional": ["surface", "x", "y", "radius", "offset", "limit"] },
+    "brief":        { "required": [], "optional": ["surface", "x", "y", "radius"], "note": "one reply: owned counts, issues, enemies, ore_total/ore_patches, nearest_water, treasury" },
     "set_treasury": { "client": "treasury", "required": ["x", "y"], "optional": ["surface"] },
     "fuel":         { "required": ["item", "count", "x", "y"], "optional": ["surface", "force"] },
     "craft":        { "required": ["recipe"], "optional": ["count"] },

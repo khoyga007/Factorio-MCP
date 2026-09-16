@@ -93,3 +93,20 @@ chỉ cần map chạy khi tới lượt, và mỗi bước là một lần ping
 - Không spawn item/resource. Không `run_lua` tùy ý. Không điều khiển nhân vật.
 - Luật thật sự mới → `FIELD_NOTES.md`, còn số prototype/recipe → hàm, không phải markdown.
 - Mọi dự đoán ghi số TRƯỚC khi xây; mọi "done" là số.
+
+## 8. Đối chiếu dự án công khai (2026-09-17)
+
+Các nguồn dưới đây là README/tài liệu gốc của từng dự án; tính năng được ghi là điều họ **công bố**, không phải kết quả đã chạy trên save của mình.
+
+- [factorioctl](https://github.com/MarkMcCaskey/factorioctl): có phân tích mạng/làn belt, truy nguồn và tìm gap; A* route belt; cảnh báo gồm hết nhiên liệu và enemy; zone bảo vệ mỏ. **Học cơ chế topology + alerts trước**, vì đúng hai lỗi đã gặp (belt side-load và cuộc tấn công). Không mang `execute_lua` vào bridge.
+- [Agentic-Factorio](https://github.com/matteomekhail/Agentic-Factorio): điều phối mục tiêu lớn thành đợt ngắn có sự kiện hoàn thành/thất bại đánh thức agent; `!stop` hủy việc; chuẩn bị vật tư handcraftable trước build; `docs/PROTOCOL.md` là giao kèo mod–client. **Học stop/preemption + task receipts + bootstrap**, không lấy thiết kế body/walk vì embodiment-free là lựa chọn của mình.
+- [Factorio Learning Environment](https://jackhopkins.github.io/factorio-learning-environment/): bài kiểm tra throughput dùng thời gian holdout 60 giây để tránh buffer/manual logistics tạo cảm giác đạt mục tiêu giả. **Học phép nghiệm thu giữ ngưỡng sau khi agent ngừng can thiệp**; đây là phần còn thiếu của `audit` hiện tại.
+- [FactorioMCP](https://github.com/sbarisic/FactorioMCP): có command queue tuần tự, goal/building memory lưu ngoài game. **Học cách tránh hai lệnh build đồng thời và bàn giao state**; không chuyển sang RCON chỉ vì dự án khác dùng nó.
+
+Ưu tiên áp dụng: **(1) alerts/defense + lệnh dừng an toàn; (2) plan có số và holdout audit; (3) belt topology/route; (4) MCP adapter + contract sinh tự động khi schema hiện tại không còn đủ.** Mỗi phần phải có ca kiểm chứng trên save thật trước khi gọi là đã chuyển giao. Lệnh DỪNG gameplay của maintainer vì enemy vẫn có hiệu lực; mục này chỉ là nghiên cứu tài liệu.
+
+## 9. Lựa chọn nguồn để học (maintainer duyệt 2026-09-17)
+
+- **Ưu tiên tham khảo [danielriddell21/factorio-mcp](https://github.com/danielriddell21/factorio-mcp)** cho lớp MCP và cách chia skill bootstrap → research → rocket. Chỉ chuyển thể giao diện/tool description và cấu trúc tài liệu sau khi đối chiếu với save thật; không chép nguyên mod. Repo này hướng dẫn base game, peaceful/no enemies và RCON multiplayer, còn save mình có Space Age, alien-biomes, enemy và UDP bridge. Không mang `eval`/teleport vào, không lấy các con số rocket hardcode làm nguồn sự thật. Riêng `place_entity` của họ tạo entity trước rồi mới gọi `remove_item` không kiểm tra kết quả, nên không đáp ứng invariant trừ vật phẩm của bridge mình.
+- **Tham khảo [JackHopkins/factorio-learning-environment](https://github.com/JackHopkins/factorio-learning-environment)** cho phương pháp eval/holdout throughput và lưu trajectory; không nhập cả Docker/REPL/cluster vào game đang chạy.
+- Hai repo dùng MIT; nếu sau này copy phần mã thực tế thì giữ giấy phép/thông báo bản quyền tương ứng. Hiện tại đây là **quyết định nghiên cứu**, chưa tải, cài, chạy hay tích hợp mã ngoài.

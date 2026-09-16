@@ -1,5 +1,5 @@
 local BRIDGE_VERSION = 1
-local BRIDGE_BUILD = "2026-09-16-collect-paged-snapshot"
+local BRIDGE_BUILD = "2026-09-17-turret-ammo"
 local MAX_PACKET_BYTES = 32768
 local MAX_RADIUS = 32
 local MAX_ENTITIES = 64
@@ -24,6 +24,8 @@ local DIRECTIONS = {
 
 -- Forward declaration so handle_ping can advertise the live action list.
 local HANDLERS
+-- Forward declared so handle_brief (defined before it) can reuse the water scan.
+local fluid_tile_names
 
 local function bridge_state()
   storage.factorio_ai_bridge = storage.factorio_ai_bridge or {
@@ -591,13 +593,143 @@ local function handle_snapshot(nonce, request)
   })
 end
 
+-- Compact situational awareness in one UDP packet, even for a large base.
+local function handle_brief(nonce, request)
+  local surface, force = surface_for(request), force_for(request)
+  if not surface then return response(nonce, false, {error = "surface-not-found"}) end
+  if not force then return response(nonce, false, {error = "force-not-found"}) end
+  local center = position(request)
+  if not center then
+    local player = game.get_player(1)
+    center = player and player.position or {x = 0, y = 0}
+  end
+  local radius = math.min(64, math.max(1, number(request.radius, 32)))
+  local area = {
+    {center.x - radius, center.y - radius},
+    {center.x + radius, center.y + radius},
+  }
+  local function distance_squared(entity)
+    local dx = entity.position.x - center.x
+    local dy = entity.position.y - center.y
+    return dx * dx + dy * dy
+  end
+  local counts, issues = {}, {}
+  local bad_status = {
+    no_power = true, no_fuel = true, no_ingredients = true,
+    item_ingredient_shortage = true, fluid_ingredient_shortage = true,
+    low_power = true, not_plugged_in_electric_network = true,
+  }
+  local owned = surface.find_entities_filtered {area = area, type = ENTITY_TYPES, force = force}
+  for _, entity in pairs(owned) do
+    counts[entity.name] = (counts[entity.name] or 0) + 1
+    local status = entity_status_name(entity.status)
+    if bad_status[status] then
+      issues[#issues + 1] = {
+        name = entity.name, status = status,
+        x = entity.position.x, y = entity.position.y,
+        unit_number = entity.unit_number,
+        distance_squared = distance_squared(entity),
+      }
+    end
+  end
+  table.sort(issues, function(a, b) return a.distance_squared < b.distance_squared end)
+  local issue_total = #issues
+  while #issues > 20 do table.remove(issues) end
+  for _, issue in pairs(issues) do issue.distance_squared = nil end
+
+  local enemy_force = game.forces.enemy
+  local enemies = enemy_force and surface.find_entities_filtered {
+    area = area, force = enemy_force, type = {"unit", "unit-spawner", "turret"},
+  } or {}
+  table.sort(enemies, function(a, b) return distance_squared(a) < distance_squared(b) end)
+  local nearest_enemies = {}
+  for i = 1, math.min(#enemies, 20) do
+    local entity = enemies[i]
+    nearest_enemies[#nearest_enemies + 1] = {
+      name = entity.name, x = entity.position.x, y = entity.position.y,
+      distance = math.sqrt(distance_squared(entity)),
+    }
+  end
+  -- Ore patches in the same area, binned exactly like snapshot.resources.
+  local ore_bins, ore_order = {}, {}
+  for _, entity in pairs(surface.find_entities_filtered {area = area, type = "resource"}) do
+    local bx = math.floor(entity.position.x / 8) * 8
+    local by = math.floor(entity.position.y / 8) * 8
+    local key = entity.name .. ":" .. bx .. ":" .. by
+    local bin = ore_bins[key]
+    if not bin then
+      bin = {name = entity.name, x = bx, y = by, tiles = 0, amount = 0}
+      ore_bins[key] = bin
+      ore_order[#ore_order + 1] = bin
+    end
+    bin.tiles = bin.tiles + 1
+    bin.amount = bin.amount + (entity.amount or 0)
+  end
+  table.sort(ore_order, function(a, b) return a.amount > b.amount end)
+  local ore_total = {}
+  for _, bin in pairs(ore_order) do
+    local agg = ore_total[bin.name]
+    if not agg then agg = {tiles = 0, amount = 0}; ore_total[bin.name] = agg end
+    agg.tiles = agg.tiles + bin.tiles
+    agg.amount = agg.amount + bin.amount
+  end
+  local ore_patches = {}
+  for i = 1, math.min(#ore_order, 30) do
+    ore_patches[#ore_patches + 1] = ore_order[i]
+  end
+
+  -- Water in the same area: nearest tile plus the closest binned patches.
+  local water_tiles = surface.find_tiles_filtered {area = area, name = fluid_tile_names()}
+  local nearest_water, nearest_d2
+  local water_bins = {}
+  for _, tile in pairs(water_tiles) do
+    local tx, ty = tile.position.x, tile.position.y
+    local dx, dy = tx - center.x, ty - center.y
+    local d2 = dx * dx + dy * dy
+    if not nearest_d2 or d2 < nearest_d2 then
+      nearest_d2 = d2
+      nearest_water = {
+        x = tx, y = ty,
+        fluid = tile.prototype.fluid and tile.prototype.fluid.name or nil,
+      }
+    end
+    local bx = math.floor(tx / 8) * 8
+    local by = math.floor(ty / 8) * 8
+    local key = bx .. ":" .. by
+    local bin = water_bins[key]
+    if not bin then bin = {x = bx, y = by, tiles = 0}; water_bins[key] = bin end
+    bin.tiles = bin.tiles + 1
+  end
+  local water_bin_list = {}
+  for _, bin in pairs(water_bins) do water_bin_list[#water_bin_list + 1] = bin end
+  table.sort(water_bin_list, function(a, b)
+    local da = (a.x - center.x) * (a.x - center.x) + (a.y - center.y) * (a.y - center.y)
+    local db = (b.x - center.x) * (b.x - center.x) + (b.y - center.y) * (b.y - center.y)
+    return da < db
+  end)
+  while #water_bin_list > 10 do table.remove(water_bin_list) end
+  if nearest_water then nearest_water.distance = math.sqrt(nearest_d2) end
+
+  local inv, owner, kind = treasury_inventory()
+  return response(nonce, true, {
+    action = "brief", tick = game.tick, surface = surface.name,
+    center = center, radius = radius,
+    owned_total = #owned, counts = counts,
+    issue_total = issue_total, issues = issues,
+    enemy_total = #enemies, nearest_enemies = nearest_enemies,
+    ore_total = ore_total, ore_patches = ore_patches,
+    water_total = #water_tiles, nearest_water = nearest_water, water_bins = water_bin_list,
+    treasury = treasury_data(inv, owner, kind),
+  })
+end
+
 local MAX_TILE_POSITIONS = 200
 
 local FLUID_TILE_NAMES
 
 -- Tiles an offshore pump can draw from are exactly the tile prototypes that
 -- declare a fluid. Derived from the running prototype set, never hardcoded.
-local function fluid_tile_names()
+fluid_tile_names = function()
   if FLUID_TILE_NAMES then return FLUID_TILE_NAMES end
   local names = {}
   for name, proto in pairs(prototypes.tile) do
@@ -1088,6 +1220,7 @@ local function handle_insert(nonce, request)
   if not entity then return response(nonce, false, {error = "entity-not-found"}) end
   local index = entity.type == "lab" and defines.inventory.lab_input
     or entity.type == "assembling-machine" and defines.inventory.assembling_machine_input
+    or entity.type == "ammo-turret" and defines.inventory.turret_ammo
   if not index then return response(nonce, false, {error = "unsupported-target"}) end
   local destination = entity.get_inventory(index)
   if not destination then return response(nonce, false, {error = "input-inventory-not-found"}) end
@@ -1204,6 +1337,7 @@ end
 HANDLERS = {
   audit = handle_audit,
   autofuel = handle_autofuel,
+  brief = handle_brief,
   collect = handle_collect,
   craft = handle_craft,
   fuel = handle_fuel,

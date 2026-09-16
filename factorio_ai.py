@@ -68,6 +68,12 @@ def parser() -> argparse.ArgumentParser:
     scan.add_argument("--offset", type=int, default=0)
     scan.add_argument("--limit", type=int, default=64)
 
+    brief = commands.add_parser("brief", help="one-call survey: base counts, machine issues, nearby enemies, ore patches, nearest water, treasury")
+    brief.add_argument("--surface", default="nauvis")
+    brief.add_argument("--x", type=float)
+    brief.add_argument("--y", type=float)
+    brief.add_argument("--radius", type=float, default=32)
+
     chest = commands.add_parser("treasury")
     chest.add_argument("x", type=float)
     chest.add_argument("y", type=float)
@@ -161,7 +167,7 @@ def parser() -> argparse.ArgumentParser:
     research.add_argument("name", nargs="?")
     research.add_argument("--start", action="store_true")
     research.add_argument("--force", default="player")
-    insert = commands.add_parser("insert", help="move real items from treasury into a lab or assembler")
+    insert = commands.add_parser("insert", help="move real items into a lab, assembler, or ammo turret")
     insert.add_argument("item")
     insert.add_argument("count", type=int)
     insert.add_argument("x", type=float)
@@ -182,6 +188,13 @@ def command_body(args: argparse.Namespace) -> dict[str, Any]:
             "offset": args.offset,
             "limit": args.limit,
         }
+        if args.x is not None and args.y is not None:
+            body.update(x=args.x, y=args.y)
+        elif args.x is not None or args.y is not None:
+            raise ValueError("--x and --y must be supplied together")
+        return body
+    if args.command == "brief":
+        body = {"action": "brief", "surface": args.surface, "radius": args.radius}
         if args.x is not None and args.y is not None:
             body.update(x=args.x, y=args.y)
         elif args.x is not None or args.y is not None:

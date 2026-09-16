@@ -35,6 +35,8 @@ Các phát hiện, mức độ chắc chắn và quy tắc thử nghiệm nằm 
 ```powershell
 python E:\FactorioMayor\factorio_ai.py ping
 python E:\FactorioMayor\factorio_ai.py snapshot
+python E:\FactorioMayor\factorio_ai.py brief --x 10 --y -28 --radius 64
+python E:\FactorioMayor\survey.py 10 -28 32
 python E:\FactorioMayor\factorio_ai.py snapshot --x 27 --y -2 --radius 28 --offset 64
 ```
 
@@ -67,6 +69,7 @@ python E:\FactorioMayor\factorio_ai.py set-recipe automation-science-pack 26.5 -
 python E:\FactorioMayor\factorio_ai.py research
 python E:\FactorioMayor\factorio_ai.py research fast-inserter --start
 python E:\FactorioMayor\factorio_ai.py insert automation-science-pack 10 30.5 -23.5
+python E:\FactorioMayor\factorio_ai.py insert firearm-magazine 5 13 24
 ```
 
 - `tiles` mặc định liệt kê mọi ô mà offshore pump hút được, suy ra từ
@@ -87,9 +90,11 @@ python E:\FactorioMayor\factorio_ai.py insert automation-science-pack 10 30.5 -2
   máy đang hoạt động để tránh làm xáo trộn nguyên liệu.
 - `research` đọc nghiên cứu hiện tại; `--start` bắt đầu một công nghệ có thể
   nghiên cứu mà không ghi đè nghiên cứu khác đang chạy.
-- `insert` chuyển đúng vật phẩm thật từ treasury vào đầu vào Lab hoặc máy lắp
-  ráp; kiểm tra nguồn, loại item và sức chứa, hoàn vật phẩm nếu chèn thất bại.
-  `snapshot` hiển thị `input` và recipe hiện tại của những máy này.
+- `insert` chuyển đúng vật phẩm thật từ treasury vào đầu vào Lab, máy lắp ráp
+  hoặc kho đạn của gun turret; kiểm tra nguồn, loại item và sức chứa, hoàn vật
+  phẩm nếu chèn thất bại.
+  `snapshot` hiển thị `input` và recipe của Lab/máy lắp ráp; kho đạn turret
+  hiện trong `output` của entity.
 - `collect` lấy vật phẩm thật từ rương hoặc kho đầu ra của lò/máy lắp ráp về
   túi nhân vật; không lấy từ kho đầu vào, không sinh vật phẩm.
 
@@ -100,3 +105,8 @@ python E:\FactorioMayor\factorio_ai.py insert automation-science-pack 10 30.5 -2
 `snapshot` gom mỏ theo ô 8x8 để gói UDP nhỏ, giới hạn bán kính 32 và trả tối
 đa 64 công trình mỗi trang. Dùng `entities_next_offset` làm `--offset` cho trang
 tiếp theo; `entities_total` là tổng trong vùng.
+
+`brief` trả một gói ngắn cho vùng vuông tâm ±64 ô: số công trình theo tên,
+máy thiếu điện/nhiên liệu/nguyên liệu và tối đa 20 kẻ địch gần tâm nhất. Đây là
+quan sát chỉ đọc, không tự suy ra địch đang di chuyển hay tấn công. `survey.py`
+tự đọc mọi trang snapshot và in bản tóm tắt; thêm `--details` khi cần từng entity.

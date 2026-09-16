@@ -7,6 +7,15 @@ from factorio_ai import command_body, parser, request
 
 
 class BridgeClientTest(unittest.TestCase):
+    def test_brief_command(self):
+        args = parser().parse_args(["brief", "--x", "10", "--y", "-28", "--radius", "64"])
+        self.assertEqual(
+            {"action": "brief", "surface": "nauvis", "x": 10.0, "y": -28.0, "radius": 64.0},
+            command_body(args),
+        )
+        with self.assertRaises(ValueError):
+            command_body(parser().parse_args(["brief", "--x", "10"]))
+
     def test_snapshot_pagination_command(self):
         args = parser().parse_args(["snapshot", "--x", "27", "--y", "-2", "--radius", "28", "--offset", "64"])
         self.assertEqual(

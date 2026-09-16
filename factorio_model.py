@@ -8,6 +8,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from spec_loader import Spec
+
 
 TICKS_PER_SECOND = 60
 ITEM_SPACING_TILES = 0.25
@@ -99,3 +101,41 @@ def mining_to_crafting_balance(
         crafting_speed, recipe_energy, products_per_craft
     )
     return balance(source, consumer)
+
+
+def _require(value: float | None, label: str) -> float:
+    if value is None:
+        raise ValueError(f"spec missing {label}")
+    return value
+
+
+def mining_to_crafting_from_spec(
+    spec: Spec,
+    *,
+    miner: str,
+    recipe: str,
+    furnace: str,
+    miners: int,
+    furnaces: int,
+) -> Balance:
+    """Predict a miner→furnace line straight from a loaded Spec.
+
+    Numbers come from spec.json, never from hardcoded constants.
+    """
+    m = spec.entity(miner)
+    r = spec.recipe(recipe)
+    f = spec.entity(furnace)
+    return mining_to_crafting_balance(
+        miners=miners,
+        mining_speed=_require(m.mining_speed, f"{miner}.mining_speed"),
+        mining_time=_require(m.mining_time, f"{miner}.mining_time"),
+        furnaces=furnaces,
+        crafting_speed=_require(f.crafting_speed, f"{furnace}.crafting_speed"),
+        recipe_energy=_require(r.energy, f"{recipe}.energy"),
+    )
+
+
+def belt_capacity_from_spec(spec: Spec, belt: str, *, lanes: int = 2) -> float:
+    return belt_capacity(
+        _require(spec.entity(belt).belt_speed, f"{belt}.belt_speed"), lanes=lanes
+    )

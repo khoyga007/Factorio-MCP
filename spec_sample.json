@@ -1,0 +1,18 @@
+{
+  "_comment": "Fixture for offline tests. Values copied from test_factorio_model.py (Factorio 2.0.77). Keys are labels, NOT verified prototype names; mining_time=1 is a test value, not read from the game.",
+  "schema_version": 1,
+  "entities": {
+    "assembler1": { "entity_type": "assembling-machine", "crafting_speed": 0.5 },
+    "stone-furnace": { "entity_type": "furnace", "crafting_speed": 1.0 },
+    "burner-mining-drill": { "entity_type": "mining-drill", "mining_speed": 0.25, "mining_time": 1.0 },
+    "transport-belt": { "entity_type": "transport-belt", "belt_speed": 0.03125 }
+  },
+  "items": {
+    "coal": { "fuel_value_joules": 4000000.0 }
+  },
+  "recipes": {
+    "iron-plate": { "energy": 3.2 },
+    "iron-gear-wheel": { "energy": 0.5 },
+    "red-science": { "energy": 5.0 }
+  }
+}

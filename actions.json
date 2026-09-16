@@ -1,0 +1,23 @@
+{
+  "_comment": "Single source of truth for the 17 bridge actions. `client` is the CLI subcommand when it differs from the action name. `required`/`optional` are the client argparse positional/flag args. Checked against HANDLERS (control.lua) and factorio_ai.py by contract_check.py.",
+  "schema_version": 1,
+  "actions": {
+    "ping":         { "required": [], "optional": [] },
+    "snapshot":     { "required": [], "optional": ["surface", "x", "y", "radius", "offset", "limit"] },
+    "set_treasury": { "client": "treasury", "required": ["x", "y"], "optional": ["surface"] },
+    "fuel":         { "required": ["item", "count", "x", "y"], "optional": ["surface", "force"] },
+    "craft":        { "required": ["recipe"], "optional": ["count"] },
+    "mine":         { "required": ["name", "x", "y"], "optional": ["surface"] },
+    "collect":      { "required": ["item", "count", "x", "y"], "optional": ["surface"] },
+    "autofuel":     { "required": ["state"], "optional": [], "note": "client arg state on|off maps to action field enabled(bool)" },
+    "tiles":        { "required": [], "optional": ["surface", "x", "y", "radius", "name"] },
+    "probe":        { "required": ["name", "x", "y"], "optional": ["surface", "force", "direction"] },
+    "recipe":       { "required": [], "optional": ["name", "entity", "force"] },
+    "spec":         { "required": ["kind", "name"], "optional": [] },
+    "audit":        { "required": ["item"], "optional": ["surface", "force", "precision", "expected_per_second"], "note": "expected_per_second is client-only, not sent to Lua" },
+    "set_recipe":   { "client": "set-recipe", "required": ["recipe", "x", "y"], "optional": ["surface", "force"] },
+    "research":     { "required": [], "optional": ["name", "start", "force"] },
+    "insert":       { "required": ["item", "count", "x", "y"], "optional": ["surface", "force"] },
+    "place":        { "required": ["name", "x", "y"], "optional": ["surface", "force", "direction"] }
+  }
+}

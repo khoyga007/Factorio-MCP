@@ -6,11 +6,11 @@ description: Use to set up a Factorio "mall" - assemblers that continuously prod
 # Mall build patterns
 
 A mall mass-produces the things you place constantly, so you stop hand-crafting.
-Feed it iron plate, copper plate, steel, gears, circuits, and stone; pull
-finished buildings from output chests with `factorio_remove_items` (or just let
-them buffer).
+Feed it iron plate, copper plate, steel, gears, circuits, and stone; pull finished
+buildings from output chests with `collect <item> <n> <x> <y>` (or just let them
+buffer).
 
-## Core mall recipes (one assembler each, set via factorio_set_recipe)
+## Core mall recipes (one assembler each, set via `set-recipe <recipe> <x> <y>`)
 
 - `transport-belt`, `underground-belt`, `splitter`
 - `inserter`, `long-handed-inserter`, `fast-inserter`
@@ -28,9 +28,9 @@ them buffer).
 ## Pattern
 
 Lay a bus of plate/gear/circuit belts; tap each mall assembler off the bus with
-inserters; drop outputs into passive chests. As a quick bootstrap you can prime
-each assembler's input directly with `factorio_insert_items` and read stock with
-`factorio_get_inventory` on the output chest.
+inserters; drop outputs into passive chests. As a quick bootstrap you can prime each
+assembler's input directly with `insert <item> <n> <x> <y>` and read stock from the
+treasury via `brief` (name the output chest with `treasury <x> <y>` first).
 
 With a mall running, building the rocket-launch infrastructure becomes "pull and
 place" rather than crafting every part by hand.

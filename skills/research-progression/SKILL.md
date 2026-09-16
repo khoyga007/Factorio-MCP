@@ -5,10 +5,10 @@ description: Use to plan and manage the Factorio technology tree from the start 
 
 # Research progression to the rocket
 
-Use `factorio_get_tech_tree` (with `available_only: true`) to see what's
-researchable now, `factorio_set_research`/`factorio_queue_research` to schedule
-it, and `factorio_get_research_state` to track progress. Keep the queue full so
-labs never idle.
+The bridge has no tech-tree listing: check one technology at a time with
+`research <name>` (state) and start it with `research --start <name>`. Track progress
+by polling `research <name>`. Keep research running so labs never idle — start the next
+tech as soon as the current one finishes.
 
 ## Rough order by science tier
 
@@ -27,8 +27,8 @@ labs never idle.
   productivity/speed modules.
 
 **Toward the rocket (adds military/production/utility packs as required):**
-- military-science-pack and utility/production-science-pack lines if the rocket
-  techs require them, then:
+- military-science-pack and utility/production-science-pack lines if the rocket techs
+  require them, then:
 - `rocketry`, `rocket-fuel`, `low-density-structure`, `rocket-silo`, and
   `space-science-pack` (for the satellite/space science).
 
@@ -37,6 +37,6 @@ labs never idle.
 - Prioritize techs that unlock the next science tier and better
   buildings/inserters first, since they accelerate everything after.
 - Don't bottleneck on a single pack type — scale the lagging science pack
-  (check `factorio_get_production_stats`).
-- The terminal target is **rocket-silo**; everything above feeds it. Hand off to
-  the rocket-launch skill once silo tech is in reach.
+  (check `audit <pack-item>`).
+- The terminal target is **rocket-silo**; everything above feeds it. Hand off to the
+  rocket-launch skill once silo tech is in reach.

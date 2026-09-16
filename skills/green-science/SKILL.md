@@ -15,16 +15,15 @@ assembling-machine-1).
    - `inserter`: 1 iron plate + 1 iron gear + 1 electronic-circuit -> 1 inserter.
    - So you also need `electronic-circuit` (1 iron plate + 3 copper cable) and
      `copper-cable` (1 copper plate -> 2 cable).
-2. Set assemblers with `factorio_set_recipe` for copper-cable, electronic-circuit,
+2. `place assembling-machine-1` and `set-recipe` for copper-cable, electronic-circuit,
    inserter, transport-belt, then logistic-science-pack.
-3. Feed the green-science assemblers and route packs to the same labs as red
-   science (labs consume each pack type they have).
+3. Feed the green-science assemblers and route packs to the same labs as red science
+   (labs consume each pack type they have).
 
 ## Notes
 
 - Electronic circuits are needed everywhere from here on — overbuild them.
 - Keep both red and green packs flowing to labs; many techs need both.
 
-Confirm logistic-science-pack output via `factorio_get_production_stats`, keep
-the research queue fed (see research-progression), then build toward blue
-science (oil).
+Confirm `logistic-science-pack` output via `audit logistic-science-pack`, keep the
+research queue fed (see research-progression), then build toward blue science (oil).

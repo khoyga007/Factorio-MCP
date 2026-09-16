@@ -10,20 +10,19 @@ Recipe: **1 copper plate + 1 iron gear wheel -> 1 automation-science-pack**
 
 ## Build
 
-1. Iron gear wheels: assembler with recipe `iron-gear-wheel` (2 iron plate -> 1
-   gear). Feed iron plates.
-2. Red science: assembler with recipe `automation-science-pack`, fed copper
-   plates + iron gears (`factorio_set_recipe`, then wire belts/inserters or, for
-   a quick start, `factorio_insert_items`).
-3. Labs: place `lab`s, insert automation-science-packs. Then
-   `factorio_set_research` to a cheap tech and poll `factorio_get_research_state`
-   to confirm progress > 0.
+1. Iron gear wheels: `place assembling-machine-1`, then
+   `set-recipe iron-gear-wheel <x> <y>` (2 iron plate -> 1 gear). Feed iron plates.
+2. Red science: assembler with `set-recipe automation-science-pack <x> <y>`, fed copper
+   plates + iron gears (belt/inserter, or for a quick start `insert` the items).
+3. Labs: `place lab`, `insert automation-science-pack <n> <x> <y>` into each. Then
+   `research --start <tech>` on a cheap tech and poll `research <name>` to confirm
+   progress > 0.
 
 ## Ratios (assembling-machine-1, rough)
 
 - ~1.5 gear assemblers : 1 science assembler.
 - 1 red-science assembler supplies ~3 labs.
 
-Start with a couple of science assemblers and 3-6 labs. Verify the research
-progress climbs, then queue the early tech you need (logistics, electronics,
-steel processing, automation 2) and move on to green-science.
+Start with a couple of science assemblers and 3-6 labs. Verify the research progress
+climbs, then queue the early tech you need (logistics, electronics, steel processing,
+automation 2) and move on to green-science.

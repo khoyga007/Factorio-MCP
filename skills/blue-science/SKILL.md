@@ -10,14 +10,14 @@ Recipe: **2 advanced-circuit + 3 engine-unit + 1 sulfur -> 2 chemical-science-pa
 
 ## Oil chain
 
-1. Research `oil-processing`. Place `pumpjack`s on crude-oil patches
-   (`factorio_scan_resources` shows them). Pump crude to an
-   `oil-refinery` running `basic-oil-processing` (crude -> petroleum gas).
+1. `research --start oil-processing`. Place `pumpjack`s on crude-oil patches
+   (`index` shows them). Pump crude to an `oil-refinery` running `basic-oil-processing`
+   (crude -> petroleum gas).
 2. `chemical-plant`s convert:
    - petroleum-gas -> `plastic-bar` (with coal).
    - petroleum-gas -> `sulfur` (with water).
    - sulfur + water -> `sulfuric-acid`.
-3. Fluids need pipes; connect pumpjack -> refinery -> plants with `pipe`/
+3. Fluids need pipes; connect pumpjack -> refinery -> plants with `pipe` /
    `pipe-to-ground`. Add storage tanks to buffer.
 
 ## Intermediates
@@ -28,8 +28,7 @@ Recipe: **2 advanced-circuit + 3 engine-unit + 1 sulfur -> 2 chemical-science-pa
 
 ## Tips
 
-- Watch for `status` like "no_ingredients"/"fluid" issues via
-  `factorio_scan_entities`.
+- Watch for `status` like "no_ingredients"/fluid issues via `brief`.
 - Sulfuric acid is also needed later for processing units and batteries.
 
 Once blue packs flow, you can research most of the tech tree. Continue with

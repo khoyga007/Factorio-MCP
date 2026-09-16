@@ -5,6 +5,7 @@
     "ping":         { "required": [], "optional": [] },
     "snapshot":     { "required": [], "optional": ["surface", "x", "y", "radius", "offset", "limit"] },
     "brief":        { "required": [], "optional": ["surface", "x", "y", "radius"], "note": "one reply: owned counts, issues, enemies, ore_total/ore_patches, nearest_water, treasury" },
+    "index":        { "required": [], "optional": ["surface"], "note": "whole-map ore/enemy/water index, cached in mod storage" },
     "set_treasury": { "client": "treasury", "required": ["x", "y"], "optional": ["surface"] },
     "fuel":         { "required": ["item", "count", "x", "y"], "optional": ["surface", "force"] },
     "craft":        { "required": ["recipe"], "optional": ["count"] },

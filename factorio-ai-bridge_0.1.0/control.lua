@@ -1334,6 +1334,116 @@ local function handle_place(nonce, request)
   })
 end
 
+-- Whole-map survey index, cached in storage so the AI asks once instead of
+-- grid-scanning. Ore/water barely change (only on chunk generation); enemies
+-- move, so the whole index is rebuilt after INDEX_TTL_TICKS or a new chunk.
+local INDEX_TTL_TICKS = 600
+local INDEX_ORE_CAP = 50
+local INDEX_ENEMY_CAP = 50
+local INDEX_WATER_CAP = 50
+
+local function build_index(surface)
+  -- Bounds of every generated chunk. get_chunks() is the authoritative list
+  -- (see LuaSurface::get_chunks), unlike entity positions which miss empty land.
+  local min_x, min_y, max_x, max_y
+  for chunk in surface.get_chunks() do
+    local tx, ty = chunk.x * 32, chunk.y * 32
+    if not min_x or tx < min_x then min_x = tx end
+    if not min_y or ty < min_y then min_y = ty end
+    if not max_x or tx + 32 > max_x then max_x = tx + 32 end
+    if not max_y or ty + 32 > max_y then max_y = ty + 32 end
+  end
+  if not min_x then
+    return {tick = game.tick, bounds = nil, ores = {}, enemies = {}, water = {}}
+  end
+  local area = {{min_x, min_y}, {max_x, max_y}}
+
+  local ore_bins, ore_order = {}, {}
+  for _, entity in pairs(surface.find_entities_filtered {area = area, type = "resource"}) do
+    local bx = math.floor(entity.position.x / 32) * 32
+    local by = math.floor(entity.position.y / 32) * 32
+    local key = entity.name .. ":" .. bx .. ":" .. by
+    local bin = ore_bins[key]
+    if not bin then
+      bin = {name = entity.name, x = bx, y = by, tiles = 0, amount = 0}
+      ore_bins[key] = bin
+      ore_order[#ore_order + 1] = bin
+    end
+    bin.tiles = bin.tiles + 1
+    bin.amount = bin.amount + (entity.amount or 0)
+  end
+  table.sort(ore_order, function(a, b) return a.amount > b.amount end)
+  while #ore_order > INDEX_ORE_CAP do table.remove(ore_order) end
+
+  local enemy_bins, enemy_order = {}, {}
+  local enemy_force = game.forces.enemy
+  if enemy_force then
+    for _, entity in pairs(surface.find_entities_filtered {
+      area = area, force = enemy_force, type = {"unit", "unit-spawner", "turret"},
+    }) do
+      local bx = math.floor(entity.position.x / 32) * 32
+      local by = math.floor(entity.position.y / 32) * 32
+      local key = bx .. ":" .. by
+      local bin = enemy_bins[key]
+      if not bin then
+        bin = {x = bx, y = by, count = 0, names = {}}
+        enemy_bins[key] = bin
+        enemy_order[#enemy_order + 1] = bin
+      end
+      bin.count = bin.count + 1
+      bin.names[entity.name] = (bin.names[entity.name] or 0) + 1
+    end
+  end
+  table.sort(enemy_order, function(a, b) return a.count > b.count end)
+  while #enemy_order > INDEX_ENEMY_CAP do table.remove(enemy_order) end
+
+  local water_bins, water_order = {}, {}
+  for _, tile in pairs(surface.find_tiles_filtered {area = area, name = fluid_tile_names()}) do
+    local tx, ty = tile.position.x, tile.position.y
+    local bx = math.floor(tx / 32) * 32
+    local by = math.floor(ty / 32) * 32
+    local key = bx .. ":" .. by
+    local bin = water_bins[key]
+    if not bin then
+      bin = {x = bx, y = by, tiles = 0}
+      water_bins[key] = bin
+      water_order[#water_order + 1] = bin
+    end
+    bin.tiles = bin.tiles + 1
+  end
+  table.sort(water_order, function(a, b) return a.tiles > b.tiles end)
+  while #water_order > INDEX_WATER_CAP do table.remove(water_order) end
+
+  return {
+    tick = game.tick,
+    bounds = {min_x = min_x, min_y = min_y, max_x = max_x, max_y = max_y},
+    ores = ore_order,
+    enemies = enemy_order,
+    water = water_order,
+  }
+end
+
+local function get_index(surface)
+  local state = bridge_state()
+  local index = state.index
+  if not index or index.tick + INDEX_TTL_TICKS < game.tick then
+    index = build_index(surface)
+    state.index = index
+  end
+  return index
+end
+
+local function handle_index(nonce, request)
+  local surface = surface_for(request)
+  if not surface then return response(nonce, false, {error = "surface-not-found"}) end
+  local index = get_index(surface)
+  return response(nonce, true, {
+    action = "index", tick = game.tick, surface = surface.name,
+    index_tick = index.tick, bounds = index.bounds,
+    ores = index.ores, enemies = index.enemies, water = index.water,
+  })
+end
+
 HANDLERS = {
   audit = handle_audit,
   autofuel = handle_autofuel,
@@ -1341,6 +1451,7 @@ HANDLERS = {
   collect = handle_collect,
   craft = handle_craft,
   fuel = handle_fuel,
+  index = handle_index,
   insert = handle_insert,
   mine = handle_mine,
   ping = handle_ping,
@@ -1408,4 +1519,10 @@ script.on_nth_tick(300, function()
   for _, surface in pairs(game.surfaces) do
     autofuel_surface(surface, game.forces.player)
   end
+end)
+
+-- A newly generated chunk invalidates the cached whole-map bounds; the next
+-- index request rebuilds from scratch.
+script.on_event(defines.events.on_chunk_generated, function()
+  bridge_state().index = nil
 end)

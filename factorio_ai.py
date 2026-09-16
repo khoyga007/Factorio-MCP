@@ -74,6 +74,9 @@ def parser() -> argparse.ArgumentParser:
     brief.add_argument("--y", type=float)
     brief.add_argument("--radius", type=float, default=32)
 
+    index = commands.add_parser("index", help="whole-map survey index: ore patches, enemy clusters, water (cached)")
+    index.add_argument("--surface", default="nauvis")
+
     chest = commands.add_parser("treasury")
     chest.add_argument("x", type=float)
     chest.add_argument("y", type=float)
@@ -200,6 +203,8 @@ def command_body(args: argparse.Namespace) -> dict[str, Any]:
         elif args.x is not None or args.y is not None:
             raise ValueError("--x and --y must be supplied together")
         return body
+    if args.command == "index":
+        return {"action": "index", "surface": args.surface}
     if args.command == "treasury":
         return {
             "action": "set_treasury",

@@ -1,5 +1,5 @@
 local BRIDGE_VERSION = 1
-local BRIDGE_BUILD = "2026-09-17-turret-ammo"
+local BRIDGE_BUILD = "2026-09-17-actions15"
 local MAX_PACKET_BYTES = 32768
 local MAX_RADIUS = 32
 local MAX_ENTITIES = 64

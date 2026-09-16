@@ -67,6 +67,8 @@ def parser() -> argparse.ArgumentParser:
     scan.add_argument("--radius", type=float, default=16)
     scan.add_argument("--offset", type=int, default=0)
     scan.add_argument("--limit", type=int, default=64)
+    scan.add_argument("--tiles", action="store_true", help="also map tiles (default pumpable water)")
+    scan.add_argument("--name", action="append", help="tile prototype name, repeatable; only with --tiles")
 
     brief = commands.add_parser("brief", help="one-call survey: base counts, machine issues, nearby enemies, ore patches, nearest water, treasury")
     brief.add_argument("--surface", default="nauvis")
@@ -91,14 +93,7 @@ def parser() -> argparse.ArgumentParser:
     place.add_argument(
         "--direction", choices=("north", "east", "south", "west"), default="north"
     )
-
-    fuel = commands.add_parser("fuel")
-    fuel.add_argument("item")
-    fuel.add_argument("count", type=int)
-    fuel.add_argument("x", type=float)
-    fuel.add_argument("y", type=float)
-    fuel.add_argument("--surface", default="nauvis")
-    fuel.add_argument("--force", default="player")
+    place.add_argument("--dry-run", action="store_true", help="report every blocker, build nothing")
 
     craft = commands.add_parser("craft")
     craft.add_argument("recipe")
@@ -120,36 +115,11 @@ def parser() -> argparse.ArgumentParser:
     autofuel = commands.add_parser("autofuel")
     autofuel.add_argument("state", choices=("on", "off"))
 
-    tiles = commands.add_parser(
-        "tiles", help="map tiles; by default every tile an offshore pump can use"
-    )
-    tiles.add_argument("--surface", default="nauvis")
-    tiles.add_argument("--x", type=float)
-    tiles.add_argument("--y", type=float)
-    tiles.add_argument("--radius", type=float, default=32)
-    tiles.add_argument(
-        "--name",
-        action="append",
-        help="tile prototype name, repeatable; omit to list pumpable water",
-    )
-
-    probe = commands.add_parser("probe", help="dry run a placement, build nothing")
-    probe.add_argument("name")
-    probe.add_argument("x", type=float)
-    probe.add_argument("y", type=float)
-    probe.add_argument("--surface", default="nauvis")
-    probe.add_argument("--force", default="player")
-    probe.add_argument(
-        "--direction", choices=("north", "east", "south", "west"), default="north"
-    )
-
-    recipe = commands.add_parser("recipe", help="read a recipe and what it needs")
-    recipe.add_argument("name", nargs="?")
-    recipe.add_argument("--entity", help="resolve the recipe of the item that places this entity")
-    recipe.add_argument("--force", default="player")
-    spec = commands.add_parser("spec", help="read one running-game prototype")
+    spec = commands.add_parser("spec", help="read one running-game prototype (recipe is force-level)")
     spec.add_argument("kind", choices=("entity", "item", "recipe"))
-    spec.add_argument("name")
+    spec.add_argument("name", nargs="?")
+    spec.add_argument("--entity", help="resolve the recipe of the item that places this entity")
+    spec.add_argument("--force", default="player")
     audit = commands.add_parser("audit", help="read measured item flow")
     audit.add_argument("item")
     audit.add_argument("--surface", default="nauvis")
@@ -191,6 +161,10 @@ def command_body(args: argparse.Namespace) -> dict[str, Any]:
             "offset": args.offset,
             "limit": args.limit,
         }
+        if args.tiles:
+            body["tiles"] = True
+            if args.name:
+                body["name"] = args.name
         if args.x is not None and args.y is not None:
             body.update(x=args.x, y=args.y)
         elif args.x is not None or args.y is not None:
@@ -209,16 +183,6 @@ def command_body(args: argparse.Namespace) -> dict[str, Any]:
         return {
             "action": "set_treasury",
             "surface": args.surface,
-            "x": args.x,
-            "y": args.y,
-        }
-    if args.command == "fuel":
-        return {
-            "action": "fuel",
-            "item": args.item,
-            "count": args.count,
-            "surface": args.surface,
-            "force": args.force,
             "x": args.x,
             "y": args.y,
         }
@@ -243,39 +207,18 @@ def command_body(args: argparse.Namespace) -> dict[str, Any]:
         }
     if args.command == "autofuel":
         return {"action": "autofuel", "enabled": args.state == "on"}
-    if args.command == "tiles":
-        tiles: dict[str, Any] = {
-            "action": "tiles",
-            "surface": args.surface,
-            "radius": args.radius,
-        }
-        if args.name:
-            tiles["name"] = args.name
-        if args.x is not None and args.y is not None:
-            tiles.update(x=args.x, y=args.y)
-        elif args.x is not None or args.y is not None:
-            raise ValueError("--x and --y must be supplied together")
-        return tiles
-    if args.command == "probe":
-        return {
-            "action": "probe",
-            "name": args.name,
-            "surface": args.surface,
-            "force": args.force,
-            "x": args.x,
-            "y": args.y,
-            "direction": args.direction,
-        }
-    if args.command == "recipe":
-        if not args.name and not args.entity:
-            raise ValueError("recipe needs a name or --entity")
-        body = {"action": "recipe", "force": args.force}
-        if args.name:
-            body["name"] = args.name
-        if args.entity:
-            body["entity"] = args.entity
-        return body
     if args.command == "spec":
+        if args.kind == "recipe":
+            if not args.name and not args.entity:
+                raise ValueError("spec recipe needs a name or --entity")
+            body = {"action": "spec", "kind": args.kind, "force": args.force}
+            if args.name:
+                body["name"] = args.name
+            if args.entity:
+                body["entity"] = args.entity
+            return body
+        if not args.name:
+            raise ValueError("spec needs a prototype name")
         return {"action": "spec", "kind": args.kind, "name": args.name}
     if args.command == "audit":
         return {
@@ -301,15 +244,20 @@ def command_body(args: argparse.Namespace) -> dict[str, Any]:
             "action": "insert", "item": args.item, "count": args.count,
             "x": args.x, "y": args.y, "surface": args.surface, "force": args.force,
         }
-    return {
-        "action": "place",
-        "name": args.name,
-        "surface": args.surface,
-        "force": args.force,
-        "x": args.x,
-        "y": args.y,
-        "direction": args.direction,
-    }
+    if args.command == "place":
+        body = {
+            "action": "place",
+            "name": args.name,
+            "surface": args.surface,
+            "force": args.force,
+            "x": args.x,
+            "y": args.y,
+            "direction": args.direction,
+        }
+        if args.dry_run:
+            body["dry_run"] = True
+        return body
+    raise ValueError(f"unknown command: {args.command}")
 
 
 def main() -> int:

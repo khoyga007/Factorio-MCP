@@ -10,7 +10,7 @@ Plates are the backbone of everything. Scale these early.
 ## Power first
 
 Electric drills/furnaces need power. Build a starter steam setup:
-- `offshore-pump` on water (find water with `tiles`, place with `place`) -> `boiler`(s)
+- `offshore-pump` on water (find water with `snapshot --tiles`, place with `place`) -> `boiler`(s)
   fueled with coal -> `steam-engine`(s).
 - Ratio of thumb: **1 offshore pump : ~20 boilers : ~40 steam engines** (1:1
   boiler:2 engines). Start small: 1 pump, 2-4 boilers, 4-8 engines.

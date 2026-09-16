@@ -1,4 +1,4 @@
-"""One source of truth for the 17 bridge actions.
+"""One source of truth for the 15 bridge actions.
 
 ``actions.json`` declares each action's name, client command, and arguments.
 This module checks that declaration against the two other places that used to

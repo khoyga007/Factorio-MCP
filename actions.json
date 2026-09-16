@@ -3,23 +3,19 @@
   "schema_version": 1,
   "actions": {
     "ping":         { "required": [], "optional": [] },
-    "snapshot":     { "required": [], "optional": ["surface", "x", "y", "radius", "offset", "limit"] },
+    "snapshot":     { "required": [], "optional": ["surface", "x", "y", "radius", "offset", "limit", "tiles", "name"] },
     "brief":        { "required": [], "optional": ["surface", "x", "y", "radius"], "note": "one reply: owned counts, issues, enemies, ore_total/ore_patches, nearest_water, treasury" },
     "index":        { "required": [], "optional": ["surface"], "note": "whole-map ore/enemy/water index, cached in mod storage" },
     "set_treasury": { "client": "treasury", "required": ["x", "y"], "optional": ["surface"] },
-    "fuel":         { "required": ["item", "count", "x", "y"], "optional": ["surface", "force"] },
     "craft":        { "required": ["recipe"], "optional": ["count"] },
     "mine":         { "required": ["name", "x", "y"], "optional": ["surface"] },
     "collect":      { "required": ["item", "count", "x", "y"], "optional": ["surface"] },
     "autofuel":     { "required": ["state"], "optional": [], "note": "client arg state on|off maps to action field enabled(bool)" },
-    "tiles":        { "required": [], "optional": ["surface", "x", "y", "radius", "name"] },
-    "probe":        { "required": ["name", "x", "y"], "optional": ["surface", "force", "direction"] },
-    "recipe":       { "required": [], "optional": ["name", "entity", "force"] },
-    "spec":         { "required": ["kind", "name"], "optional": [] },
+    "spec":         { "required": ["kind"], "optional": ["name", "entity", "force"], "note": "kind recipe is force-level: enabled/have/via_entity/unlocked_by" },
     "audit":        { "required": ["item"], "optional": ["surface", "force", "precision", "expected_per_second"], "note": "expected_per_second is client-only, not sent to Lua" },
     "set_recipe":   { "client": "set-recipe", "required": ["recipe", "x", "y"], "optional": ["surface", "force"] },
     "research":     { "required": [], "optional": ["name", "start", "force"] },
-    "insert":       { "required": ["item", "count", "x", "y"], "optional": ["surface", "force"] },
-    "place":        { "required": ["name", "x", "y"], "optional": ["surface", "force", "direction"] }
+    "insert":       { "required": ["item", "count", "x", "y"], "optional": ["surface", "force"], "note": "input slot for lab/assembler/ammo-turret, else fuel slot (burner)" },
+    "place":        { "required": ["name", "x", "y"], "optional": ["surface", "force", "direction", "dry_run"], "note": "dry_run reports blockers and builds nothing" }
   }
 }

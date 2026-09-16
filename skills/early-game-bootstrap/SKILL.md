@@ -19,7 +19,8 @@ Goal: get from nothing to a self-sustaining trickle of iron and copper plates.
    `insert coal <n> <x> <y>` into its fuel slot and `insert iron-ore <n> <x> <y>` into
    its input. Pull plates with `collect iron-plate <n> <x> <y>`.
 4. **Automate mining.** `craft burner-mining-drill`, then `place` them on ore patches
-   facing a furnace (drill output drops in front). `fuel coal <n> <x> <y>` the drills.
+   facing a furnace (drill output drops in front). `insert coal <n> <x> <y>` the drills
+   (insert puts coal in a burner's fuel slot).
    A burner drill feeding a furnace you also fuel gives passive plates.
 5. **Coal supply.** Put a burner drill on coal too so you can keep fueling everything.
    This is the classic early bottleneck.

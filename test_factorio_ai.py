@@ -117,78 +117,70 @@ class BridgeClientTest(unittest.TestCase):
             command_body(args),
         )
 
-    def test_fuel_command(self):
-        args = parser().parse_args(["fuel", "coal", "2", "4", "-28"])
+    def test_snapshot_tiles_defaults_to_pumpable_water(self):
+        args = parser().parse_args(["snapshot", "--tiles", "--x", "10", "--y", "-28"])
         self.assertEqual(
             {
-                "action": "fuel",
-                "item": "coal",
-                "count": 2,
+                "action": "snapshot",
                 "surface": "nauvis",
-                "force": "player",
-                "x": 4.0,
-                "y": -28.0,
-            },
-            command_body(args),
-        )
-
-    def test_tiles_command_defaults_to_pumpable_water(self):
-        args = parser().parse_args(["tiles", "--x", "10", "--y", "-28"])
-        self.assertEqual(
-            {
-                "action": "tiles",
-                "surface": "nauvis",
-                "radius": 32.0,
+                "radius": 16.0,
+                "offset": 0,
+                "limit": 64,
+                "tiles": True,
                 "x": 10.0,
                 "y": -28.0,
             },
             command_body(args),
         )
 
-    def test_tiles_command_passes_explicit_names(self):
-        args = parser().parse_args(["tiles", "--name", "water", "--name", "deepwater"])
+    def test_snapshot_tiles_passes_explicit_names(self):
+        args = parser().parse_args(
+            ["snapshot", "--tiles", "--name", "water", "--name", "deepwater"]
+        )
         body = command_body(args)
+        self.assertTrue(body["tiles"])
         self.assertEqual(["water", "deepwater"], body["name"])
         self.assertNotIn("x", body)
 
-    def test_tiles_command_rejects_half_a_position(self):
-        args = parser().parse_args(["tiles", "--x", "10"])
+    def test_snapshot_tiles_rejects_half_a_position(self):
+        args = parser().parse_args(["snapshot", "--tiles", "--x", "10"])
         with self.assertRaises(ValueError):
             command_body(args)
 
-    def test_probe_command(self):
+    def test_place_dry_run_command(self):
         args = parser().parse_args(
-            ["probe", "offshore-pump", "12.5", "-30.5", "--direction", "south"]
+            ["place", "offshore-pump", "12.5", "-30.5", "--direction", "south", "--dry-run"]
         )
         self.assertEqual(
             {
-                "action": "probe",
+                "action": "place",
                 "name": "offshore-pump",
                 "surface": "nauvis",
                 "force": "player",
                 "x": 12.5,
                 "y": -30.5,
                 "direction": "south",
+                "dry_run": True,
             },
             command_body(args),
         )
 
-    def test_recipe_command_by_name(self):
-        args = parser().parse_args(["recipe", "lab"])
+    def test_spec_recipe_by_name(self):
+        args = parser().parse_args(["spec", "recipe", "lab"])
         self.assertEqual(
-            {"action": "recipe", "force": "player", "name": "lab"},
+            {"action": "spec", "kind": "recipe", "force": "player", "name": "lab"},
             command_body(args),
         )
 
-    def test_recipe_command_by_entity(self):
-        args = parser().parse_args(["recipe", "--entity", "offshore-pump"])
+    def test_spec_recipe_by_entity(self):
+        args = parser().parse_args(["spec", "recipe", "--entity", "offshore-pump"])
         self.assertEqual(
-            {"action": "recipe", "force": "player", "entity": "offshore-pump"},
+            {"action": "spec", "kind": "recipe", "force": "player", "entity": "offshore-pump"},
             command_body(args),
         )
 
-    def test_recipe_command_needs_a_target(self):
-        args = parser().parse_args(["recipe"])
+    def test_spec_recipe_needs_a_target(self):
+        args = parser().parse_args(["spec", "recipe"])
         with self.assertRaises(ValueError):
             command_body(args)
 

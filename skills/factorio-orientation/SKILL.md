@@ -1,6 +1,6 @@
 ---
 name: factorio-orientation
-description: Load this FIRST whenever automating Factorio through the bridge. Explains the coordinate system, the perceive-act-verify loop, the 19 bridge actions (and how they map from the old factorio_* MCP names), the legit-economy rules, and how to recover from common errors.
+description: Load this FIRST whenever automating Factorio through the bridge. Explains the coordinate system, the perceive-act-verify loop, the 15 bridge actions (and how they map from the old factorio_* MCP names), the legit-economy rules, and how to recover from common errors.
 ---
 
 # Factorio orientation
@@ -22,28 +22,29 @@ under the real game economy.
    real science packs. `place` consumes the item from the treasury, so craft/obtain it
    first. Research completes only as labs consume science over time — poll `research`.
 
-## Bridge actions (19)
+## Bridge actions (15)
 
 Read:
 - `ping` — bridge alive + advertised actions.
 - `brief [--x --y --radius]` — one reply: owned machine counts, top issues, nearest
   enemies, ore patches, nearest water, treasury contents.
 - `index` — whole-map survey: ore patches, enemy clusters, water (cached).
-- `snapshot [--x --y --radius --offset --limit]` — entities around a point (paged).
-- `tiles [--x --y --radius --name]` — tile names (default: water an offshore pump can use).
-- `probe <name> <x> <y>` — dry-run a placement, build nothing.
-- `recipe [name | --entity]`, `spec <entity|item|recipe> <name>` — prototype/recipe reads.
+- `snapshot [--x --y --radius --offset --limit --tiles [--name]]` — entities around a
+  point (paged); with `--tiles` also map tile names (default: pumpable water).
+- `spec <entity|item|recipe> <name> [--entity]` — prototype reads; `kind=recipe` is
+  force-level (enabled state, live `have` counts, unlocking technology).
 - `research [name]` — read one technology; `research --start <name>` — start it.
 - `audit <item> [--precision]` — measured production/consumption per minute.
 
 Write:
-- `place <name> <x> <y> [--direction]` — place a building (consumes the item from treasury).
+- `place <name> <x> <y> [--direction] [--dry-run]` — place a building (consumes the item
+  from treasury); `--dry-run` reports blockers and builds nothing.
 - `set-recipe <recipe> <x> <y>` — commission an empty assembler.
 - `craft <recipe> [count]` — craft items into the treasury.
 - `mine <name> <x> <y>` — mine a resource tile by hand.
-- `insert <item> <count> <x> <y>` — move items into a lab/assembler/turret.
+- `insert <item> <count> <x> <y>` — move items into a lab/assembler/turret input, or a
+  machine's fuel slot (burners).
 - `collect <item> <count> <x> <y>` — take items out of a chest or machine output.
-- `fuel <item> <count> <x> <y>` — put fuel into a machine.
 - `treasury <x> <y>` — name a chest the treasury (where craft/place draw from).
 - `autofuel on|off` — auto-fuel drills/furnaces every 5 seconds.
 
@@ -75,7 +76,7 @@ brief/index -> decide -> craft missing items -> place -> set_recipe -> insert ->
 ## Recovering from errors
 
 - "missing item to place" -> `craft` it first, or build the production for it.
-- "cannot place ... here (blocked)" -> the spot collides; `snapshot`/`probe` and pick a
+- "cannot place ... here (blocked)" -> the spot collides; `snapshot`/`place --dry-run` and pick a
   clear tile, mind footprints.
 - "already researched" / "unknown technology" -> re-check `research <name>`.
 - Empty/slow production -> `audit <item>` and machine `status` from `brief` (e.g.

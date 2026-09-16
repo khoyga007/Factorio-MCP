@@ -1,4 +1,4 @@
-"""Scan a grid for water (pumpable fluid) using the tiles action.
+"""Scan a grid for water (pumpable fluid) using snapshot --tiles.
 
 Usage: python scan_water.py CX CY [HALF_EXTENT] [STEP]
 """
@@ -15,9 +15,11 @@ def scan(cx: float, cy: float, half: float = 160.0, step: float = 64.0) -> int:
         y = cy - half
         while y <= cy + half:
             rep = request(
-                {"action": "tiles", "surface": "nauvis", "x": x, "y": y, "radius": 32}
+                {"action": "snapshot", "surface": "nauvis", "x": x, "y": y,
+                 "radius": 32, "tiles": True}
             )
-            n = rep.get("count", 0) if rep.get("ok") else -1
+            tiles = rep.get("tiles") if rep.get("ok") else None
+            n = tiles.get("count", 0) if tiles else -1
             if n and n > 0:
                 hits.append((round(x), round(y), n))
                 print(f"water at grid ({x},{y}) count={n}")

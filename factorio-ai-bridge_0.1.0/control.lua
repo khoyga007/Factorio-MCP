@@ -1,0 +1,1277 @@
+local BRIDGE_VERSION = 1
+local BRIDGE_BUILD = "2026-09-16-collect-paged-snapshot"
+local MAX_PACKET_BYTES = 32768
+local MAX_RADIUS = 32
+local MAX_ENTITIES = 64
+local MAX_CACHED_RESPONSES = 128
+
+local CHEST_TYPES = {"container", "logistic-container", "linked-container"}
+local ENTITY_TYPES = {
+  "accumulator", "ammo-turret", "assembling-machine", "beacon", "boiler",
+  "cargo-wagon", "container", "electric-pole", "electric-turret", "furnace",
+  "gate", "generator", "inserter", "lab", "locomotive", "logistic-container",
+  "mining-drill", "offshore-pump", "pipe", "pipe-to-ground", "pump", "radar",
+  "reactor", "roboport", "rocket-silo", "solar-panel", "splitter", "storage-tank",
+  "train-stop", "transport-belt", "underground-belt", "wall"
+}
+
+local DIRECTIONS = {
+  north = defines.direction.north,
+  east = defines.direction.east,
+  south = defines.direction.south,
+  west = defines.direction.west,
+}
+
+-- Forward declaration so handle_ping can advertise the live action list.
+local HANDLERS
+
+local function bridge_state()
+  storage.factorio_ai_bridge = storage.factorio_ai_bridge or {
+    responses = {},
+    response_order = {},
+  }
+  local state = storage.factorio_ai_bridge
+  if state.autofuel_enabled == nil then state.autofuel_enabled = true end
+  state.autofuel_receipts = state.autofuel_receipts or {}
+  return state
+end
+
+local function response(nonce, ok, fields)
+  local value = fields or {}
+  value.v = BRIDGE_VERSION
+  value.nonce = nonce
+  value.ok = ok
+  return value
+end
+
+local function remember_response(nonce, value)
+  local state = bridge_state()
+  if state.responses[nonce] then return end
+  state.responses[nonce] = value
+  state.response_order[#state.response_order + 1] = nonce
+  while #state.response_order > MAX_CACHED_RESPONSES do
+    local old = table.remove(state.response_order, 1)
+    state.responses[old] = nil
+  end
+end
+
+local function send(event, value)
+  helpers.send_udp(event.source_port, helpers.table_to_json(value), event.player_index)
+end
+
+local function number(value, fallback)
+  local parsed = tonumber(value)
+  if parsed == nil then return fallback end
+  return parsed
+end
+
+local function position(request)
+  local x = number(request.x)
+  local y = number(request.y)
+  if not x or not y then return nil end
+  return {x = x, y = y}
+end
+
+local function surface_for(request)
+  return game.get_surface(request.surface or "nauvis")
+end
+
+local function force_for(request)
+  return game.forces[request.force or "player"]
+end
+
+local function treasury()
+  local state = bridge_state()
+  local stored = state.treasury_entity
+  if stored and stored.valid then return stored end
+  state.treasury_entity = nil
+
+  local unit_number = state.treasury_unit_number
+  if not unit_number then return nil end
+  local entity = game.get_entity_by_unit_number(unit_number)
+  if not (entity and entity.valid) then
+    state.treasury_unit_number = nil
+    return nil
+  end
+  return entity
+end
+
+local function treasury_inventory()
+  local entity = treasury()
+  if entity then
+    return entity.get_inventory(defines.inventory.chest), entity, "container"
+  end
+  local player = game.get_player(1)
+  if not (player and player.valid) then return nil, nil, nil end
+  return player.get_main_inventory(), player, "player"
+end
+
+local function inventory_contents(inventory)
+  local result = {}
+  if not inventory then return result end
+  for _, stack in pairs(inventory.get_contents()) do
+    result[#result + 1] = {name = stack.name, count = stack.count}
+  end
+  table.sort(result, function(a, b) return a.name < b.name end)
+  return result
+end
+
+local function entity_status_name(status)
+  for name, value in pairs(defines.entity_status) do
+    if value == status then return name end
+  end
+  return nil
+end
+
+local function treasury_data(inventory, owner, kind)
+  if not owner then return nil end
+  return {
+    kind = kind,
+    name = owner.name,
+    unit_number = kind == "container" and owner.unit_number or nil,
+    player_index = kind == "player" and owner.index or nil,
+    surface = owner.surface.name,
+    x = owner.position.x,
+    y = owner.position.y,
+    contents = inventory_contents(inventory),
+  }
+end
+
+local function autofuel_surface(surface, force)
+  local state = bridge_state()
+  if not state.autofuel_enabled then return end
+  local chests = surface.find_entities_filtered {type = CHEST_TYPES, force = force}
+  table.sort(chests, function(a, b)
+    return (a.unit_number or 0) < (b.unit_number or 0)
+  end)
+  local targets = surface.find_entities_filtered {type = ENTITY_TYPES, force = force}
+  for _, entity in pairs(targets) do
+    local fuel = entity.get_fuel_inventory()
+    local remaining = entity.burner and entity.burner.remaining_burning_fuel or 0
+    if fuel and fuel.is_empty() and remaining <= 0 then
+      local filled = false
+      for _, chest in pairs(chests) do
+        local source = chest.get_inventory(defines.inventory.chest)
+        if source then
+          for _, stack in pairs(source.get_contents()) do
+            if stack.count > 0 and fuel.can_insert {name = stack.name, count = 1} then
+              local removed = source.remove {name = stack.name, count = 1}
+              if removed == 1 then
+                local inserted = fuel.insert {name = stack.name, count = 1}
+                if inserted == 1 then
+                  local receipts = state.autofuel_receipts
+                  receipts[#receipts + 1] = {
+                    tick = game.tick,
+                    item = stack.name,
+                    count = 1,
+                    source_unit_number = chest.unit_number,
+                    source_x = chest.position.x,
+                    source_y = chest.position.y,
+                    target_unit_number = entity.unit_number,
+                    target_name = entity.name,
+                    target_x = entity.position.x,
+                    target_y = entity.position.y,
+                  }
+                  while #receipts > 20 do table.remove(receipts, 1) end
+                  filled = true
+                  break
+                end
+                source.insert {name = stack.name, count = 1}
+              end
+            end
+          end
+        end
+        if filled then break end
+      end
+    end
+  end
+end
+
+local function entity_data(entity)
+  local box = entity.bounding_box
+  local data = {
+    name = entity.name,
+    type = entity.type,
+    unit_number = entity.unit_number,
+    x = entity.position.x,
+    y = entity.position.y,
+    direction = entity.direction,
+    status = entity.status,
+    status_name = entity_status_name(entity.status),
+    bounding_box = {
+      left_top = {x = box.left_top.x, y = box.left_top.y},
+      right_bottom = {x = box.right_bottom.x, y = box.right_bottom.y},
+    },
+  }
+  if entity.type == "inserter" then
+    data.pickup_position = entity.pickup_position
+    data.drop_position = entity.drop_position
+  end
+  if entity.type == "transport-belt" then
+    data.lines = {}
+    for index = 1, entity.get_max_transport_line_index() do
+      data.lines[#data.lines + 1] = inventory_contents(entity.get_transport_line(index))
+    end
+  end
+  local fuel = entity.get_fuel_inventory()
+  local output = entity.type ~= "mining-drill" and entity.get_output_inventory() or nil
+  if fuel then data.fuel = inventory_contents(fuel) end
+  if output then data.output = inventory_contents(output) end
+  if entity.type == "lab" or entity.type == "assembling-machine" then
+    local index = entity.type == "lab" and defines.inventory.lab_input
+      or defines.inventory.assembling_machine_input
+    data.input = inventory_contents(entity.get_inventory(index))
+  end
+  if entity.type == "assembling-machine" then
+    local recipe = entity.get_recipe()
+    data.recipe = recipe and recipe.name or nil
+  end
+  if entity.burner then
+    data.burner = {
+      currently_burning = entity.burner.currently_burning and entity.burner.currently_burning.name or nil,
+      remaining_burning_fuel = entity.burner.remaining_burning_fuel,
+    }
+  end
+  return data
+end
+
+local function handle_mine(nonce, request)
+  if type(request.name) ~= "string" or request.name == "" then
+    return response(nonce, false, {error = "invalid-entity-name"})
+  end
+  local surface = surface_for(request)
+  local pos = position(request)
+  if not surface then return response(nonce, false, {error = "surface-not-found"}) end
+  if not pos then return response(nonce, false, {error = "invalid-position"}) end
+  local targets = surface.find_entities_filtered {
+    position = pos,
+    radius = 0.1,
+    name = request.name,
+  }
+  local entity = targets[1]
+  if not entity then return response(nonce, false, {error = "entity-not-found"}) end
+  local inventory, owner, kind = treasury_inventory()
+  if not inventory then return response(nonce, false, {error = "treasury-not-set"}) end
+  local spill_position = {x = entity.position.x, y = entity.position.y}
+  local mined = game.create_inventory(100)
+  if not entity.mine {inventory = mined, force = false, raise_destroyed = true} then
+    mined.destroy()
+    return response(nonce, false, {error = "mine-failed"})
+  end
+  local spilled = {}
+  for _, stack in pairs(mined.get_contents()) do
+    local inserted = inventory.insert {name = stack.name, count = stack.count}
+    local remainder = stack.count - inserted
+    if remainder > 0 then
+      surface.spill_item_stack {
+        position = spill_position,
+        stack = {name = stack.name, count = remainder},
+        enable_looted = true,
+        force = owner.force,
+      }
+      spilled[#spilled + 1] = {name = stack.name, count = remainder}
+    end
+  end
+  mined.destroy()
+  return response(nonce, true, {
+    action = "mined",
+    name = request.name,
+    x = pos.x,
+    y = pos.y,
+    spilled = spilled,
+    treasury = treasury_data(inventory, owner, kind),
+  })
+end
+
+local function handle_fuel(nonce, request)
+  local surface = surface_for(request)
+  local force = force_for(request)
+  local pos = position(request)
+  if not surface then return response(nonce, false, {error = "surface-not-found"}) end
+  if not force then return response(nonce, false, {error = "force-not-found"}) end
+  if not pos then return response(nonce, false, {error = "invalid-position"}) end
+  if type(request.item) ~= "string" or request.item == "" then
+    return response(nonce, false, {error = "invalid-item-name"})
+  end
+  local count = math.floor(number(request.count, 1))
+  if count < 1 then return response(nonce, false, {error = "invalid-count"}) end
+
+  local targets = surface.find_entities_filtered {
+    position = pos,
+    radius = 0.1,
+    force = force,
+  }
+  local entity = targets[1]
+  if not entity then return response(nonce, false, {error = "entity-not-found"}) end
+  local fuel = entity.get_fuel_inventory()
+  if not fuel then return response(nonce, false, {error = "entity-has-no-fuel-inventory"}) end
+
+  local inventory, _, treasury_kind = treasury_inventory()
+  if not inventory then return response(nonce, false, {error = "treasury-not-set"}) end
+  local available = inventory.get_item_count(request.item)
+  if available < count then
+    return response(nonce, false, {
+      error = "insufficient-items",
+      item = request.item,
+      need = count,
+      have = available,
+    })
+  end
+  if not fuel.can_insert {name = request.item, count = count} then
+    return response(nonce, false, {error = "fuel-not-accepted", item = request.item})
+  end
+
+  local removed = inventory.remove {name = request.item, count = count}
+  if removed ~= count then
+    if removed > 0 then inventory.insert {name = request.item, count = removed} end
+    return response(nonce, false, {error = "item-removal-failed"})
+  end
+  local inserted = fuel.insert {name = request.item, count = count}
+  if inserted ~= count then
+    if inserted > 0 then fuel.remove {name = request.item, count = inserted} end
+    inventory.insert {name = request.item, count = count}
+    return response(nonce, false, {error = "fuel-insert-failed-refunded"})
+  end
+  return response(nonce, true, {
+    action = "fueled",
+    entity = entity_data(entity),
+    spent = {name = request.item, count = count},
+    remaining = inventory.get_item_count(request.item),
+    treasury_kind = treasury_kind,
+  })
+end
+
+local function handle_craft(nonce, request)
+  if type(request.recipe) ~= "string" or request.recipe == "" then
+    return response(nonce, false, {error = "invalid-recipe-name"})
+  end
+  local count = math.floor(number(request.count, 1))
+  if count < 1 then return response(nonce, false, {error = "invalid-count"}) end
+
+  local player = game.get_player(1)
+  if not (player and player.valid) then
+    return response(nonce, false, {error = "player-not-found"})
+  end
+  local inventory, owner, kind = treasury_inventory()
+  if kind ~= "player" then
+    return response(nonce, false, {error = "crafting-requires-player-treasury"})
+  end
+  local recipe = player.force.recipes[request.recipe]
+  if not recipe then return response(nonce, false, {error = "recipe-not-found"}) end
+  if not recipe.enabled then
+    return response(nonce, false, {error = "technology-locked", recipe = request.recipe})
+  end
+  local craftable = player.get_craftable_count(request.recipe)
+  if craftable < count then
+    return response(nonce, false, {
+      error = "insufficient-ingredients",
+      recipe = request.recipe,
+      need = count,
+      craftable = craftable,
+    })
+  end
+  local started = player.begin_crafting {
+    count = count,
+    recipe = request.recipe,
+    silent = true,
+  }
+  if started ~= count then
+    return response(nonce, false, {
+      error = "craft-start-failed",
+      requested = count,
+      started = started,
+    })
+  end
+  return response(nonce, true, {
+    action = "crafting-started",
+    recipe = request.recipe,
+    count = started,
+    treasury = treasury_data(inventory, owner, kind),
+  })
+end
+
+local function handle_autofuel(nonce, request)
+  if type(request.enabled) ~= "boolean" then
+    return response(nonce, false, {error = "invalid-enabled"})
+  end
+  local state = bridge_state()
+  state.autofuel_enabled = request.enabled
+  return response(nonce, true, {
+    action = "autofuel-set",
+    enabled = state.autofuel_enabled,
+    receipts = state.autofuel_receipts,
+  })
+end
+
+local function handle_collect(nonce, request)
+  local surface = surface_for(request)
+  local pos = position(request)
+  if not surface then return response(nonce, false, {error = "surface-not-found"}) end
+  if not pos then return response(nonce, false, {error = "invalid-position"}) end
+  if type(request.item) ~= "string" or request.item == "" then
+    return response(nonce, false, {error = "invalid-item-name"})
+  end
+  local count = math.floor(number(request.count, 1))
+  if count < 1 then return response(nonce, false, {error = "invalid-count"}) end
+
+  local player = game.get_player(1)
+  local destination = player and player.get_main_inventory()
+  if not destination then return response(nonce, false, {error = "player-inventory-not-found"}) end
+  local candidates = surface.find_entities_filtered {
+    position = pos,
+    radius = 0.1,
+    type = {"container", "logistic-container", "linked-container", "furnace", "assembling-machine"},
+    force = player.force,
+  }
+  local entity = candidates[1]
+  if not entity then return response(nonce, false, {error = "source-not-found"}) end
+  local is_chest = entity.type == "container" or entity.type == "logistic-container"
+    or entity.type == "linked-container"
+  local source = is_chest and entity.get_inventory(defines.inventory.chest)
+    or entity.get_output_inventory()
+  if not source then return response(nonce, false, {error = "output-inventory-not-found"}) end
+  local available = source.get_item_count(request.item)
+  if available < count then
+    return response(nonce, false, {
+      error = "insufficient-items",
+      item = request.item,
+      need = count,
+      have = available,
+    })
+  end
+  if not destination.can_insert {name = request.item, count = count} then
+    return response(nonce, false, {error = "player-inventory-full"})
+  end
+  if destination.get_insertable_count(request.item) < count then
+    return response(nonce, false, {error = "player-inventory-full"})
+  end
+  local removed = source.remove {name = request.item, count = count}
+  if removed ~= count then
+    if removed > 0 then source.insert {name = request.item, count = removed} end
+    return response(nonce, false, {error = "item-removal-failed"})
+  end
+  local inserted = destination.insert {name = request.item, count = count}
+  if inserted ~= count then
+    if inserted > 0 then destination.remove {name = request.item, count = inserted} end
+    source.insert {name = request.item, count = count}
+    return response(nonce, false, {error = "item-insert-failed-refunded"})
+  end
+  return response(nonce, true, {
+    action = "collected",
+    item = request.item,
+    count = count,
+    source_remaining = source.get_item_count(request.item),
+    player_total = destination.get_item_count(request.item),
+    chest_unit_number = is_chest and entity.unit_number or nil,
+    source_name = entity.name,
+    source_unit_number = entity.unit_number,
+  })
+end
+
+local function handle_ping(nonce)
+  local actions = {}
+  for name in pairs(HANDLERS or {}) do actions[#actions + 1] = name end
+  table.sort(actions)
+  return response(nonce, true, {
+    action = "pong",
+    tick = game.tick,
+    players = #game.players,
+    mod_version = script.active_mods["factorio-ai-bridge"],
+    build = BRIDGE_BUILD,
+    actions = actions,
+  })
+end
+
+local function handle_set_treasury(nonce, request)
+  local surface = surface_for(request)
+  local pos = position(request)
+  if not surface then return response(nonce, false, {error = "surface-not-found"}) end
+  if not pos then return response(nonce, false, {error = "invalid-position"}) end
+
+  local candidates = surface.find_entities_filtered {
+    position = pos,
+    radius = 1.5,
+    type = CHEST_TYPES,
+  }
+  local chest = candidates[1]
+  if not chest then return response(nonce, false, {error = "chest-not-found"}) end
+  local inventory = chest.get_inventory(defines.inventory.chest)
+  if not inventory then return response(nonce, false, {error = "chest-has-no-inventory"}) end
+
+  bridge_state().treasury_entity = chest
+  bridge_state().treasury_unit_number = chest.unit_number
+  return response(nonce, true, {
+    action = "treasury-set",
+    treasury = treasury_data(inventory, chest, "container"),
+  })
+end
+
+local function handle_snapshot(nonce, request)
+  local surface = surface_for(request)
+  if not surface then return response(nonce, false, {error = "surface-not-found"}) end
+
+  local center = position(request)
+  if not center then
+    local player = game.get_player(1)
+    center = player and player.position or {x = 0, y = 0}
+  end
+  local radius = math.min(MAX_RADIUS, math.max(1, number(request.radius, 16)))
+  local area = {
+    {center.x - radius, center.y - radius},
+    {center.x + radius, center.y + radius},
+  }
+
+  local bins = {}
+  for _, entity in pairs(surface.find_entities_filtered {area = area, type = "resource"}) do
+    local bx = math.floor(entity.position.x / 8) * 8
+    local by = math.floor(entity.position.y / 8) * 8
+    local key = entity.name .. ":" .. bx .. ":" .. by
+    local bin = bins[key]
+    if not bin then
+      bin = {name = entity.name, x = bx, y = by, tiles = 0, amount = 0}
+      bins[key] = bin
+    end
+    bin.tiles = bin.tiles + 1
+    bin.amount = bin.amount + (entity.amount or 0)
+  end
+  local resources = {}
+  for _, bin in pairs(bins) do resources[#resources + 1] = bin end
+  table.sort(resources, function(a, b)
+    if a.name ~= b.name then return a.name < b.name end
+    if a.x ~= b.x then return a.x < b.x end
+    return a.y < b.y
+  end)
+
+  local force = force_for(request)
+  if not force then return response(nonce, false, {error = "force-not-found"}) end
+  local entities = {}
+  local found = surface.find_entities_filtered {area = area, type = ENTITY_TYPES, force = force}
+  table.sort(found, function(a, b)
+    return (a.unit_number or 0) < (b.unit_number or 0)
+  end)
+  local offset = math.max(0, math.floor(number(request.offset, 0)))
+  local limit = math.min(MAX_ENTITIES, math.max(1, math.floor(number(request.limit, MAX_ENTITIES))))
+  for i = offset + 1, math.min(#found, offset + limit) do
+    entities[#entities + 1] = entity_data(found[i])
+  end
+
+  local ground_items = {}
+  for _, entity in pairs(surface.find_entities_filtered {area = area, type = "item-entity"}) do
+    local stack = entity.stack
+    if stack and stack.valid_for_read then
+      ground_items[#ground_items + 1] = {
+        name = stack.name,
+        count = stack.count,
+        x = entity.position.x,
+        y = entity.position.y,
+      }
+    end
+  end
+
+  local inventory, owner, kind = treasury_inventory()
+
+  return response(nonce, true, {
+    action = "snapshot",
+    tick = game.tick,
+    surface = surface.name,
+    center = center,
+    radius = radius,
+    resources = resources,
+    entities = entities,
+    entities_total = #found,
+    entities_offset = offset,
+    entities_next_offset = offset + #entities < #found and offset + #entities or nil,
+    ground_items = ground_items,
+    entities_truncated = offset + #entities < #found,
+    autofuel = {
+      enabled = bridge_state().autofuel_enabled,
+      receipts = bridge_state().autofuel_receipts,
+    },
+    treasury = treasury_data(inventory, owner, kind),
+  })
+end
+
+local MAX_TILE_POSITIONS = 200
+
+local FLUID_TILE_NAMES
+
+-- Tiles an offshore pump can draw from are exactly the tile prototypes that
+-- declare a fluid. Derived from the running prototype set, never hardcoded.
+local function fluid_tile_names()
+  if FLUID_TILE_NAMES then return FLUID_TILE_NAMES end
+  local names = {}
+  for name, proto in pairs(prototypes.tile) do
+    if proto.fluid then names[#names + 1] = name end
+  end
+  table.sort(names)
+  FLUID_TILE_NAMES = names
+  return names
+end
+
+local function handle_tiles(nonce, request)
+  local surface = surface_for(request)
+  if not surface then return response(nonce, false, {error = "surface-not-found"}) end
+
+  local center = position(request)
+  if not center then
+    local player = game.get_player(1)
+    center = player and player.position or {x = 0, y = 0}
+  end
+  local radius = math.min(MAX_RADIUS, math.max(1, number(request.radius, 16)))
+  local min_x, max_x = center.x - radius, center.x + radius
+  local min_y, max_y = center.y - radius, center.y + radius
+  local area = {{min_x, min_y}, {max_x, max_y}}
+
+  local names = request.name
+  if type(names) == "string" then names = {names} end
+  local filter = "name"
+  if type(names) ~= "table" then
+    names = fluid_tile_names()
+    filter = "fluid"
+  end
+
+  local base = {
+    action = "tiles",
+    tick = game.tick,
+    surface = surface.name,
+    center = center,
+    radius = radius,
+    filter = filter,
+  }
+  if #names == 0 then
+    base.count = 0
+    base.bins = {}
+    base.positions = {}
+    base.positions_truncated = false
+    return response(nonce, true, base)
+  end
+
+  local found = surface.find_tiles_filtered {area = area, name = names}
+
+  local bins, order, occupied = {}, {}, {}
+  for _, tile in pairs(found) do
+    local tx, ty = tile.position.x, tile.position.y
+    occupied[tx .. ":" .. ty] = true
+    local bx = math.floor(tx / 8) * 8
+    local by = math.floor(ty / 8) * 8
+    local key = tile.name .. ":" .. bx .. ":" .. by
+    local bin = bins[key]
+    if not bin then
+      local fluid = tile.prototype.fluid
+      bin = {
+        name = tile.name,
+        fluid = fluid and fluid.name or nil,
+        x = bx,
+        y = by,
+        tiles = 0,
+      }
+      bins[key] = bin
+      order[#order + 1] = bin
+    end
+    bin.tiles = bin.tiles + 1
+  end
+  table.sort(order, function(a, b)
+    if a.name ~= b.name then return a.name < b.name end
+    if a.x ~= b.x then return a.x < b.x end
+    return a.y < b.y
+  end)
+
+  -- A shore tile has a dry 4-neighbour INSIDE the scanned area. Neighbours
+  -- outside the area are unknown, so they never count: no false shoreline
+  -- on the scan border.
+  local function dry_inside(x, y)
+    if x < min_x or x > max_x or y < min_y or y > max_y then return false end
+    return not occupied[x .. ":" .. y]
+  end
+
+  local ranked = {}
+  for _, tile in pairs(found) do
+    local tx, ty = tile.position.x, tile.position.y
+    local shore = dry_inside(tx + 1, ty) or dry_inside(tx - 1, ty)
+      or dry_inside(tx, ty + 1) or dry_inside(tx, ty - 1)
+    local dx, dy = tx - center.x, ty - center.y
+    ranked[#ranked + 1] = {
+      x = tx,
+      y = ty,
+      name = tile.name,
+      shore = shore,
+      d2 = dx * dx + dy * dy,
+    }
+  end
+  table.sort(ranked, function(a, b)
+    if a.shore ~= b.shore then return a.shore end
+    if a.d2 ~= b.d2 then return a.d2 < b.d2 end
+    if a.x ~= b.x then return a.x < b.x end
+    return a.y < b.y
+  end)
+
+  local positions = {}
+  for i = 1, math.min(#ranked, MAX_TILE_POSITIONS) do
+    local p = ranked[i]
+    positions[#positions + 1] = {x = p.x, y = p.y, name = p.name, shore = p.shore}
+  end
+
+  base.count = #found
+  base.bins = order
+  base.positions = positions
+  base.positions_truncated = #found > MAX_TILE_POSITIONS
+  return response(nonce, true, base)
+end
+
+-- Dry run of the exact gate handle_place uses. Builds nothing, spends nothing.
+local function handle_probe(nonce, request)
+  if type(request.name) ~= "string" or request.name == "" then
+    return response(nonce, false, {error = "invalid-entity-name"})
+  end
+  local surface = surface_for(request)
+  local force = force_for(request)
+  local pos = position(request)
+  if not surface then return response(nonce, false, {error = "surface-not-found"}) end
+  if not force then return response(nonce, false, {error = "force-not-found"}) end
+  if not pos then return response(nonce, false, {error = "invalid-position"}) end
+
+  local prototype = prototypes.entity[request.name]
+  if not prototype then return response(nonce, false, {error = "entity-not-found"}) end
+
+  local direction = request.direction or "north"
+  if type(direction) == "string" then direction = DIRECTIONS[direction] end
+  if type(direction) ~= "number" then
+    return response(nonce, false, {error = "invalid-direction"})
+  end
+
+  local item = prototype.items_to_place_this and prototype.items_to_place_this[1]
+  local recipe = item and force.recipes[item.name]
+  local recipe_enabled = true
+  if recipe then recipe_enabled = recipe.enabled end
+
+  local inventory, _, treasury_kind = treasury_inventory()
+  local have = 0
+  if item and inventory then have = inventory.get_item_count(item.name) end
+
+  local can_place = surface.can_place_entity {
+    name = request.name,
+    position = pos,
+    direction = direction,
+    force = force,
+  }
+
+  local blockers = {}
+  if not item then blockers[#blockers + 1] = "entity-has-no-place-item" end
+  if not recipe_enabled then blockers[#blockers + 1] = "technology-locked" end
+  if not inventory then blockers[#blockers + 1] = "treasury-not-set" end
+  if item and inventory and have < item.count then
+    blockers[#blockers + 1] = "insufficient-items"
+  end
+  if not can_place then blockers[#blockers + 1] = "cannot-place" end
+
+  return response(nonce, true, {
+    action = "probe",
+    tick = game.tick,
+    name = request.name,
+    surface = surface.name,
+    x = pos.x,
+    y = pos.y,
+    direction = direction,
+    tile = surface.get_tile(math.floor(pos.x), math.floor(pos.y)).name,
+    tile_width = prototype.tile_width,
+    tile_height = prototype.tile_height,
+    can_place = can_place,
+    place_item = item and {name = item.name, count = item.count} or nil,
+    have = have,
+    recipe_enabled = recipe_enabled,
+    treasury_kind = treasury_kind,
+    blockers = blockers,
+    would_build = #blockers == 0,
+  })
+end
+
+local function handle_recipe(nonce, request)
+  local force = force_for(request)
+  if not force then return response(nonce, false, {error = "force-not-found"}) end
+
+  local name = request.name
+  local via_entity = nil
+  if type(request.entity) == "string" and request.entity ~= "" then
+    local proto = prototypes.entity[request.entity]
+    if not proto then return response(nonce, false, {error = "entity-not-found"}) end
+    local item = proto.items_to_place_this and proto.items_to_place_this[1]
+    if not item then
+      return response(nonce, false, {error = "entity-has-no-place-item"})
+    end
+    name = item.name
+    via_entity = request.entity
+  end
+  if type(name) ~= "string" or name == "" then
+    return response(nonce, false, {error = "invalid-recipe-name"})
+  end
+
+  local recipe = force.recipes[name]
+  if not recipe then
+    return response(nonce, false, {error = "recipe-not-found", name = name})
+  end
+
+  local inventory = treasury_inventory()
+  local ingredients = {}
+  for _, ing in pairs(recipe.ingredients) do
+    local row = {name = ing.name, amount = ing.amount, type = ing.type}
+    if inventory and ing.type ~= "fluid" then
+      row.have = inventory.get_item_count(ing.name)
+    end
+    ingredients[#ingredients + 1] = row
+  end
+
+  local products = {}
+  for _, prod in pairs(recipe.products) do
+    products[#products + 1] = {
+      name = prod.name,
+      type = prod.type,
+      amount = prod.amount,
+      amount_min = prod.amount_min,
+      amount_max = prod.amount_max,
+      probability = prod.probability,
+    }
+  end
+
+  -- When locked, name the technology that unlocks it instead of leaving the
+  -- caller to guess. LuaTechnology has no effects field; the prototype does.
+  local unlocked_by = {}
+  if not recipe.enabled then
+    for tech_name, tech in pairs(force.technologies) do
+      for _, effect in pairs(tech.prototype.effects or {}) do
+        if effect.type == "unlock-recipe" and effect.recipe == name then
+          unlocked_by[#unlocked_by + 1] = {
+            name = tech_name,
+            researched = tech.researched,
+            enabled = tech.enabled,
+          }
+          break
+        end
+      end
+    end
+    table.sort(unlocked_by, function(a, b) return a.name < b.name end)
+  end
+
+  return response(nonce, true, {
+    action = "recipe",
+    tick = game.tick,
+    name = recipe.name,
+    via_entity = via_entity,
+    enabled = recipe.enabled,
+    category = recipe.category,
+    energy = recipe.energy,
+    ingredients = ingredients,
+    products = products,
+    unlocked_by = unlocked_by,
+  })
+end
+
+-- A small, named prototype read keeps replies bounded and makes predictions
+-- traceable to the running game's actual modded values.
+local function handle_spec(nonce, request)
+  local kind, name = request.kind, request.name
+  if type(name) ~= "string" or name == "" then
+    return response(nonce, false, {error = "invalid-prototype-name"})
+  end
+  if kind == "entity" then
+    local proto = prototypes.entity[name]
+    if not proto then return response(nonce, false, {error = "entity-not-found"}) end
+    local mine = proto.mineable_properties
+    local products = {}
+    if mine then
+      for _, product in pairs(mine.products or {}) do
+        products[#products + 1] = {
+          name = product.name, type = product.type, amount = product.amount,
+          amount_min = product.amount_min, amount_max = product.amount_max,
+          probability = product.probability,
+        }
+      end
+    end
+    return response(nonce, true, {
+      action = "spec", kind = kind, name = name, entity_type = proto.type,
+      mining_speed = proto.mining_speed,
+      crafting_speed = (proto.type == "furnace" or proto.type == "assembling-machine")
+        and proto.get_crafting_speed() or nil,
+      belt_speed = proto.belt_speed,
+      energy_usage_joules_per_tick = proto.energy_usage,
+      energy_usage_watts = proto.energy_usage and proto.energy_usage * 60 or nil,
+      burner_effectivity = proto.burner_prototype and proto.burner_prototype.effectivity or nil,
+      tile_width = proto.tile_width, tile_height = proto.tile_height,
+      mining_time = mine and mine.mining_time or nil,
+      mining_products = products,
+    })
+  elseif kind == "item" then
+    local proto = prototypes.item[name]
+    if not proto then return response(nonce, false, {error = "item-not-found"}) end
+    return response(nonce, true, {
+      action = "spec", kind = kind, name = name,
+      fuel_value_joules = proto.fuel_value,
+      fuel_category = proto.fuel_category,
+      stack_size = proto.stack_size,
+    })
+  elseif kind == "recipe" then
+    local proto = prototypes.recipe[name]
+    if not proto then return response(nonce, false, {error = "recipe-not-found"}) end
+    local ingredients, products = {}, {}
+    for _, ingredient in pairs(proto.ingredients) do
+      ingredients[#ingredients + 1] = {
+        name = ingredient.name, type = ingredient.type, amount = ingredient.amount,
+      }
+    end
+    for _, product in pairs(proto.products) do
+      products[#products + 1] = {
+        name = product.name, type = product.type, amount = product.amount,
+        amount_min = product.amount_min, amount_max = product.amount_max,
+        probability = product.probability,
+      }
+    end
+    return response(nonce, true, {
+      action = "spec", kind = kind, name = name, category = proto.category,
+      energy = proto.energy, ingredients = ingredients, products = products,
+    })
+  end
+  return response(nonce, false, {error = "invalid-prototype-kind"})
+end
+
+local function handle_audit(nonce, request)
+  if type(request.item) ~= "string" or not prototypes.item[request.item] then
+    return response(nonce, false, {error = "item-not-found"})
+  end
+  local surface, force = surface_for(request), force_for(request)
+  if not surface then return response(nonce, false, {error = "surface-not-found"}) end
+  if not force then return response(nonce, false, {error = "force-not-found"}) end
+  local precision = request.precision or "one_minute"
+  local allowed = {
+    five_seconds = true, one_minute = true, ten_minutes = true,
+    one_hour = true,
+  }
+  if not allowed[precision] then
+    return response(nonce, false, {error = "invalid-precision"})
+  end
+  local stats = force.get_item_production_statistics(surface)
+  return response(nonce, true, {
+    action = "audit", tick = game.tick, item = request.item,
+    surface = surface.name, force = force.name, precision = precision,
+    produced_per_minute = stats.get_flow_count {
+      name = request.item, category = "input",
+      precision_index = defines.flow_precision_index[precision],
+    },
+    consumed_per_minute = stats.get_flow_count {
+      name = request.item, category = "output",
+      precision_index = defines.flow_precision_index[precision],
+    },
+  })
+end
+
+-- Commission an empty assembling machine. Refuse recipe changes with items
+-- present so no returned ingredients are lost or silently moved.
+local function handle_set_recipe(nonce, request)
+  local surface, force, pos = surface_for(request), force_for(request), position(request)
+  if not surface then return response(nonce, false, {error = "surface-not-found"}) end
+  if not force then return response(nonce, false, {error = "force-not-found"}) end
+  if not pos then return response(nonce, false, {error = "invalid-position"}) end
+  if type(request.recipe) ~= "string" or request.recipe == "" then
+    return response(nonce, false, {error = "invalid-recipe-name"})
+  end
+  local recipe = force.recipes[request.recipe]
+  if not recipe then return response(nonce, false, {error = "recipe-not-found"}) end
+  if not recipe.enabled then return response(nonce, false, {error = "technology-locked"}) end
+  local targets = surface.find_entities_filtered {
+    position = pos, radius = 0.1, force = force, type = "assembling-machine",
+  }
+  local entity = targets[1]
+  if not entity then return response(nonce, false, {error = "assembler-not-found"}) end
+  if not entity.prototype.crafting_categories[recipe.category] then
+    return response(nonce, false, {error = "recipe-category-not-supported"})
+  end
+  local current = entity.get_recipe()
+  if current then
+    if current.name == recipe.name then
+      return response(nonce, true, {action = "recipe-set", name = entity.name,
+        x = pos.x, y = pos.y, recipe = recipe.name, unchanged = true})
+    end
+    return response(nonce, false, {error = "recipe-already-set", current = current.name})
+  end
+  for _, index in pairs {
+    defines.inventory.assembling_machine_input,
+    defines.inventory.assembling_machine_output,
+    defines.inventory.assembling_machine_dump,
+    defines.inventory.assembling_machine_trash,
+  } do
+    local inventory = entity.get_inventory(index)
+    if inventory and not inventory.is_empty() then
+      return response(nonce, false, {error = "assembler-not-empty"})
+    end
+  end
+  local removed = entity.set_recipe(recipe.name)
+  if #removed > 0 then
+    local treasury = treasury_inventory()
+    for _, stack in pairs(removed) do
+      local item = {name = stack.name, count = stack.count, quality = stack.quality}
+      local inserted = treasury and treasury.insert(item) or 0
+      if inserted < stack.count then
+        item.count = stack.count - inserted
+        surface.spill_item_stack {
+          position = pos, stack = item, enable_looted = true, force = force,
+        }
+      end
+    end
+    return response(nonce, true, {action = "recipe-set", name = entity.name,
+      x = pos.x, y = pos.y, recipe = recipe.name, removed = removed})
+  end
+  return response(nonce, true, {action = "recipe-set", name = entity.name,
+    x = pos.x, y = pos.y, recipe = recipe.name, unchanged = false})
+end
+
+local function handle_research(nonce, request)
+  local force = force_for(request)
+  if not force then return response(nonce, false, {error = "force-not-found"}) end
+  local name = request.name
+  if name ~= nil and (type(name) ~= "string" or name == "") then
+    return response(nonce, false, {error = "invalid-technology-name"})
+  end
+  local tech = name and force.technologies[name] or nil
+  if name and not tech then
+    return response(nonce, false, {error = "technology-not-found"})
+  end
+  if request.start ~= nil and type(request.start) ~= "boolean" then
+    return response(nonce, false, {error = "invalid-start"})
+  end
+  if request.start then
+    if not tech then return response(nonce, false, {error = "technology-required"}) end
+    if tech.researched then return response(nonce, false, {error = "already-researched"}) end
+    if not tech.enabled then return response(nonce, false, {error = "technology-disabled"}) end
+    local current = force.current_research
+    if current and current.name ~= name then
+      return response(nonce, false, {error = "research-in-progress", current = current.name})
+    end
+    if not current and not force.add_research(name) then
+      return response(nonce, false, {error = "prerequisites-not-met"})
+    end
+  end
+  local current = force.current_research
+  local ingredients = {}
+  local subject = tech or current
+  if subject then
+    for _, ingredient in pairs(subject.research_unit_ingredients or {}) do
+      ingredients[#ingredients + 1] = {name = ingredient.name, amount = ingredient.amount}
+    end
+  end
+  return response(nonce, true, {
+    action = "research", tick = game.tick, force = force.name,
+    current = current and current.name or nil,
+    progress = current and force.research_progress or nil,
+    requested = name,
+    researched = tech and tech.researched or nil,
+    enabled = tech and tech.enabled or nil,
+    unit_count = subject and subject.research_unit_count or nil,
+    unit_energy = subject and subject.research_unit_energy or nil,
+    ingredients = ingredients,
+  })
+end
+
+local function handle_insert(nonce, request)
+  local surface, force, pos = surface_for(request), force_for(request), position(request)
+  if not surface then return response(nonce, false, {error = "surface-not-found"}) end
+  if not force then return response(nonce, false, {error = "force-not-found"}) end
+  if not pos then return response(nonce, false, {error = "invalid-position"}) end
+  if type(request.item) ~= "string" or not prototypes.item[request.item] then
+    return response(nonce, false, {error = "item-not-found"})
+  end
+  local count = number(request.count)
+  if not count or count < 1 or count ~= math.floor(count) then
+    return response(nonce, false, {error = "invalid-count"})
+  end
+  local targets = surface.find_entities_filtered {
+    position = pos, radius = 0.1, force = force,
+  }
+  local entity = targets[1]
+  if not entity then return response(nonce, false, {error = "entity-not-found"}) end
+  local index = entity.type == "lab" and defines.inventory.lab_input
+    or entity.type == "assembling-machine" and defines.inventory.assembling_machine_input
+  if not index then return response(nonce, false, {error = "unsupported-target"}) end
+  local destination = entity.get_inventory(index)
+  if not destination then return response(nonce, false, {error = "input-inventory-not-found"}) end
+  local source, _, kind = treasury_inventory()
+  if not source then return response(nonce, false, {error = "treasury-not-set"}) end
+  local available = source.get_item_count(request.item)
+  if available < count then
+    return response(nonce, false, {error = "insufficient-items", have = available, need = count})
+  end
+  local stack = {name = request.item, count = count}
+  if not destination.can_insert(stack) then
+    return response(nonce, false, {error = "input-rejects-item"})
+  end
+  if destination.get_insertable_count(request.item) < count then
+    return response(nonce, false, {error = "insufficient-input-capacity"})
+  end
+  local removed = source.remove(stack)
+  if removed ~= count then
+    if removed > 0 then source.insert {name = request.item, count = removed} end
+    return response(nonce, false, {error = "item-removal-failed"})
+  end
+  local inserted = destination.insert(stack)
+  if inserted < count then
+    if inserted > 0 then destination.remove {name = request.item, count = inserted} end
+    source.insert(stack)
+    return response(nonce, false, {error = "insert-failed-refunded"})
+  end
+  return response(nonce, true, {
+    action = "insert",
+    item = request.item, count = inserted, requested = count,
+    remaining = source.get_item_count(request.item), treasury_kind = kind,
+    target = {name = entity.name, x = entity.position.x, y = entity.position.y},
+  })
+end
+
+local function handle_place(nonce, request)
+  if type(request.name) ~= "string" or request.name == "" then
+    return response(nonce, false, {error = "invalid-entity-name"})
+  end
+  local surface = surface_for(request)
+  local force = force_for(request)
+  local pos = position(request)
+  if not surface then return response(nonce, false, {error = "surface-not-found"}) end
+  if not force then return response(nonce, false, {error = "force-not-found"}) end
+  if not pos then return response(nonce, false, {error = "invalid-position"}) end
+
+  local prototype = prototypes.entity[request.name]
+  if not prototype then return response(nonce, false, {error = "entity-not-found"}) end
+  local item = prototype.items_to_place_this and prototype.items_to_place_this[1]
+  if not item then return response(nonce, false, {error = "entity-has-no-place-item"}) end
+  local recipe = force.recipes[item.name]
+  if recipe and not recipe.enabled then
+    return response(nonce, false, {error = "technology-locked", item = item.name})
+  end
+
+  local direction = request.direction or "north"
+  if type(direction) == "string" then direction = DIRECTIONS[direction] end
+  if type(direction) ~= "number" then
+    return response(nonce, false, {error = "invalid-direction"})
+  end
+
+  local inventory, _, treasury_kind = treasury_inventory()
+  if not inventory then return response(nonce, false, {error = "treasury-not-set"}) end
+  local available = inventory.get_item_count(item.name)
+  if available < item.count then
+    return response(nonce, false, {
+      error = "insufficient-items",
+      item = item.name,
+      need = item.count,
+      have = available,
+    })
+  end
+
+  local build = {
+    name = request.name,
+    position = pos,
+    direction = direction,
+    force = force,
+  }
+  if not surface.can_place_entity(build) then
+    return response(nonce, false, {error = "cannot-place"})
+  end
+
+  local removed = inventory.remove {name = item.name, count = item.count}
+  if removed ~= item.count then
+    if removed > 0 then inventory.insert {name = item.name, count = removed} end
+    return response(nonce, false, {error = "item-removal-failed"})
+  end
+
+  build.raise_built = true
+  build.create_build_effect_smoke = true
+  local entity = surface.create_entity(build)
+  if not entity then
+    inventory.insert {name = item.name, count = item.count}
+    return response(nonce, false, {error = "create-failed-refunded"})
+  end
+
+  return response(nonce, true, {
+    action = "placed",
+    entity = {
+      name = entity.name,
+      unit_number = entity.unit_number,
+      surface = entity.surface.name,
+      x = entity.position.x,
+      y = entity.position.y,
+      direction = entity.direction,
+    },
+    spent = {name = item.name, count = item.count},
+    remaining = inventory.get_item_count(item.name),
+    treasury_kind = treasury_kind,
+  })
+end
+
+HANDLERS = {
+  audit = handle_audit,
+  autofuel = handle_autofuel,
+  collect = handle_collect,
+  craft = handle_craft,
+  fuel = handle_fuel,
+  insert = handle_insert,
+  mine = handle_mine,
+  ping = handle_ping,
+  probe = handle_probe,
+  recipe = handle_recipe,
+  research = handle_research,
+  spec = handle_spec,
+  set_treasury = handle_set_treasury,
+  set_recipe = handle_set_recipe,
+  snapshot = handle_snapshot,
+  tiles = handle_tiles,
+  place = handle_place,
+}
+
+local function on_packet(event)
+  local payload = event.payload or ""
+  if #payload > MAX_PACKET_BYTES then
+    send(event, response(nil, false, {error = "packet-too-large"}))
+    return
+  end
+
+  local ok, request = pcall(helpers.json_to_table, payload)
+  if not ok or type(request) ~= "table" then
+    send(event, response(nil, false, {error = "invalid-json"}))
+    return
+  end
+  local nonce = request.nonce
+  if type(nonce) ~= "string" or nonce == "" or #nonce > 128 then
+    send(event, response(nil, false, {error = "invalid-nonce"}))
+    return
+  end
+
+  local cached = bridge_state().responses[nonce]
+  if cached then
+    send(event, cached)
+    return
+  end
+  if request.v ~= BRIDGE_VERSION then
+    local value = response(nonce, false, {error = "unsupported-version"})
+    remember_response(nonce, value)
+    send(event, value)
+    return
+  end
+
+  local handler = HANDLERS[request.action]
+  local value
+  if not handler then
+    value = response(nonce, false, {error = "unknown-action"})
+  else
+    local handled, result = pcall(handler, nonce, request)
+    value = handled and result or response(nonce, false, {
+      error = "internal-error",
+      detail = tostring(result),
+    })
+  end
+  remember_response(nonce, value)
+  send(event, value)
+end
+
+script.on_init(bridge_state)
+script.on_configuration_changed(bridge_state)
+script.on_event(defines.events.on_udp_packet_received, on_packet)
+script.on_nth_tick(1, function() helpers.recv_udp() end)
+script.on_nth_tick(300, function()
+  for _, surface in pairs(game.surfaces) do
+    autofuel_surface(surface, game.forces.player)
+  end
+end)

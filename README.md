@@ -92,6 +92,24 @@ cũng nhập được bằng nút Import string của Factorio.
 Hai action này cần game nạp build `2026-09-17-blueprint-direct`; hiện chưa nghiệm thu live
 trên map mới.
 
+Nung sắt: `smelt-plan` tính một dãy lò đá (tối đa 6 lò) đủ chạm mức đĩa/phút yêu
+cầu, tìm chỗ đặt + hướng, nối một nhánh belt cấp liệu tới belt quặng–than gần
+nhất, rồi trả kế hoạch ngắn: số lò, vật tư còn thiếu, vị trí, nguồn cấp và cách đo
+sản lượng. Thiếu điện hoặc nguồn cấp thì kế hoạch báo rõ; đặt đủ máy chưa được
+coi là dây chuyền đã chạy.
+
+```powershell
+python E:\FactorioMayor\factorio_ai.py smelt-plan 60 --x 10 --y -28
+python E:\FactorioMayor\factorio_ai.py smelt-build smelt-1
+python E:\FactorioMayor\factorio_ai.py smelt-status smelt-1
+```
+
+`smelt-plan` tự tìm chỗ nếu không truyền `--x/--y`; `--input-x/--input-y` chỉ vị
+trí belt cấp liệu. `smelt-build` kiểm tra lại công nghệ, vị trí và vật tư rồi mới
+xây, trừ vật tư thật có receipt và xuất blueprint; site đã đổi hoặc thiếu vật tư
+thì từ chối trước khi đặt gì. `smelt-status` đọc audit sau khi chạy ổn định (khoảng
+60 giây trong game): sản lượng đo được so với mục tiêu và trạng thái từng lò.
+
 - `tiles` mặc định liệt kê mọi ô mà offshore pump hút được, suy ra từ
   `LuaTilePrototype.fluid` lúc chạy nên không sót biến thể nước của mod.
   Trả bin 8x8 cộng tối đa 200 ô lẻ, ô giáp bờ xếp trước.

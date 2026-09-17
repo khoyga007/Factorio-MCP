@@ -1,5 +1,19 @@
 # Toolkit Status — cập nhật 2026-09-16 (agent)
 
+## Nung sắt 2026-09-17 (agent; agent commit bàn giao)
+- Thêm `smelt-plan`/`smelt-build`/`smelt-status`: tính dãy lò đá (tối đa 6 lò), tìm
+  chỗ + hướng, nối belt cấp liệu quặng–than, preflight rồi xây bằng vật tư thật có
+  receipt, audit đo sản lượng thật. Kèm `blueprint-export`/`blueprint-import` xây
+  trực tiếp bằng item thật, không cần robot.
+- Kiểm chứng engine thật (benchmark `.runtime-test`, 5700 tick): `SMELTING_TEST_PASS`;
+  3 ca audit `passed` — 2 lò 37/phút, 6 lò 112/phút, 3 lò xoay vừa dải hẹp 57/phút.
+  42 test Python + 74 check runtime xanh (4 ca từ chối đúng: thiếu item, khoá tech,
+  site đổi).
+- Bẫy đã sửa khi thử engine thật: API trả tọa độ tay gắp dạng mảng; vùng chụp
+  blueprint có thể lấy thêm belt sát mép.
+- Chưa deploy lên save thật: live mod vẫn build `ore-marks`, thiếu `smelting.lua`;
+  save của maintainer chưa có belt/tay gắp điện. Giới hạn 6 lò/dãy, chưa mở lên cột nung thật.
+
 ## Dấu mỏ 2026-09-17 (agent)
 - `index` nay lưu mọi vùng tài nguyên 32×32 ô đã quét vào storage của save, giữ dấu cả khi mỏ cạn. `ore-marks` đọc lại theo loại quặng và phân trang; `index` báo tổng dấu đã lưu.
 - Đã qua `luac -p`, 27 test Python và contract 18 actions; bản mod đã được chép sang thư mục Factorio và khớp SHA-256. Game đang chạy build cũ, nên chức năng mới cần save/restart/load và live-check build `2026-09-17-ore-marks`.
@@ -26,8 +40,10 @@
   trong `factorio_ai.py`), `test_contract.py`. Commit `2d1b197`.
 
 ## Test
-20 test offline, tất cả xanh:
-`python -m unittest test_contract test_spec_loader test_model_from_spec test_factorio_model`
+42 test offline xanh:
+`python -m unittest test_contract test_factorio_ai test_factorio_model test_model_from_spec test_spec_loader`
+Kiểm chứng runtime nung sắt: `python verify_smelting_runtime.py` chạy lại bài test
+`test_smelting_runtime.lua` trong engine benchmark và kết thúc `SMELTING_TEST_PASS`.
 
 ## Chưa làm / chờ maintainer
 - **Bước 4** (engine giả chạy handler Lua offline) — đắt nhất, cần maintainer duyệt trước.

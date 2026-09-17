@@ -1,5 +1,23 @@
 # Factorio AI Bridge — handoff: agent → agent, 2026-09-16
 
+## Nung sắt — bàn giao cho người kế nhiệm (2026-09-17, agent)
+
+agent hết quota ngay sau khi hoàn tất + kiểm chứng tool nung sắt. agent commit
+checkpoint `b8e9e00` (12 file: `smelting.lua` mới + wiring `control.lua`/
+`factorio_ai.py`/`actions.json` + test + `BLUEPRINTS.md` + viết lại `FIELD_NOTES.md`).
+
+Đã kiểm chứng engine thật (benchmark 5700 tick kết thúc `SMELTING_TEST_PASS`):
+3 ca audit `passed` — 2 lò 37/phút, 6 lò 112/phút, 3 lò xoay vừa dải hẹp 57/phút,
+đều trên target. 42 test Python xanh; blueprint export/import xây bằng vật tư
+thật, không cần robot. Bẫy đã sửa: tọa độ tay gắp API trả dạng mảng; vùng chụp
+blueprint lấy thêm belt sát mép.
+
+Còn treo:
+- Chưa deploy lên save thật: live mod ở build `ore-marks`, thiếu `smelting.lua` +
+  blueprint; save của maintainer chưa có belt/tay gắp điện để chạy mẫu.
+- Giới hạn 6 lò/dãy (chủ ý validate trước); chưa mở lên quy mô cột nung thật.
+- `README` đã doc `smelt-*`; `TOOLKIT_STATUS` có mục nung sắt.
+
 ## KHẨN CẤP — checkpoint bàn giao mới nhất (maintainer)
 
 **2026-09-17, lệnh mới nhất: maintainer yêu cầu agent DỪNG và bàn giao cho agent vì hết quota.** agent không thao tác game sau lệnh này. **Ưu tiên khôi phục an toàn trước mọi xây phòng thủ:** ba fast-inserter xuất sắt đã bị mine tạm tại `(7.5,-33.5)`, `(10.5,-33.5)`, `(13.5,-33.5)`, cả ba hướng Bắc (0); item đã hoàn về player treasury, không rơi vãi. Chúng CHƯA được đặt trả. Ba stone-furnace tương ứng tại `(8,-35)`, `(11,-35)`, `(14,-35)` đang working, mỗi output có 13 iron-plate trong snapshot cuối và có thể tiếp tục đầy. agent cần kiểm tra thực địa, đặt trả 3 tay gắp đúng tọa độ/hướng khi maintainer cho phép, rồi nghiệm thu bus sắt. **Đừng tiếp tục kế hoạch gom 80 plate hoặc đặt tháp súng trước khi khôi phục ba tay gắp.** Chi tiết đã gửi agent trong thread `factorio-bridge`.

@@ -13,14 +13,14 @@ class ContractTest(unittest.TestCase):
     def test_three_sources_agree(self):
         self.assertEqual([], check())
 
-    def test_known_action_count_is_fifteen(self):
-        self.assertEqual(15, len(load_actions()))
+    def test_known_action_count_is_twenty_one(self):
+        self.assertEqual(21, len(load_actions()))
 
-    def test_lua_handlers_count_is_fifteen(self):
-        self.assertEqual(15, len(handlers_in_lua()))
+    def test_lua_handlers_count_is_twenty_one(self):
+        self.assertEqual(21, len(handlers_in_lua()))
 
-    def test_client_action_count_is_fifteen(self):
-        self.assertEqual(15, len(client_actions()))
+    def test_client_action_count_is_twenty_one(self):
+        self.assertEqual(21, len(client_actions()))
 
     def test_client_commands_match_declared_clients(self):
         actions = load_actions()
@@ -28,7 +28,7 @@ class ContractTest(unittest.TestCase):
         self.assertEqual(client_commands(), declared)
 
     def test_name_drift_is_declared_explicitly(self):
-        # treasury and set-recipe are the two places client and action diverge.
+        # Client command names with dashes differ from bridge action names.
         actions = load_actions()
         self.assertEqual("treasury", actions["set_treasury"]["client"])
         self.assertEqual("set-recipe", actions["set_recipe"]["client"])

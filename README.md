@@ -38,6 +38,8 @@ python E:\FactorioMayor\factorio_ai.py snapshot
 python E:\FactorioMayor\factorio_ai.py brief --x 10 --y -28 --radius 64
 python E:\FactorioMayor\survey.py 10 -28 32
 python E:\FactorioMayor\factorio_ai.py snapshot --x 27 --y -2 --radius 28 --offset 64
+python E:\FactorioMayor\factorio_ai.py index
+python E:\FactorioMayor\factorio_ai.py ore-marks --name iron-ore
 ```
 
 Để thử xây thật, đặt một rương, bỏ vật phẩm xây dựng vào đó, rồi dùng tọa độ rương:
@@ -71,6 +73,24 @@ python E:\FactorioMayor\factorio_ai.py research fast-inserter --start
 python E:\FactorioMayor\factorio_ai.py insert automation-science-pack 10 30.5 -23.5
 python E:\FactorioMayor\factorio_ai.py insert firearm-magazine 5 13 24
 ```
+
+Blueprint: xuất một cụm đã xây thành string có thể nhập trong Factorio, rồi xây
+lại cụm đó bằng vật tư thật tại nơi khác. Không cần robot. File đầu ra phải chưa tồn tại; mỗi vùng tối đa
+64×64 ô và string tối đa 24.000 ký tự.
+
+```powershell
+python E:\FactorioMayor\factorio_ai.py blueprint-export 0 -20 20 0 E:\FactorioMayor\my-smelter.txt
+python E:\FactorioMayor\factorio_ai.py blueprint-import E:\FactorioMayor\my-smelter.txt 40 20
+```
+
+`blueprint-import` mặc định kiểm tra tổng vật tư trong treasury, đặt ghost theo
+build mode thường rồi dựng trực tiếp từng entity và trừ vật tư có receipt. Nếu
+một entity lỗi giữa chừng, lệnh báo số đã xây và số vật tư đã tiêu; phần ghost
+còn lại được dọn. Chế độ trực tiếp giới hạn 64 entity mỗi module. Thêm
+`--ghosts` nếu muốn robot xây về sau. String trong file
+cũng nhập được bằng nút Import string của Factorio.
+Hai action này cần game nạp build `2026-09-17-blueprint-direct`; hiện chưa nghiệm thu live
+trên map mới.
 
 - `tiles` mặc định liệt kê mọi ô mà offshore pump hút được, suy ra từ
   `LuaTilePrototype.fluid` lúc chạy nên không sót biến thể nước của mod.
@@ -110,3 +130,9 @@ tiếp theo; `entities_total` là tổng trong vùng.
 máy thiếu điện/nhiên liệu/nguyên liệu và tối đa 20 kẻ địch gần tâm nhất. Đây là
 quan sát chỉ đọc, không tự suy ra địch đang di chuyển hay tấn công. `survey.py`
 tự đọc mọi trang snapshot và in bản tóm tắt; thêm `--details` khi cần từng entity.
+
+`index` quét toàn bộ chunk đã tạo và ghi lại từng vùng tài nguyên 32×32 ô vào
+storage của save. `ore-marks` đọc danh sách đã ghi (lọc `--name`, phân trang
+`--offset`/`--limit`); ô tài nguyên cạn vẫn còn dấu `depleted`. Dấu chỉ được
+lưu lâu dài khi game được save. Đây là dấu cho agent đọc qua bridge, không phải
+chart tag hiện trên bản đồ Factorio.

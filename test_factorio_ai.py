@@ -2,11 +2,54 @@ import json
 import socket
 import threading
 import unittest
+from pathlib import Path
+from tempfile import TemporaryDirectory
 
 from factorio_ai import command_body, parser, request
 
 
 class BridgeClientTest(unittest.TestCase):
+    def test_smelting_commands_and_coordinate_pairs(self):
+        body = command_body(parser().parse_args(["smelt-plan", "30", "--x", "8", "--y", "12",
+                                                "--input-x", "2.5", "--input-y", "9.5"]))
+        self.assertEqual({"action": "smelt_plan", "rate": 30.0, "surface": "nauvis", "force": "player",
+                          "x": 8.0, "y": 12.0, "input_x": 2.5, "input_y": 9.5}, body)
+        for arguments in (["smelt-plan", "30", "--x", "8"], ["smelt-plan", "30", "--input-y", "9"]):
+            with self.assertRaises(ValueError):
+                command_body(parser().parse_args(arguments))
+        for command in ("smelt-build", "smelt-status"):
+            self.assertEqual({"action": command.replace("-", "_"), "plan_id": "smelt-1"},
+                             command_body(parser().parse_args([command, "smelt-1"])))
+
+    def test_ore_marks_command(self):
+        args = parser().parse_args(["ore-marks", "--name", "iron-ore", "--offset", "50"])
+        self.assertEqual(
+            {"action": "ore_marks", "surface": "nauvis",
+             "name": "iron-ore", "offset": 50, "limit": 50},
+            command_body(args),
+        )
+
+    def test_blueprint_commands(self):
+        with TemporaryDirectory() as directory:
+            path = Path(directory) / "module.txt"
+            path.write_text("0example\n", encoding="ascii")
+            exported = command_body(parser().parse_args(
+                ["blueprint-export", "1", "2", "11", "12", str(path)]
+            ))
+            self.assertEqual("blueprint_export", exported["action"])
+            self.assertEqual((1.0, 2.0, 11.0, 12.0),
+                             tuple(exported[key] for key in ("x1", "y1", "x2", "y2")))
+            imported = command_body(parser().parse_args(
+                ["blueprint-import", str(path), "20.5", "-4.5"]
+            ))
+            self.assertEqual("0example", imported["blueprint"])
+            self.assertEqual((20.5, -4.5), (imported["x"], imported["y"]))
+            self.assertEqual("direct", imported["mode"])
+            ghosts = command_body(parser().parse_args(
+                ["blueprint-import", str(path), "20.5", "-4.5", "--ghosts"]
+            ))
+            self.assertEqual("ghosts", ghosts["mode"])
+
     def test_brief_command(self):
         args = parser().parse_args(["brief", "--x", "10", "--y", "-28", "--radius", "64"])
         self.assertEqual(

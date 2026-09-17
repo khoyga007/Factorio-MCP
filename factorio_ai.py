@@ -8,6 +8,7 @@ import secrets
 import socket
 import sys
 import time
+from pathlib import Path
 from typing import Any
 
 
@@ -79,6 +80,12 @@ def parser() -> argparse.ArgumentParser:
     index = commands.add_parser("index", help="whole-map survey index: ore patches, enemy clusters, water (cached)")
     index.add_argument("--surface", default="nauvis")
 
+    ore_marks = commands.add_parser("ore-marks", help="saved ore sectors, including depleted ones")
+    ore_marks.add_argument("--surface", default="nauvis")
+    ore_marks.add_argument("--name")
+    ore_marks.add_argument("--offset", type=int, default=0)
+    ore_marks.add_argument("--limit", type=int, default=50)
+
     chest = commands.add_parser("treasury")
     chest.add_argument("x", type=float)
     chest.add_argument("y", type=float)
@@ -147,6 +154,36 @@ def parser() -> argparse.ArgumentParser:
     insert.add_argument("y", type=float)
     insert.add_argument("--surface", default="nauvis")
     insert.add_argument("--force", default="player")
+
+    bp_export = commands.add_parser("blueprint-export", help="export a built area to a Factorio blueprint string file")
+    bp_export.add_argument("x1", type=float)
+    bp_export.add_argument("y1", type=float)
+    bp_export.add_argument("x2", type=float)
+    bp_export.add_argument("y2", type=float)
+    bp_export.add_argument("file", type=Path)
+    bp_export.add_argument("--surface", default="nauvis")
+    bp_export.add_argument("--force", default="player")
+
+    bp_import = commands.add_parser("blueprint-import", help="build blueprint directly with treasury items")
+    bp_import.add_argument("file", type=Path)
+    bp_import.add_argument("x", type=float)
+    bp_import.add_argument("y", type=float)
+    bp_import.add_argument("--surface", default="nauvis")
+    bp_import.add_argument("--force", default="player")
+    bp_import.add_argument("--ghosts", action="store_true", help="place ghosts for construction robots instead")
+
+    smelt = commands.add_parser("smelt-plan", help="size, site and preflight one reusable iron-smelting row")
+    smelt.add_argument("rate", type=float, help="target iron plates per minute")
+    smelt.add_argument("--surface", default="nauvis")
+    smelt.add_argument("--force", default="player")
+    smelt.add_argument("--x", type=float)
+    smelt.add_argument("--y", type=float)
+    smelt.add_argument("--input-x", type=float)
+    smelt.add_argument("--input-y", type=float)
+    smelt_build = commands.add_parser("smelt-build")
+    smelt_build.add_argument("plan_id")
+    smelt_status = commands.add_parser("smelt-status")
+    smelt_status.add_argument("plan_id")
     return root
 
 
@@ -179,6 +216,14 @@ def command_body(args: argparse.Namespace) -> dict[str, Any]:
         return body
     if args.command == "index":
         return {"action": "index", "surface": args.surface}
+    if args.command == "ore-marks":
+        body = {
+            "action": "ore_marks", "surface": args.surface,
+            "offset": args.offset, "limit": args.limit,
+        }
+        if args.name:
+            body["name"] = args.name
+        return body
     if args.command == "treasury":
         return {
             "action": "set_treasury",
@@ -244,6 +289,31 @@ def command_body(args: argparse.Namespace) -> dict[str, Any]:
             "action": "insert", "item": args.item, "count": args.count,
             "x": args.x, "y": args.y, "surface": args.surface, "force": args.force,
         }
+    if args.command == "blueprint-export":
+        return {
+            "action": "blueprint_export", "x1": args.x1, "y1": args.y1,
+            "x2": args.x2, "y2": args.y2, "surface": args.surface, "force": args.force,
+        }
+    if args.command == "blueprint-import":
+        return {
+            "action": "blueprint_import", "blueprint": args.file.read_text(encoding="ascii").strip(),
+            "x": args.x, "y": args.y, "surface": args.surface, "force": args.force,
+            "mode": "ghosts" if args.ghosts else "direct",
+        }
+    if args.command == "smelt-plan":
+        body = {"action": "smelt_plan", "rate": args.rate,
+                "surface": args.surface, "force": args.force}
+        for x_key, y_key in (("x", "y"), ("input_x", "input_y")):
+            x_value, y_value = getattr(args, x_key), getattr(args, y_key)
+            if (x_value is None) != (y_value is None):
+                raise ValueError(f"{x_key} and {y_key} must be supplied together")
+            if x_value is not None:
+                body[x_key], body[y_key] = x_value, y_value
+        return body
+    if args.command == "smelt-build":
+        return {"action": "smelt_build", "plan_id": args.plan_id}
+    if args.command == "smelt-status":
+        return {"action": "smelt_status", "plan_id": args.plan_id}
     if args.command == "place":
         body = {
             "action": "place",
@@ -263,7 +333,8 @@ def command_body(args: argparse.Namespace) -> dict[str, Any]:
 def main() -> int:
     args = parser().parse_args()
     try:
-        reply = request(command_body(args), host=args.host, port=args.port)
+        timeout = 5.0 if args.command in {"smelt-plan", "smelt-build"} else 1.0
+        reply = request(command_body(args), host=args.host, port=args.port, timeout=timeout)
     except (OSError, ValueError, TimeoutError, json.JSONDecodeError) as exc:
         print(json.dumps({"ok": False, "error": str(exc)}, ensure_ascii=False))
         return 1
@@ -273,6 +344,15 @@ def main() -> int:
         if args.expected_per_second is not None:
             reply["expected_per_second"] = args.expected_per_second
             reply["delta_per_second"] = actual - args.expected_per_second
+    if args.command == "blueprint-export" and reply.get("ok"):
+        blueprint = reply.pop("blueprint")
+        try:
+            with args.file.open("x", encoding="ascii") as output:
+                output.write(blueprint + "\n")
+        except OSError as exc:
+            print(json.dumps({"ok": False, "error": str(exc)}, ensure_ascii=False))
+            return 1
+        reply["file"] = str(args.file.resolve())
     print(json.dumps(reply, ensure_ascii=False, indent=2, sort_keys=True))
     return 0 if reply.get("ok") else 2
 

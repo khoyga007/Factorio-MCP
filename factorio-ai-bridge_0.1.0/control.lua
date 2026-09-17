@@ -1,5 +1,5 @@
 local BRIDGE_VERSION = 1
-local BRIDGE_BUILD = "2026-09-17-actions15"
+local BRIDGE_BUILD = "2026-09-17-smelting-plan"
 local MAX_PACKET_BYTES = 32768
 local MAX_RADIUS = 32
 local MAX_ENTITIES = 64
@@ -1213,6 +1213,192 @@ local function handle_place(nonce, request)
   })
 end
 
+local function handle_blueprint_export(nonce, request)
+  local surface, force = surface_for(request), force_for(request)
+  if not surface then return response(nonce, false, {error = "surface-not-found"}) end
+  if not force then return response(nonce, false, {error = "force-not-found"}) end
+  local x1, y1 = number(request.x1), number(request.y1)
+  local x2, y2 = number(request.x2), number(request.y2)
+  if not (x1 and y1 and x2 and y2) or x1 >= x2 or y1 >= y2
+    or x2 - x1 > 64 or y2 - y1 > 64 then
+    return response(nonce, false, {error = "invalid-area"})
+  end
+  local inventory = game.create_inventory(1)
+  local stack = inventory[1]
+  local ok, result = pcall(function()
+    stack.set_stack {name = "blueprint", count = 1}
+    stack.create_blueprint {
+      surface = surface, force = force, area = {{x1, y1}, {x2, y2}},
+      always_include_tiles = false, include_fuel = false,
+    }
+    local count = stack.get_blueprint_entity_count()
+    return {count = count, value = count > 0 and stack.export_stack() or nil}
+  end)
+  inventory.destroy()
+  if not ok then return response(nonce, false, {error = "blueprint-export-failed", detail = tostring(result)}) end
+  if not result.value then return response(nonce, false, {error = "empty-blueprint"}) end
+  if #result.value > 24000 then
+    return response(nonce, false, {error = "blueprint-too-large", entities = result.count})
+  end
+  return response(nonce, true, {
+    action = "blueprint_export", surface = surface.name,
+    entities = result.count, blueprint = result.value,
+  })
+end
+
+local function handle_blueprint_import(nonce, request)
+  local surface, force, pos = surface_for(request), force_for(request), position(request)
+  if not surface then return response(nonce, false, {error = "surface-not-found"}) end
+  if not force then return response(nonce, false, {error = "force-not-found"}) end
+  if not pos then return response(nonce, false, {error = "invalid-position"}) end
+  if type(request.blueprint) ~= "string" or #request.blueprint > 24000
+    or request.blueprint:sub(1, 1) ~= "0" then
+    return response(nonce, false, {error = "invalid-blueprint"})
+  end
+  local inventory = game.create_inventory(1)
+  local stack = inventory[1]
+  local ok, imported = pcall(function() return stack.import_stack(request.blueprint) end)
+  if not ok then
+    inventory.destroy()
+    return response(nonce, false, {error = "blueprint-import-failed", detail = tostring(imported)})
+  end
+  if imported ~= 0 or stack.name ~= "blueprint" or not stack.is_blueprint_setup() then
+    inventory.destroy()
+    return response(nonce, false, {error = "blueprint-import-failed", code = imported})
+  end
+  local count = stack.get_blueprint_entity_count()
+  local tiles = stack.get_blueprint_tiles()
+  if tiles and #tiles > 0 then
+    inventory.destroy()
+    return response(nonce, false, {error = "blueprint-tiles-not-supported"})
+  end
+  if count > 500 then
+    inventory.destroy()
+    return response(nonce, false, {error = "blueprint-too-many-entities", entities = count})
+  end
+  local mode = request.mode or "direct"
+  if mode ~= "direct" and mode ~= "ghosts" then
+    inventory.destroy()
+    return response(nonce, false, {error = "invalid-blueprint-mode"})
+  end
+  local source, source_owner, treasury_kind
+  local costs = {}
+  if mode == "direct" then
+    if count > 64 then
+      inventory.destroy()
+      return response(nonce, false, {error = "direct-blueprint-too-large", entities = count, limit = 64})
+    end
+    source, source_owner, treasury_kind = treasury_inventory()
+    if not source then
+      inventory.destroy()
+      return response(nonce, false, {error = "treasury-not-set"})
+    end
+    for _, entry in pairs(stack.get_blueprint_entities() or {}) do
+      local prototype = prototypes.entity[entry.name]
+      local item = prototype and prototype.items_to_place_this
+        and prototype.items_to_place_this[1]
+      if not item then
+        inventory.destroy()
+        return response(nonce, false, {error = "entity-has-no-place-item", name = entry.name})
+      end
+      local recipe = force.recipes[item.name]
+      if recipe and not recipe.enabled then
+        inventory.destroy()
+        return response(nonce, false, {error = "technology-locked", item = item.name})
+      end
+      if entry.recipe then
+        local configured = force.recipes[entry.recipe]
+        if not configured or not configured.enabled then
+          inventory.destroy()
+          return response(nonce, false, {error = "configured-recipe-locked", recipe = entry.recipe})
+        end
+      end
+      costs[item.name] = (costs[item.name] or 0) + item.count
+    end
+    for item, need in pairs(costs) do
+      local have = source.get_item_count(item)
+      if have < need then
+        inventory.destroy()
+        return response(nonce, false, {
+          error = "insufficient-items", item = item, need = need, have = have,
+        })
+      end
+    end
+  end
+  local built, ghosts = pcall(function()
+    return stack.build_blueprint {
+      surface = surface, force = force, position = pos,
+      direction = defines.direction.north,
+      build_mode = defines.build_mode.normal, raise_built = true,
+    }
+  end)
+  inventory.destroy()
+  if not built then return response(nonce, false, {error = "blueprint-build-failed", detail = tostring(ghosts)}) end
+  if #ghosts ~= count then
+    for _, ghost in pairs(ghosts) do if ghost.valid then ghost.destroy() end end
+    return response(nonce, false, {error = "blueprint-blocked", expected = count, ghosts = #ghosts})
+  end
+  if mode == "ghosts" then
+    return response(nonce, true, {
+      action = "blueprint_import", mode = mode, ghosts = count,
+      x = pos.x, y = pos.y, surface = surface.name,
+    })
+  end
+  local overflow = game.create_inventory(count + 10)
+  local spent, receipts, placed, failure = {}, {}, 0, nil
+  for _, ghost in ipairs(ghosts) do
+    local name, x, y = ghost.ghost_name, ghost.position.x, ghost.position.y
+    local item = prototypes.entity[name].items_to_place_this[1]
+    local removed = source.remove {name = item.name, count = item.count}
+    if removed ~= item.count then
+      if removed > 0 then source.insert {name = item.name, count = removed} end
+      failure = "item-removal-failed"
+      break
+    end
+    local ok_revive, _, entity = pcall(function()
+      return ghost.revive {raise_revive = false, overflow = overflow}
+    end)
+    if not ok_revive or not entity then
+      source.insert {name = item.name, count = item.count}
+      failure = "revive-failed-refunded"
+      break
+    end
+    spent[item.name] = (spent[item.name] or 0) + item.count
+    placed = placed + 1
+    receipts[#receipts + 1] = {
+      name = name, x = x, y = y, item = item.name, count = item.count,
+    }
+  end
+  if failure then
+    for _, ghost in pairs(ghosts) do if ghost.valid then ghost.destroy() end end
+  end
+  local spilled = {}
+  for _, item in pairs(overflow.get_contents()) do
+    local inserted = source.insert {name = item.name, count = item.count}
+    if inserted < item.count then
+      local remaining = item.count - inserted
+      surface.spill_item_stack {
+        position = pos, stack = {name = item.name, count = remaining},
+        enable_looted = true, force = force,
+      }
+      spilled[#spilled + 1] = {name = item.name, count = remaining}
+    end
+  end
+  overflow.destroy()
+  return response(nonce, not failure, {
+    action = "blueprint_import", mode = mode, expected = count,
+    placed = placed, spent = spent, receipts = receipts, spilled = spilled,
+    source = {
+      kind = treasury_kind, x = source_owner.position.x,
+      y = source_owner.position.y,
+      unit_number = treasury_kind == "container" and source_owner.unit_number or nil,
+      player_index = treasury_kind == "player" and source_owner.index or nil,
+    },
+    x = pos.x, y = pos.y,
+    surface = surface.name, error = failure,
+  })
+end
+
 -- Whole-map survey index, cached in storage so the AI asks once instead of
 -- grid-scanning. Ore/water barely change (only on chunk generation); enemies
 -- move, so the whole index is rebuilt after INDEX_TTL_TICKS or a new chunk.
@@ -1220,6 +1406,34 @@ local INDEX_TTL_TICKS = 600
 local INDEX_ORE_CAP = 50
 local INDEX_ENEMY_CAP = 50
 local INDEX_WATER_CAP = 50
+
+local function remember_ore_bins(surface, bins)
+  local state = bridge_state()
+  state.ore_marks = state.ore_marks or {}
+  local marks = state.ore_marks[surface.name] or {}
+  state.ore_marks[surface.name] = marks
+  local seen = {}
+  for _, bin in ipairs(bins) do
+    local key = bin.name .. ":" .. bin.x .. ":" .. bin.y
+    seen[key] = true
+    local mark = marks[key]
+    if not mark then
+      mark = {name = bin.name, x = bin.x, y = bin.y, first_seen_tick = game.tick}
+      marks[key] = mark
+    end
+    mark.tiles = bin.tiles
+    mark.amount = bin.amount
+    mark.last_seen_tick = game.tick
+    mark.status = "active"
+  end
+  for key, mark in pairs(marks) do
+    if not seen[key] then
+      mark.tiles = 0
+      mark.amount = 0
+      mark.status = "depleted"
+    end
+  end
+end
 
 local function build_index(surface)
   -- Bounds of every generated chunk. get_chunks() is the authoritative list
@@ -1233,7 +1447,8 @@ local function build_index(surface)
     if not max_y or ty + 32 > max_y then max_y = ty + 32 end
   end
   if not min_x then
-    return {tick = game.tick, bounds = nil, ores = {}, enemies = {}, water = {}}
+    remember_ore_bins(surface, {})
+    return {surface = surface.name, tick = game.tick, bounds = nil, ores = {}, enemies = {}, water = {}}
   end
   local area = {{min_x, min_y}, {max_x, max_y}}
 
@@ -1252,6 +1467,7 @@ local function build_index(surface)
     bin.amount = bin.amount + (entity.amount or 0)
   end
   table.sort(ore_order, function(a, b) return a.amount > b.amount end)
+  remember_ore_bins(surface, ore_order)
   while #ore_order > INDEX_ORE_CAP do table.remove(ore_order) end
 
   local enemy_bins, enemy_order = {}, {}
@@ -1294,6 +1510,7 @@ local function build_index(surface)
   while #water_order > INDEX_WATER_CAP do table.remove(water_order) end
 
   return {
+    surface = surface.name,
     tick = game.tick,
     bounds = {min_x = min_x, min_y = min_y, max_x = max_x, max_y = max_y},
     ores = ore_order,
@@ -1305,11 +1522,46 @@ end
 local function get_index(surface)
   local state = bridge_state()
   local index = state.index
-  if not index or index.tick + INDEX_TTL_TICKS < game.tick then
+  if not index or index.surface ~= surface.name
+    or index.tick + INDEX_TTL_TICKS < game.tick
+    or not (state.ore_marks and state.ore_marks[surface.name]) then
     index = build_index(surface)
     state.index = index
   end
   return index
+end
+
+local function handle_ore_marks(nonce, request)
+  local surface = surface_for(request)
+  if not surface then return response(nonce, false, {error = "surface-not-found"}) end
+  get_index(surface)
+  local marks = bridge_state().ore_marks[surface.name]
+  local name = request.name
+  if name ~= nil and (type(name) ~= "string" or name == "") then
+    return response(nonce, false, {error = "invalid-resource-name"})
+  end
+  local ordered = {}
+  for _, mark in pairs(marks) do
+    if not name or mark.name == name then ordered[#ordered + 1] = mark end
+  end
+  table.sort(ordered, function(a, b)
+    if a.status ~= b.status then return a.status == "active" end
+    if a.amount ~= b.amount then return a.amount > b.amount end
+    if a.name ~= b.name then return a.name < b.name end
+    if a.x ~= b.x then return a.x < b.x end
+    return a.y < b.y
+  end)
+  local offset = math.max(0, math.floor(number(request.offset, 0)))
+  local limit = math.min(50, math.max(1, math.floor(number(request.limit, 50))))
+  local page = {}
+  for i = offset + 1, math.min(#ordered, offset + limit) do
+    page[#page + 1] = ordered[i]
+  end
+  return response(nonce, true, {
+    action = "ore_marks", surface = surface.name, total = #ordered,
+    offset = offset, next_offset = offset + #page < #ordered and offset + #page or nil,
+    marks = page,
+  })
 end
 
 local function handle_index(nonce, request)
@@ -1319,25 +1571,40 @@ local function handle_index(nonce, request)
   return response(nonce, true, {
     action = "index", tick = game.tick, surface = surface.name,
     index_tick = index.tick, bounds = index.bounds,
-    ores = index.ores, enemies = index.enemies, water = index.water,
+    ores = index.ores, ore_marks_total = table_size(bridge_state().ore_marks[surface.name]),
+    enemies = index.enemies, water = index.water,
   })
 end
+
+local smelting = require("smelting").attach {
+  state = bridge_state, response = response, inventory = treasury_inventory,
+  place = handle_place, export = handle_blueprint_export, status_name = entity_status_name,
+}
+local function handle_smelt_plan(nonce, request) return smelting.plan(nonce, request) end
+local function handle_smelt_build(nonce, request) return smelting.build(nonce, request) end
+local function handle_smelt_status(nonce, request) return smelting.status(nonce, request) end
 
 HANDLERS = {
   audit = handle_audit,
   autofuel = handle_autofuel,
   brief = handle_brief,
+  blueprint_export = handle_blueprint_export,
+  blueprint_import = handle_blueprint_import,
   collect = handle_collect,
   craft = handle_craft,
   index = handle_index,
   insert = handle_insert,
   mine = handle_mine,
+  ore_marks = handle_ore_marks,
   ping = handle_ping,
   research = handle_research,
   spec = handle_spec,
   set_treasury = handle_set_treasury,
   set_recipe = handle_set_recipe,
   snapshot = handle_snapshot,
+  smelt_plan = handle_smelt_plan,
+  smelt_build = handle_smelt_build,
+  smelt_status = handle_smelt_status,
   place = handle_place,
 }
 
@@ -1390,6 +1657,7 @@ script.on_init(bridge_state)
 script.on_configuration_changed(bridge_state)
 script.on_event(defines.events.on_udp_packet_received, on_packet)
 script.on_nth_tick(1, function() helpers.recv_udp() end)
+script.on_nth_tick(60, smelting.tick)
 script.on_nth_tick(300, function()
   for _, surface in pairs(game.surfaces) do
     autofuel_surface(surface, game.forces.player)

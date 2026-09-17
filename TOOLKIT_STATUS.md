@@ -1,5 +1,13 @@
 # Toolkit Status — cập nhật 2026-09-16 (agent)
 
+## Dấu mỏ 2026-09-17 (agent)
+- `index` nay lưu mọi vùng tài nguyên 32×32 ô đã quét vào storage của save, giữ dấu cả khi mỏ cạn. `ore-marks` đọc lại theo loại quặng và phân trang; `index` báo tổng dấu đã lưu.
+- Đã qua `luac -p`, 27 test Python và contract 18 actions; bản mod đã được chép sang thư mục Factorio và khớp SHA-256. Game đang chạy build cũ, nên chức năng mới cần save/restart/load và live-check build `2026-09-17-ore-marks`.
+
+## Bổ sung blueprint 2026-09-17 (agent)
+- Bridge và CLI có `blueprint-export` (chụp vùng đã xây, lưu blueprint string) và `blueprint-import` (mặc định xây trực tiếp bằng item thật trong treasury; `--ghosts` để dành cho robot). Blueprint không tạo công trình hay vật tư miễn phí.
+- Mã đã kiểm tra bằng `luac -p`, 26 test Python và contract 17 actions; bản mod trong thư mục Factorio khớp SHA-256 với source. Trên map mới, ping xác nhận build `2026-09-17-blueprint-direct`; xuất vùng trống trả `empty-blueprint`; nhập blueprint hợp lệ cần 2 burner drills khi chỉ có 1 trả `insufficient-items` trước khi đặt gì (snapshot vùng đích rỗng, inventory vẫn còn 1 drill). Chưa nghiệm thu xuất cụm thật và xây trực tiếp thành công vì map mới chưa có cụm để sao chép.
+
 ## Bổ sung 2026-09-17 (agent)
 - `survey.py` nay đọc hết các trang snapshot rồi tóm tắt máy/trạng thái/vật tư trong một lệnh; `--details` mới in từng entity. Có test phân trang.
 - Read-only `brief` đã thêm vào mod + CLI + `actions.json` (18 action): tóm tắt máy lỗi và địch gần nhất trong một gói UDP. **Đã live-verified sau khi maintainer save/restart/load**: ping build `2026-09-17-brief`, vùng trung tâm có 697 entity và `brief` trả trong 1 call thay vì 11 trang snapshot; vùng tây nam phát hiện biter/spawner/worm. Chỉ quan sát, lệnh DỪNG xây/khai thác/chuyển vật phẩm của maintainer vẫn còn hiệu lực.

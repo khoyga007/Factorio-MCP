@@ -147,13 +147,14 @@ def parser() -> argparse.ArgumentParser:
     research.add_argument("name", nargs="?")
     research.add_argument("--start", action="store_true")
     research.add_argument("--force", default="player")
-    insert = commands.add_parser("insert", help="move real items into a lab, assembler, or ammo turret")
+    insert = commands.add_parser("insert", help="move real items into a lab, assembler, ammo turret, or furnace (fuel by default; --source for its ingredient slot)")
     insert.add_argument("item")
     insert.add_argument("count", type=int)
     insert.add_argument("x", type=float)
     insert.add_argument("y", type=float)
     insert.add_argument("--surface", default="nauvis")
     insert.add_argument("--force", default="player")
+    insert.add_argument("--source", action="store_true", help="insert into a furnace's ingredient (source) slot instead of its fuel slot")
 
     bp_export = commands.add_parser("blueprint-export", help="export a built area to a Factorio blueprint string file")
     bp_export.add_argument("x1", type=float)
@@ -288,6 +289,7 @@ def command_body(args: argparse.Namespace) -> dict[str, Any]:
         return {
             "action": "insert", "item": args.item, "count": args.count,
             "x": args.x, "y": args.y, "surface": args.surface, "force": args.force,
+            "source": args.source,
         }
     if args.command == "blueprint-export":
         return {
@@ -333,7 +335,7 @@ def command_body(args: argparse.Namespace) -> dict[str, Any]:
 def main() -> int:
     args = parser().parse_args()
     try:
-        timeout = 5.0 if args.command in {"smelt-plan", "smelt-build"} else 1.0
+        timeout = 15.0 if args.command in {"smelt-plan", "smelt-build", "index"} else 1.0
         reply = request(command_body(args), host=args.host, port=args.port, timeout=timeout)
     except (OSError, ValueError, TimeoutError, json.JSONDecodeError) as exc:
         print(json.dumps({"ok": False, "error": str(exc)}, ensure_ascii=False))

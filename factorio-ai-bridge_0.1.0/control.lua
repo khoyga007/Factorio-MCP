@@ -1,5 +1,5 @@
 local BRIDGE_VERSION = 1
-local BRIDGE_BUILD = "2026-09-17-smelting-plan"
+local BRIDGE_BUILD = "2026-09-17-furnace-source"
 local MAX_PACKET_BYTES = 32768
 local MAX_RADIUS = 32
 local MAX_ENTITIES = 64
@@ -1058,10 +1058,19 @@ local function handle_insert(nonce, request)
   }
   local entity = targets[1]
   if not entity then return response(nonce, false, {error = "entity-not-found"}) end
-  local index = entity.type == "lab" and defines.inventory.lab_input
-    or entity.type == "assembling-machine" and defines.inventory.assembling_machine_input
-    or entity.type == "ammo-turret" and defines.inventory.turret_ammo
-  local slot = index and "input" or "fuel"
+  local index
+  local slot
+  if entity.type == "lab" then
+    index, slot = defines.inventory.lab_input, "input"
+  elseif entity.type == "assembling-machine" then
+    index, slot = defines.inventory.assembling_machine_input, "input"
+  elseif entity.type == "ammo-turret" then
+    index, slot = defines.inventory.turret_ammo, "input"
+  elseif entity.type == "furnace" and request.source then
+    index, slot = defines.inventory.furnace_source, "source"
+  else
+    slot = "fuel"
+  end
   local destination = index and entity.get_inventory(index) or entity.get_fuel_inventory()
   if not destination then
     if index then return response(nonce, false, {error = "input-inventory-not-found"}) end

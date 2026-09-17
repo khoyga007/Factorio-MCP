@@ -113,9 +113,20 @@ class BridgeClientTest(unittest.TestCase):
             {
                 "action": "insert", "item": "automation-science-pack", "count": 10,
                 "x": 30.5, "y": -23.5, "surface": "nauvis", "force": "player",
+                "source": False,
             },
             command_body(parser().parse_args(
                 ["insert", "automation-science-pack", "10", "30.5", "-23.5"]
+            )),
+        )
+        self.assertEqual(
+            {
+                "action": "insert", "item": "iron-ore", "count": 5,
+                "x": 1.0, "y": 2.0, "surface": "nauvis", "force": "player",
+                "source": True,
+            },
+            command_body(parser().parse_args(
+                ["insert", "iron-ore", "5", "1", "2", "--source"]
             )),
         )
 

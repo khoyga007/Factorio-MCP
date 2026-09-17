@@ -16,8 +16,8 @@ Goal: get from nothing to a self-sustaining trickle of iron and copper plates.
    - ~10 stone -> `craft stone-furnace 4`.
    - some coal (fuel) and a little iron/copper ore to kickstart.
 3. **First smelting by hand.** `place stone-furnace <x> <y>` near the iron patch,
-   `insert coal <n> <x> <y>` into its fuel slot and `insert iron-ore <n> <x> <y>` into
-   its input. Pull plates with `collect iron-plate <n> <x> <y>`.
+   `insert coal <n> <x> <y>` into its fuel slot and `insert iron-ore <n> <x> <y> --source`
+   into its ingredient (source) slot. Pull plates with `collect iron-plate <n> <x> <y>`.
 4. **Automate mining.** `craft burner-mining-drill`, then `place` them on ore patches
    facing a furnace (drill output drops in front). `insert coal <n> <x> <y>` the drills
    (insert puts coal in a burner's fuel slot).

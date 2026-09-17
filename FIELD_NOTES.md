@@ -48,4 +48,8 @@ Các quy tắc dưới đây được rút từ những lần xây và đo thự
 27. Tính công suất theo recipe và tốc độ máy, rồi so với mức tiêu thụ của các nhánh. Đo sản lượng thực và trạng thái `waiting_for_space_in_destination` hoặc thiếu nguyên liệu trước khi mở rộng.
 28. Boiler và steam engine có thể nối trực tiếp; cấu hình 1 boiler : 2 steam engine đã vận hành ổn định trong bản game được thử. Kiểm tra cổng fluid, fuel và mạng điện sau khi đặt.
 
+## Lò nung và slot nguyên liệu
+
+29. Lò nung (furnace) không có `assembling_machine_input`; `insert` mặc định route lò vào slot fuel. Nạp quặng vào slot nguyên liệu phải dùng `insert <ore> <n> <x> <y> --source`, route qua `defines.inventory.furnace_source`. Đã kiểm chứng trên map thật (build `2026-09-17-furnace-source`): 5 iron-ore `--source` + 5 coal → 5 iron-plate collect về.
+
 Những cơ chế chưa có receipt thực tế cần được kiểm chứng riêng trước khi dùng làm quy tắc.

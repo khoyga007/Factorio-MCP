@@ -11,7 +11,7 @@ from mcp.types import CallToolResult, TextContent, ToolAnnotations
 from pydantic import Field, FiniteFloat
 
 from factorio_mcp import invoke
-from perception import summarize
+from perception import ground, natural, summarize
 from factorio_ai import DEFAULT_HOST, DEFAULT_PORT, request, self_sustaining
 from blueprint_library import (encode_blueprint, list_patterns, load_pattern,
                                pattern_entities, pattern_id_for, record_blueprint)
@@ -138,9 +138,10 @@ def _nearby(surface, x, y, radius) -> CallToolResult:
         data["truncated_at"] = len(rows)
     data["resources"] = [[r.get("name"), r.get("x"), r.get("y"), r.get("amount")]
                          for r in head.get("resources") or [] if isinstance(r, dict)]
-    for key in ("obstacles", "ground_items"):
-        if head.get(key):
-            data[key] = head[key]
+    for key, value in (("obstacles", natural(head.get("obstacle_summary"))),
+                       ("ground_items", ground(head.get("ground_items")))):
+        if value:
+            data[key] = value
     return _result(data)
 
 

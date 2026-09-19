@@ -36,7 +36,7 @@ Nguồn: [MCP Python SDK 1.27.1](https://github.com/modelcontextprotocol/python-
 ## Luồng ưu tiên
 
 1. `observe(view="situation"|"deposits"|"nearby")` đọc tóm tắt khi cần.
-   `nearby` (19/09, `perception.py`): all snapshot pages pulled inside (64/page, ≤16 pages), compressed in Python. Keys: `issues` (faults only, full status name: no_power, no_fuel, item_ingredient_shortage, no_research_in_progress...), `machines` {name: rows `at`/`dir`/`status`/`recipe`/`fuel`/`in`/`out`/`fluid`}, `runs` {name: `from`/`to`/`dir`/`items`|`fluid`}, `poles` {name: [[x,y]]}, `resources` [[name,x,y,amount]].
+   `nearby` (19/09, `perception.py`): all snapshot pages pulled inside (64/page, ≤16 pages), compressed in Python. Keys: `issues` (faults only, full status name: no_power, no_fuel, item_ingredient_shortage, no_research_in_progress...), `machines` {name: rows `at`/`dir`/`status`/`recipe`/`fuel`/`in`/`out`/`fluid`}, `runs` {name: `from`/`to`/`dir`/`items`|`fluid`}, `poles` {name: [[x,y]]}, `resources` [[name,x,y,amount]], `obstacles` {trees: n, rocks: n, cliffs: [n,[x1,y1],[x2,y2]]} (executor mines trees/rocks off build tiles, so only counts; cliffs block → extent), `ground_items` {name: [total, piles, [x1,y1](,[x2,y2])]} (box only when piles spread; per-pile positions via view `entities`).
    - Flow status aliases on rows (not issues): `blocked`=waiting_for_space_in_destination, `idle`=waiting_for_source_items, `full`=full_output.
    - Array row: identical machines evenly spaced on one line → `at`+`n`+`step`; i-th = at + i·step.
    - Run: belt `from`=upstream end; no `to` = single tile; tiles = |dx|+|dy|+1. `dir` omitted for chest/pole/pipe/furnace/lab and dir-0 assemblers.

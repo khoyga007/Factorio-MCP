@@ -1,5 +1,5 @@
 local BRIDGE_VERSION = 1
-local BRIDGE_BUILD = "2026-09-19-pole-wiring"
+local BRIDGE_BUILD = "2026-09-19-clear-obstacles"
 local MAX_PACKET_BYTES = 32768
 local MAX_RADIUS = 32
 local MAX_ENTITIES = 64
@@ -614,7 +614,7 @@ local function handle_snapshot(nonce, request)
 
   local inventory, owner, kind = treasury_inventory()
 
-  local obstacles, obstacles_total, obstacles_next_offset
+  local obstacles, obstacles_total, obstacles_next_offset, obstacle_summary
   if request.obstacles then
     local natural = surface.find_entities_filtered {
       area = area, type = {"tree", "simple-entity", "cliff"},
@@ -624,6 +624,19 @@ local function handle_snapshot(nonce, request)
       if a.position.y ~= b.position.y then return a.position.y < b.position.y end
       return a.name < b.name
     end)
+    -- Per-type count + extent; nearby reads only this, the paged list serves view=entities.
+    obstacle_summary = {}
+    for _, e in pairs(natural) do
+      local p = e.position
+      local s = obstacle_summary[e.type]
+      if not s then
+        s = {count = 0, x1 = p.x, y1 = p.y, x2 = p.x, y2 = p.y}
+        obstacle_summary[e.type] = s
+      end
+      s.count = s.count + 1
+      s.x1, s.y1 = math.min(s.x1, p.x), math.min(s.y1, p.y)
+      s.x2, s.y2 = math.max(s.x2, p.x), math.max(s.y2, p.y)
+    end
     obstacles, obstacles_total = {}, #natural
     for i = offset + 1, math.min(#natural, offset + limit) do
       local e = natural[i]
@@ -654,6 +667,7 @@ local function handle_snapshot(nonce, request)
     ground_items = ground_items,
     obstacles = obstacles,
     obstacles_total = obstacles_total,
+    obstacle_summary = obstacle_summary,
     obstacles_next_offset = obstacles_next_offset,
     entities_truncated = offset + #entities < #found,
     autofuel = {

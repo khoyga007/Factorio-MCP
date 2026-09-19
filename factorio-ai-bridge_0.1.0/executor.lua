@@ -112,6 +112,14 @@ local function resource_ok(surface,e,rule)
   if total<(rule.min_total or 0) then return "resource-reserve" end
 end
 
+-- Trees/rocks on an entity's tiles are mined before build (products -> bag, receipts).
+-- Cliffs are never cleared: they need cliff explosives.
+local NATURAL={"tree","simple-entity"}
+local function in_footprint(surface,e,types)
+  local d=0.01
+  return surface.find_entities_filtered{area={{e.x-e.w/2+d,e.y-e.h/2+d},{e.x+e.w/2-d,e.y+e.h/2-d}},type=types}
+end
+
 local function check_site(surface,force,c,placed,rejects)
   local function no(reason) rejects[reason]=(rejects[reason] or 0)+1 return false end
   local x1,y1,x2,y2=math.huge,math.huge,-math.huge,-math.huge
@@ -130,7 +138,14 @@ local function check_site(surface,force,c,placed,rejects)
     force="enemy",limit=1}>0 then return no("enemies") end
   for _,e in ipairs(placed) do
     if not surface.can_place_entity{name=e.name,position={e.x,e.y},direction=e.dir,force=force,
-      build_check_type=defines.build_check_type.manual} then return no("collision") end
+      build_check_type=defines.build_check_type.manual} then
+      if #in_footprint(surface,e,"cliff")>0 then return no("cliff") end
+      -- Blocked only by clearable nature: a forced ghost check ignores deconstructible trees/rocks.
+      if #in_footprint(surface,e,NATURAL)==0 or not surface.can_place_entity{name=e.name,position={e.x,e.y},
+        direction=e.dir,force=force,build_check_type=defines.build_check_type.blueprint_ghost,forced=true} then
+        return no("collision")
+      end
+    end
     for _,rule in ipairs(c.resources) do
       if rule.entity==e.name then
         local bad=resource_ok(surface,e,rule)
@@ -285,7 +300,7 @@ function M.attach(ctx)
   local function summary(j)
     return {job_id=j.id,state=j.state,pattern_id=j.pattern_id,site=j.site,
       step=j.step,steps=#(j.steps or {}),placed=j.placed,materials=j.materials,
-      missing=j.missing,audit=j.audit,feed=j.feed,error=j.error,artifact=j.artifact}
+      missing=j.missing,audit=j.audit,feed=j.feed,error=j.error,artifact=j.artifact,cleared=j.cleared}
   end
   local function save(j)
     helpers.write_file(j.artifact..".receipt.json",helpers.table_to_json{
@@ -589,6 +604,9 @@ function M.attach(ctx)
     end
     local steps,missing=prepare(surface,force,c.center,c.radius,stock,cost)
     local site_out={x=site.x,y=site.y,rotation=site.rotation,checks=checks}
+    local clear=0
+    for _,e in ipairs(place_list(site.shape,site.x,site.y)) do clear=clear+#in_footprint(surface,e,NATURAL) end
+    if clear>0 then site_out.clear=clear end
     if #locked>0 then table.sort(locked) end
     if r.dry_run or next(missing) or #locked>0 then
       return ctx.response(nonce,true,{state=(next(missing) or #locked>0) and "blocked" or "planned",
@@ -661,6 +679,19 @@ function M.attach(ctx)
             local rejects={}
             if not check_site(surface,force,j.contract,j.layout,rejects) then
               j.rejects=rejects error("site-changed-replan")
+            end
+            if not j.cleared then
+              local seen,n={},0
+              for _,e in ipairs(j.layout) do
+                for _,o in ipairs(in_footprint(surface,e,NATURAL)) do
+                  local k=o.name..":"..o.position.x..":"..o.position.y
+                  if not seen[k] then
+                    seen[k]=true n=n+1
+                    if not perform(j,"mine",{name=o.name,x=o.position.x,y=o.position.y}).ok then save(j) return end
+                  end
+                end
+              end
+              j.cleared=n
             end
             for name,n in pairs(j.materials) do
               if stock.get_item_count{name=name,quality="normal"}<n then error("materials-changed:"..name) end

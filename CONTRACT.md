@@ -43,7 +43,7 @@ Unknown keys ignored (notes: `source`). Contract errors (refused, nothing built)
 - Anchor = top-left tile of the rotated blueprint footprint. `exact`: anchor = `floor(x), floor(y)`. `search`: x,y = search center (default treasury player position), `radius` limit.
 - Rotations 16-way units, default `[0]`. `exact` needs exactly ONE rotation (agent placed water/pole for that orientation; spinning would miss them). Rotation turns every entity position AND direction; W/H swap for east/west entities.
 - Candidates, nearest first: with a resource rule → every anchor putting the rule's first matching entity's top-left tile on an ore tile; else square scan ≤64 tiles. Budget `max_checks` (≤20000) → `search-budget-exhausted`.
-- Per candidate, reject reason counted: `out-of-area`, `occupied` (own-force entity inside footprint + `clearance`), `enemies` (within `enemy_radius`), `collision` (`can_place_entity` manual check, every entity), `foreign-resource`, `resource-cover`, `resource-reserve`.
+- Per candidate, reject reason counted: `out-of-area`, `occupied` (own-force entity inside footprint + `clearance`), `enemies` (within `enemy_radius`), `collision` (`can_place_entity` manual check, every entity; a failure whose footprint holds only trees/rocks passes if a `forced` blueprint_ghost check passes → clearable), `cliff` (cliff inside footprint: never cleared, needs explosives), `foreign-resource`, `resource-cover`, `resource-reserve`.
 - Resource rule area = `mining_drill_radius` of that entity (burner drill: its 2x2). `full_cover` (default): every tile in area holds `resource` ≥ `min_per_tile`. `exclusive` (default): other resource in area rejects. Sum ≥ `min_total`.
 - None fits → `state=blocked, error=no-site, rejects={reason: n}, checks`. Agent picks a new area / relaxes contract.
 - Water inlet, pole, load: NOT searched/provisioned (PORTING §2); agent builds them, executor checks via `connect`:
@@ -56,7 +56,7 @@ Cost = place items of every entity + primer item × matching entity count. Plan 
 
 ## Build
 
-Re-check site + stock right before build. Exact landing of native `build_blueprint` found by a ghost probe (ghosts built then destroyed, zero items), then `blueprint_import` direct mode at the corrected position with rotation. Every entity must then sit at its planned position/direction or `import-geometry-mismatch`. Primer inserted from treasury (receipt per insert). Primer is the LAST executor mutation.
+Re-check site + stock right before build. Then trees/rocks inside any entity footprint (tile box, not margin) `mine`d → products to bag, receipt each, `cleared` = count on the job (once). `dry_run`/job `site.clear` = count to clear. Nature outside footprints untouched (trees absorb pollution). Engine PASS 2026-09-19 tests/verify_clear_runtime.py: chest+furnace in forest + big-rock → 6 cleared, footprints empty, tree outside kept, wood+stone in bag; cliff under site → `cliff` reject, cliff intact. Exact landing of native `build_blueprint` found by a ghost probe (ghosts built then destroyed, zero items), then `blueprint_import` direct mode at the corrected position with rotation. Every entity must then sit at its planned position/direction or `import-geometry-mismatch`. Primer inserted from treasury (receipt per insert). Primer is the LAST executor mutation.
 
 ## Poles and power
 

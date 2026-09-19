@@ -195,6 +195,38 @@ def arrays(rows: list[dict]) -> list[dict]:
     return out
 
 
+NATURAL = {"tree": "trees", "simple-entity": "rocks", "cliff": "cliffs"}
+
+
+def natural(summary) -> dict | None:
+    """Trees/rocks -> counts only (the executor mines them off build tiles).
+    Cliffs block building and need explosives -> [count, [x1,y1], [x2,y2]]."""
+    out = {}
+    for kind, s in sorted((summary or {}).items()):
+        if not isinstance(s, dict) or not s.get("count") or kind not in NATURAL:
+            continue
+        key = NATURAL[kind]
+        out[key] = s["count"] if key != "cliffs" else [
+            s["count"], [num(s["x1"]), num(s["y1"])], [num(s["x2"]), num(s["y2"])]]
+    return out or None
+
+
+def ground(items) -> dict | None:
+    """Loose item piles -> {name: [total, piles, [x1,y1](, [x2,y2])]}; box only when piles spread."""
+    groups = defaultdict(list)
+    for i in items or []:
+        if isinstance(i, dict) and i.get("name") and "x" in i:
+            groups[i["name"]].append(i)
+    out = {}
+    for name, piles in sorted(groups.items()):
+        xs, ys = [p["x"] for p in piles], [p["y"] for p in piles]
+        row = [sum(p.get("count", 1) for p in piles), len(piles), [num(min(xs)), num(min(ys))]]
+        if (min(xs), min(ys)) != (max(xs), max(ys)):
+            row.append([num(max(xs)), num(max(ys))])
+        out[name] = row
+    return out or None
+
+
 def _by_name(rows: list[dict]) -> dict:
     out = defaultdict(list)
     for r in rows:

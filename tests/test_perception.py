@@ -2,7 +2,7 @@ import json
 from pathlib import Path
 import unittest
 
-from perception import summarize
+from perception import ground, natural, summarize
 
 FIXTURE = Path(__file__).parent / "fixtures" / "nearby_r32_live.json"
 # Hard caps on what the agent reads. Raise only with a measured reason in the commit message.
@@ -125,6 +125,22 @@ class OutputBudgetTest(unittest.TestCase):
         belts = [{"name": "transport-belt", "type": "transport-belt", "x": i + 0.5, "y": 0.5,
                   "direction": 4, "status_name": "working", "lines": [[], []]} for i in range(500)]
         self.assertLessEqual(size(summarize(belts)), 120)
+
+    def test_nature_and_loose_items_do_not_grow_output(self):
+        def forest(n):
+            return {"tree": {"count": n, "x1": -30.2, "y1": -31, "x2": 29.9, "y2": 30},
+                    "simple-entity": {"count": n // 10, "x1": -5, "y1": -5, "x2": 5, "y2": 5},
+                    "cliff": {"count": 3, "x1": 10, "y1": -2, "x2": 18, "y2": -2}}
+
+        def piles(n):
+            return [{"name": "wood", "count": 4, "x": 0.3 * i, "y": 1} for i in range(n)] + \
+                   [{"name": "stone", "count": 1, "x": 5, "y": 5}]
+        self.assertEqual({"rocks": 20, "trees": 200, "cliffs": [3, [10, -2], [18, -2]]}, natural(forest(200)))
+        self.assertEqual({"stone": [1, 1, [5, 5]], "wood": [800, 200, [0, 1], [59.7, 1]]}, ground(piles(200)))
+        self.assertLessEqual(size(natural(forest(5000))) - size(natural(forest(50))), 4)
+        self.assertLessEqual(size(ground(piles(2000))), 80)
+        self.assertIsNone(natural({}))
+        self.assertIsNone(ground([]))
 
 
 if __name__ == "__main__":

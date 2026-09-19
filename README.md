@@ -40,7 +40,7 @@ Yêu cầu: Factorio 2.0.77, Python ≥ 3.11, gói `mcp` ≥ 1.27.1.
    ```
 
    Host/port lấy từ `FACTORIO_HOST` / `FACTORIO_PORT`, mặc định `127.0.0.1:34198`. Sửa Python xong phải khởi động lại phiên agent để nạp schema tool mới.
-4. **Kiểm tra:** gọi `observe(view="situation")`. Kết quả phải có tên build của mod (hiện tại `2026-09-19-pole-wiring`).
+4. **Kiểm tra:** gọi `observe(view="situation")`. Kết quả phải có tên build của mod (hiện tại `2026-09-19-clear-obstacles`).
 
 ## Ba tool MCP
 
@@ -96,4 +96,4 @@ Mỗi `tests/verify_*_runtime.py` chạy Factorio headless (`--benchmark`) trên
 - Mọi thao tác trong game đi qua MCP. CLI chỉ để chẩn đoán.
 - Chỉ dùng vật tư thật lấy từ túi hoặc kho của người chơi, và mỗi lần chuyển đồ có receipt. Không spawn.
 - Công nghệ chưa mở thì bị chặn. Không có lệnh Lua tùy ý.
-- Vật cản (cây, đá) thì báo tọa độ cho người chơi tự dọn.
+- Cây, đá nằm trên ô công trình thì executor tự đào trước khi xây, gỗ/đá vào túi có receipt. Ngoài ô công trình không đụng tới (cây hút ô nhiễm). Vách đá (cliff) cần thuốc nổ nên không dọn: vị trí đó bị từ chối với lý do `cliff`.

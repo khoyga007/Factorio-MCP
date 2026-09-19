@@ -423,7 +423,7 @@ Input schema contract for generic blueprint executor (`factorio_goal_mcp.py` + L
   - `iron-chest`: 1
 * **Relative Centers Span**: `[min_x: 0, min_y: 0]` to `[max_x: 0.0, max_y: 11.0]`.
 
-#### A. Ground, Fluid & Grid Connection Contracts
+#### A. Ground, Fluid, Grid & Load Connection Contracts
 | Requirement | Specification | Enforcement / Verification |
 | :--- | :--- | :--- |
 | **Terrain** | Land, buildable | 100% dry land under boiler (3x2), steam engines (3x5 x 2), inserter, chest. |
@@ -431,6 +431,7 @@ Input schema contract for generic blueprint executor (`factorio_goal_mcp.py` + L
 | **Water Supply Flow** | $\ge 60\text{ fluid/s}$ | Boiler maximum consumption rate at full 1.8 MW output = 60 water/s. |
 | **Water Temperature** | $\le 25^\circ\text{C}$ (ambient) | Native fresh water input. |
 | **Electric Network Link** | `electric-network` | Small/medium electric pole covering steam engine connection boxes. |
+| **Declared Electric Load** | `declared_load_mw` | Blueprint declaration specifies connected grid load $\ge 0.1\text{ MW}$ (e.g. existing base load or dedicated test load like assemblers/radars/accumulators). Zero load produces zero actual power (`no power demand`). |
 
 #### B. Fuel Priming & Bootstrap Buffer
 | Entity | Target Inventory | Fuel Type | Min Primer Count | Consumption Dynamics |
@@ -440,19 +441,21 @@ Input schema contract for generic blueprint executor (`factorio_goal_mcp.py` + L
 | `boiler` | `fuel` | `coal` | $\ge 5$ | Initial fuel buffer. Burn rate: 1.8 MW / 4 MJ = 0.45 coal/s = 27 coal / 60s window. |
 
 #### C. Numeric Holdout Acceptance Matrix (60s Window = 3600 Ticks)
-* **Nominal Steam & Power Capacity**:
-  - Boiler steam output: $60\text{ steam/s} @ 165^\circ\text{C}$.
-  - Steam engine steam consumption: $30\text{ steam/s}$ each $\times 2 = 60\text{ steam/s}$.
-  - Power generation: $900\text{ kW}$ each $\times 2 = 1800\text{ kW} = 1.80\text{ MW}$.
+* **Real Production vs Nominal Capacity**:
+  - Without load, steam engines idle (`generator.status == no_power_demand`), generating $0\text{ J}$.
+  - Nominal capacity = $1.80\text{ MW}$ ($2 \times 900\text{ kW}$).
+  - Audit target power: $P_{\text{target}} = \min(\text{declared\_load\_mw}, 1.80\text{ MW}) \times 0.95$.
+  - Energy generated in 60s window: $E_{\text{window}} = \int_{t}^{t+60} P(t) dt$ queried from `network.electric_statistics.output_counts["steam-engine"]` or network energy production delta.
+  - Required average window power: $P_{\text{avg}} = \frac{E_{\text{window}}}{60\text{s}} \ge P_{\text{target}}$.
 * **Audit Acceptance Thresholds**:
   | Metric Key | Operator | Threshold Value | Failure Meaning |
   | :--- | :---: | :---: | :--- |
   | `layout_intact` | `==` | `true` | Entity missing or destroyed. |
   | `entity_count` | `==` | `5` | Exact match with catalog manifest. |
   | `boiler_temperature` | $\ge$ | **$165.0^\circ\text{C}$** | Insufficient heat; lack of fuel or water flow stall. |
-  | `active_steam_engines` | `==` | `2` | Engines not connected or starving for steam. |
-  | `power_capacity_mw` | $\ge$ | **$1.80$** | Network capacity below nominal 2-engine rating. |
   | `boiler_fuel_remaining` | $>$ | `0` | Fuel ran dry during window. |
-  | `last_window.power_capacity_mw` | $\ge$ | **$1.80$** | **Terminal holdout rule**: Generator capacity sustained throughout final window. |
-  | `last_window.boiler_temperature`| $\ge$ | **$165.0^\circ\text{C}$** | No heat decay in terminal window. |
+  | `actual_power_output_mw` | $\ge$ | $\min(\text{load}, 1.80) \times 0.95$ | **Real runtime output**: Failed actual energy generation against declared load. |
+  | `last_window.actual_power_output_mw` | $\ge$ | $\min(\text{load}, 1.80) \times 0.95$ | **Terminal holdout rule**: Real power production sustained through final window. |
+  | `last_window.boiler_temperature` | $\ge$ | **$165.0^\circ\text{C}$** | No heat decay in terminal window. |
+  | `last_window.boiler_fuel_remaining` | $>$ | `0` | Fuel supply sustained through terminal window. |
 

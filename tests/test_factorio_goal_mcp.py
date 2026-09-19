@@ -70,12 +70,12 @@ class GoalMCPTest(unittest.IsolatedAsyncioTestCase):
             with tempfile.TemporaryDirectory() as directory:
                 catalog_dir = str(Path(directory) / "catalog")
                 with patch.dict(os.environ, {"FACTORIO_BLUEPRINT_CATALOG": catalog_dir}):
-                    native = (Path(__file__).parent / "blueprints"
+                    native = (Path(__file__).parent.parent / "blueprints"
                               / "coal-line-v1.blueprint.txt").read_text().strip()
                     pattern_id = record_blueprint(native, state="built", source="test")["pattern_id"]
                 params = StdioServerParameters(
                     command=sys.executable,
-                    args=[str(Path(__file__).with_name("factorio_goal_mcp.py"))],
+                    args=[str(Path(__file__).parent.parent / "factorio_goal_mcp.py")],
                     env={**os.environ, "FACTORIO_PORT": str(server.server_address[1]),
                          "FACTORIO_BLUEPRINT_CATALOG": catalog_dir},
                 )

@@ -4,7 +4,7 @@ import unittest
 from factorio_model import belt_capacity_from_spec, mining_to_crafting_from_spec
 from spec_loader import load_spec
 
-SAMPLE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "spec_sample.json")
+SAMPLE = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "spec_sample.json")
 
 
 class ModelFromSpecTest(unittest.TestCase):

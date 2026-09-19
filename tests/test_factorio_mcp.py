@@ -41,7 +41,7 @@ class MCPTest(unittest.IsolatedAsyncioTestCase):
                 export = str(Path(temp) / "test.blueprint.txt")
                 params = StdioServerParameters(
                     command=sys.executable,
-                    args=[str(Path(__file__).with_name("factorio_mcp.py"))],
+                    args=[str(Path(__file__).parent.parent / "factorio_mcp.py")],
                     env={**os.environ, "FACTORIO_PORT": str(server.server_address[1])},
                 )
                 with (Path(temp) / "mcp.log").open("w") as log:

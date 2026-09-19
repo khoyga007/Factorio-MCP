@@ -207,8 +207,8 @@ Các mục dưới đây là lịch sử theo thời điểm, không thay thế 
 
 ## Test
 42 test offline xanh:
-`python -m unittest test_contract test_factorio_ai test_factorio_model test_model_from_spec test_spec_loader`
-Kiểm chứng runtime nung sắt: `python verify_smelting_runtime.py` chạy lại bài test
+`python -m unittest discover -q -s tests -t .`
+Kiểm chứng runtime nung sắt: `python tests/verify_smelting_runtime.py` chạy lại bài test
 `test_smelting_runtime.lua` trong engine benchmark và kết thúc `SMELTING_TEST_PASS`.
 
 ## Chưa làm / chờ maintainer

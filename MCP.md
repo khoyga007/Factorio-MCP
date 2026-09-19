@@ -80,12 +80,12 @@ guardrail mới ngoài luồng hiện có chưa nằm trong đợt này.
 ## Kiểm chứng
 
 ```powershell
-python -m unittest discover -q
+python -m unittest discover -q -s tests -t .
 python contract_check.py
-python verify_smelting_runtime.py
-python verify_smelting_runtime.py --player-save 'C:\Users\user\AppData\Roaming\Factorio\saves\Legendary Seed.zip'
-python verify_starter_runtime.py --player-save 'C:\Users\user\AppData\Roaming\Factorio\saves\Sandbox.zip'
-python verify_coal_runtime.py --player-save 'C:\Users\user\AppData\Roaming\Factorio\saves\Sandbox.zip'
+python tests/verify_smelting_runtime.py
+python tests/verify_smelting_runtime.py --player-save 'C:\Users\user\AppData\Roaming\Factorio\saves\Legendary Seed.zip'
+python tests/verify_starter_runtime.py --player-save 'C:\Users\user\AppData\Roaming\Factorio\saves\Sandbox.zip'
+python tests/verify_coal_runtime.py --player-save 'C:\Users\user\AppData\Roaming\Factorio\saves\Sandbox.zip'
 ```
 
 Lệnh cuối sao chép save vào `.runtime-test` để kiểm tra chuyển đồ với một player

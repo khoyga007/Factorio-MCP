@@ -3,7 +3,7 @@ import unittest
 
 from spec_loader import entity_fields, item_fields, load_spec, recipe_fields
 
-SAMPLE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "spec_sample.json")
+SAMPLE = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "spec_sample.json")
 
 
 class SpecLoaderTest(unittest.TestCase):

@@ -13,7 +13,7 @@ from blueprint_library import list_patterns, load_pattern, record_blueprint, pat
 from factorio_ai import execute
 
 
-NATIVE = (Path(__file__).parent / "blueprints" / "coal-line-v1.blueprint.txt").read_text().strip()
+NATIVE = (Path(__file__).parent.parent / "blueprints" / "coal-line-v1.blueprint.txt").read_text().strip()
 
 
 class BlueprintLibraryTest(unittest.TestCase):
@@ -66,7 +66,7 @@ class BlueprintLibraryTest(unittest.TestCase):
                       "burner-inserter": 1, "wooden-chest": 1},
         }):
             args = argparse.Namespace(command="blueprint-import",
-                                      file=Path(__file__).parent / "blueprints" / "coal-line-v1.blueprint.txt",
+                                      file=Path(__file__).parent.parent / "blueprints" / "coal-line-v1.blueprint.txt",
                                       x=10, y=20, surface="nauvis", force="player",
                                       ghosts=False, host="127.0.0.1", port=34198)
             reply = execute(args)

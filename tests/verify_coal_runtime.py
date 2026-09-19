@@ -5,7 +5,8 @@ from pathlib import Path
 import shutil
 import subprocess
 
-ROOT = Path(__file__).resolve().parent
+HERE = Path(__file__).resolve().parent
+ROOT = HERE.parent
 SANDBOX = ROOT / ".runtime-test"
 MOD = SANDBOX / "mods" / "factorio-ai-bridge_0.1.0"
 EXE = Path(r"D:\Factorio-AnkerGames\Factorio\bin\x64\factorio.exe")
@@ -18,7 +19,7 @@ def main():
     MOD.mkdir(parents=True, exist_ok=True)
     for name in ("control.lua", "smelting.lua", "starter.lua", "coal.lua", "replica.lua", "info.json"):
         shutil.copy2(ROOT / "factorio-ai-bridge_0.1.0" / name, MOD / name)
-    shutil.copy2(ROOT / "test_coal_runtime.lua", MOD / "test_coal_runtime.lua")
+    shutil.copy2(HERE / "test_coal_runtime.lua", MOD / "test_coal_runtime.lua")
     with (MOD / "control.lua").open("a", encoding="utf-8") as f:
         f.write('\nrequire("test_coal_runtime")(HANDLERS, bridge_state)\n')
     save = SANDBOX / "saves" / "coal-player.zip"

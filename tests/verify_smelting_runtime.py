@@ -8,7 +8,8 @@ from pathlib import Path
 import shutil
 import subprocess
 
-ROOT = Path(__file__).resolve().parent
+HERE = Path(__file__).resolve().parent
+ROOT = HERE.parent
 SANDBOX = ROOT / ".runtime-test"
 MOD = "factorio-ai-bridge_0.1.0"
 EXE = Path(r"D:\Factorio-AnkerGames\Factorio\bin\x64\factorio.exe")
@@ -27,8 +28,8 @@ def main():
     dest.mkdir(parents=True, exist_ok=True)
     for name in ("control.lua", "smelting.lua", "starter.lua", "coal.lua", "replica.lua", "info.json"):
         shutil.copy2(ROOT / MOD / name, dest / name)
-    shutil.copy2(ROOT / "test_smelting_runtime.lua", dest / "test_smelting_runtime.lua")
-    shutil.copy2(ROOT / "test_bridge_runtime.lua", dest / "test_bridge_runtime.lua")
+    shutil.copy2(HERE / "test_smelting_runtime.lua", dest / "test_smelting_runtime.lua")
+    shutil.copy2(HERE / "test_bridge_runtime.lua", dest / "test_bridge_runtime.lua")
     with (dest / "control.lua").open("a", encoding="utf-8") as f:
         bridge = ', require("test_bridge_runtime")' if args.player_save else ''
         f.write('\nrequire("test_smelting_runtime")(HANDLERS, bridge_state' + bridge + ')\n')

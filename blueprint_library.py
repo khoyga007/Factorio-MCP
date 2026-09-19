@@ -17,7 +17,10 @@ import zlib
 
 ROOT = Path(__file__).resolve().parent
 ID = re.compile(r"bp-[0-9a-f]{16}\Z")
-RANK = {"captured": 0, "built": 1, "verified": 2}
+RANK = {"designed": 0, "captured": 0, "built": 1, "verified": 2}
+# Native 2.0 blueprint version stamp (from in-game exports).
+VERSION = 562949954732032
+DESIGN_KEYS = {"recipe", "type"}
 
 
 def catalog_dir() -> Path:
@@ -60,6 +63,53 @@ def parse_blueprint(value: str) -> list[dict]:
     return _decode_blueprint(value)["entities"]
 
 
+def encode_blueprint(design: list[dict], label: str | None = None) -> str:
+    """Agent layout -> native blueprint string. Positions = entity centers in tiles
+    (odd-size entity on .5, even-size on integer); direction 16-way (0 N, 4 E, 8 S, 12 W)."""
+    if not isinstance(design, list) or not 0 < len(design) <= 500:
+        raise ValueError("invalid-design-size")
+    entities = []
+    for i, row in enumerate(design, 1):
+        try:
+            name, x, y = row["name"], float(row["x"]), float(row["y"])
+            direction = int(row.get("direction", 0))
+        except (KeyError, TypeError, ValueError) as exc:
+            raise ValueError(f"invalid-design-entity:{i}") from exc
+        if not isinstance(name, str) or not name or not (math.isfinite(x) and math.isfinite(y))            or not 0 <= direction <= 15 or (x * 2) % 1 or (y * 2) % 1:
+            raise ValueError(f"invalid-design-entity:{i}")
+        entity = {"entity_number": i, "name": name, "position": {"x": x, "y": y}}
+        if direction:
+            entity["direction"] = direction
+        for key in DESIGN_KEYS & set(row):
+            if not isinstance(row[key], str):
+                raise ValueError(f"invalid-design-entity:{i}")
+            entity[key] = row[key]
+        entities.append(entity)
+    blueprint = {"item": "blueprint", "version": VERSION, "entities": entities,
+                 "icons": [{"signal": {"name": n}, "index": k} for k, n in
+                           enumerate(dict.fromkeys(e["name"] for e in entities), 1) if k <= 4]}
+    if label:
+        blueprint["label"] = str(label)[:100]
+    raw = json.dumps({"blueprint": blueprint}, separators=(",", ":")).encode()
+    value = "0" + base64.b64encode(zlib.compress(raw, 9)).decode("ascii")
+    _decode_blueprint(value)
+    return value
+
+
+def pattern_entities(value: str) -> list[dict]:
+    """Readable layout shifted by whole tiles near 0,0 (keeps .5/integer center parity)."""
+    entities = parse_blueprint(value)
+    min_x = math.floor(min(e["position"]["x"] for e in entities))
+    min_y = math.floor(min(e["position"]["y"] for e in entities))
+    rows = []
+    for e in entities:
+        row = {"name": e["name"], "x": e["position"]["x"] - min_x, "y": e["position"]["y"] - min_y,
+               "direction": e.get("direction", 0)}
+        row.update({k: e[k] for k in DESIGN_KEYS if k in e})
+        rows.append(row)
+    return rows
+
+
 def pattern_id_for(value: str) -> str:
     """Ignore translation and entity ordering for plain machine layouts."""
     blueprint = _decode_blueprint(value)
@@ -85,7 +135,8 @@ def pattern_id_for(value: str) -> str:
 
 
 def record_blueprint(value: str, *, state: str, source: str,
-                     materials: dict | None = None, audit: dict | None = None) -> dict:
+                     materials: dict | None = None, audit: dict | None = None,
+                     contract: dict | None = None) -> dict:
     """Deduplicate plain layouts; keep placement coordinates out of metadata."""
     if state not in RANK:
         raise ValueError("invalid-pattern-state")
@@ -113,7 +164,7 @@ def record_blueprint(value: str, *, state: str, source: str,
         },
         "required_items": old.get("required_items") or materials or None,
         "audit": audit if state == "verified" and audit else old.get("audit"),
-        "contract": old.get("contract"),
+        "contract": contract or old.get("contract"),
         "blueprint_string": value,
     }
     with tempfile.NamedTemporaryFile("w", encoding="utf-8", dir=folder,

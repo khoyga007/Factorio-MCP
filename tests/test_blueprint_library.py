@@ -9,7 +9,8 @@ import unittest
 from unittest.mock import patch
 import zlib
 
-from blueprint_library import list_patterns, load_pattern, record_blueprint, pattern_id_for
+from blueprint_library import (encode_blueprint, list_patterns, load_pattern, pattern_entities,
+                               pattern_id_for, record_blueprint)
 from factorio_ai import execute
 
 
@@ -26,6 +27,32 @@ class BlueprintLibraryTest(unittest.TestCase):
             entity["position"]["y"] -= 7
         shifted = "0" + base64.b64encode(zlib.compress(json.dumps(data).encode())).decode()
         self.assertEqual(pattern_id_for(NATIVE), pattern_id_for(shifted))
+
+    def test_agent_design_round_trips_to_same_pattern(self):
+        rows = pattern_entities(NATIVE)
+        self.assertTrue(all(r["x"] >= 0 and r["y"] >= 0 for r in rows))
+        rows.reverse()
+        self.assertEqual(pattern_id_for(NATIVE), pattern_id_for(encode_blueprint(rows)))
+
+    def test_bad_design_refused(self):
+        for design in ([], [{"name": "boiler", "x": 0.25, "y": 0}],
+                       [{"name": "boiler", "x": 0, "y": 0, "direction": 16}],
+                       [{"name": "", "x": 0, "y": 0}], [{"x": 0, "y": 0}],
+                       [{"name": "assembling-machine-1", "x": 0.5, "y": 0.5, "recipe": 3}]):
+            with self.assertRaises(ValueError):
+                encode_blueprint(design)
+
+    def test_design_saved_with_contract(self):
+        with tempfile.TemporaryDirectory() as directory, patch.dict(
+            os.environ, {"FACTORIO_BLUEPRINT_CATALOG": directory}
+        ):
+            value = encode_blueprint([{"name": "stone-furnace", "x": 1, "y": 1},
+                                      {"name": "burner-inserter", "x": 2.5, "y": 0.5, "direction": 4}])
+            saved = record_blueprint(value, state="designed", source="t", contract={"site": {}})
+            self.assertEqual("designed", saved["state"])
+            self.assertEqual({"site": {}}, load_pattern(saved["pattern_id"])["contract"])
+            self.assertEqual("built", record_blueprint(value, state="built", source="t")["state"])
+            self.assertEqual({"site": {}}, load_pattern(saved["pattern_id"])["contract"])
 
     def test_top_level_wiring_is_not_discarded(self):
         data = json.loads(zlib.decompress(base64.b64decode(NATIVE[1:])))

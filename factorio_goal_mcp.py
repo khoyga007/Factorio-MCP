@@ -12,7 +12,8 @@ from pydantic import Field, FiniteFloat
 
 from factorio_mcp import invoke
 from factorio_ai import DEFAULT_HOST, DEFAULT_PORT, request
-from blueprint_library import list_patterns, load_pattern, record_blueprint
+from blueprint_library import (encode_blueprint, list_patterns, load_pattern,
+                               pattern_entities, pattern_id_for, record_blueprint)
 
 
 READ = ToolAnnotations(readOnlyHint=True, destructiveHint=False, openWorldHint=False)
@@ -23,7 +24,7 @@ mcp = FastMCP(
         "Choose a production goal and call achieve once. The bridge reuses existing "
         "machines, checks real stock and geometry, builds a feasible pattern and "
         "audits in game. Use observe(patterns) and achieve(reuse_blueprint) for saved "
-        "native blueprints. Use report(job_id) for the outcome and observe for blockers. "
+        "native blueprints; achieve(build_design) builds a layout the agent designed itself. Use report(job_id) for the outcome and observe for blockers. "
         "Detailed actions remain in the CLI for diagnosis. Never spawn free items."
     ),
     log_level="WARNING",
@@ -50,12 +51,20 @@ def observe(view: str = "situation",
             surface: str = "nauvis", x: FiniteFloat | None = None,
             y: FiniteFloat | None = None,
             radius: Annotated[float, Field(ge=1, le=32, allow_inf_nan=False)] = 16,
-            resource: str | None = None) -> CallToolResult:
-    """Read situation, deposits, nearby objects, or saved blueprint patterns."""
+            resource: str | None = None, pattern_id: str | None = None) -> CallToolResult:
+    """Read situation, deposits, nearby objects, or saved blueprint patterns (+pattern_id: its entities)."""
     if (x is None) != (y is None):
         return _result({"ok": False, "error": "x-and-y-required-together"}, True)
     if view not in {"situation", "deposits", "nearby", "patterns"}:
         return _result({"ok": False, "error": "unknown-view"}, True)
+    if view == "patterns" and pattern_id:
+        try:
+            pattern = load_pattern(pattern_id)
+        except (OSError, ValueError, KeyError, json.JSONDecodeError) as exc:
+            return _result({"ok": False, "error": str(exc)}, True)
+        return _result({"ok": True, "view": view, "pattern_id": pattern_id,
+                        "state": pattern.get("state"), "contract": pattern.get("contract"),
+                        "entities": pattern_entities(pattern["blueprint_string"])})
     if view == "patterns":
         return _result({"ok": True, "view": view, "patterns": list_patterns()})
     if view == "situation":
@@ -90,8 +99,12 @@ def achieve(goal: str,
             input_x: FiniteFloat | None = None, input_y: FiniteFloat | None = None,
             surface: str = "nauvis", force: str = "player",
             dry_run: bool = False, pattern_id: str | None = None,
-            contract: dict | None = None) -> CallToolResult:
-    """Choose first_iron_plates, first_copper_plates, coal_stockpile, iron_smelting_row, or reuse_blueprint.
+            contract: dict | None = None, design: list[dict] | None = None) -> CallToolResult:
+    """Choose first_iron_plates, first_copper_plates, coal_stockpile, iron_smelting_row, reuse_blueprint, build_design.
+
+    build_design: design=[{name,x,y,direction?,recipe?,type?}] entity centers (odd size .5,
+    even size integer), direction 0N 4E 8S 12W; saved as pattern state designed, then run like
+    reuse_blueprint.
 
     reuse_blueprint takes an optional contract (else the pattern's saved one): site{mode,rotations,
     clearance}, resources[{entity,resource,min_per_tile,min_total}], primer[{entity,item,count}],
@@ -100,15 +113,33 @@ def achieve(goal: str,
     if (x is None) != (y is None) or (input_x is None) != (input_y is None):
         return _result({"ok": False, "error": "coordinate-pairs-required"}, True)
     if goal not in {"first_iron_plates", "first_copper_plates", "coal_stockpile",
-                    "iron_smelting_row", "reuse_blueprint"}:
+                    "iron_smelting_row", "reuse_blueprint", "build_design"}:
         return _result({"ok": False, "error": "unknown-goal"}, True)
-    if goal == "reuse_blueprint":
-        if not pattern_id or target_per_minute is not None or input_x is not None:
+    if goal in {"reuse_blueprint", "build_design"} and (
+            target_per_minute is not None or input_x is not None):
+        return _result({"ok": False, "error": "blueprint-goal-does-not-use-rate-or-input"}, True)
+    if (design is not None) != (goal == "build_design"):
+        return _result({"ok": False, "error": "design-only-for-build-design"}, True)
+    if goal == "build_design":
+        if pattern_id is not None:
+            return _result({"ok": False, "error": "design-takes-no-pattern-id"}, True)
+        try:
+            blueprint = encode_blueprint(design)
+            pattern_id = pattern_id_for(blueprint)
+            if not dry_run:
+                record_blueprint(blueprint, state="designed", source="build_design",
+                                 contract=contract)
+        except (OSError, ValueError, KeyError, json.JSONDecodeError) as exc:
+            return _result({"ok": False, "error": str(exc)}, True)
+        pattern = {"blueprint_string": blueprint, "contract": None}
+    elif goal == "reuse_blueprint":
+        if not pattern_id:
             return _result({"ok": False, "error": "pattern-id-required"}, True)
         try:
             pattern = load_pattern(pattern_id)
         except (OSError, ValueError, KeyError, json.JSONDecodeError) as exc:
             return _result({"ok": False, "error": str(exc)}, True)
+    if goal in {"reuse_blueprint", "build_design"}:
         # The agent's contract wins; otherwise the one saved with the pattern.
         body = {"action": "blueprint_run", "blueprint": pattern["blueprint_string"],
                 "pattern_id": pattern_id, "contract": contract or pattern.get("contract") or {},

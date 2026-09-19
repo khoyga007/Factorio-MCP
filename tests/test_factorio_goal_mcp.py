@@ -124,6 +124,21 @@ class GoalMCPTest(unittest.IsolatedAsyncioTestCase):
                             p = await call("report", {"job_id": "exec-1"}, ["blueprint_job"])
                             self.assertEqual("verified", p["state"])
                             self.assertEqual(4, p["feed"]["coal"])
+                            p = await call("observe", {"view": "patterns", "pattern_id": pattern_id}, [])
+                            design = p["entities"]
+                            self.assertIn("wooden-chest", {e["name"] for e in design})
+                            p = await call("achieve", {"goal": "build_design", "design": design,
+                                                       "contract": own, "dry_run": True}, ["blueprint_run"])
+                            self.assertEqual(pattern_id, p["pattern_id"])
+                            self.assertEqual(1, len(os.listdir(catalog_dir)))
+                            moved = [dict(e, y=e["y"] + 3) if e["name"] == "wooden-chest" else e
+                                     for e in design]
+                            p = await call("achieve", {"goal": "build_design", "design": moved,
+                                                       "contract": own}, ["blueprint_run"])
+                            self.assertNotEqual(pattern_id, p["pattern_id"])
+                            self.assertEqual(own, seen[-1]["contract"])
+                            saved = json.loads((Path(catalog_dir) / (p["pattern_id"] + ".json")).read_text())
+                            self.assertEqual(("designed", own), (saved["state"], saved["contract"]))
                             p = await call("achieve", {"goal": "first_iron_plates"}, ["starter_smelt"])
                             self.assertEqual("starter-3", p["job_id"])
                             self.assertTrue(p["existing"])
@@ -147,6 +162,10 @@ class GoalMCPTest(unittest.IsolatedAsyncioTestCase):
                                 ("achieve", {"goal": "iron_smelting_row"}),
                                 ("achieve", {"goal": "first_iron_plates", "x": 1}),
                                 ("achieve", {"goal": "unknown-goal"}),
+                                ("achieve", {"goal": "build_design"}),
+                                ("achieve", {"goal": "build_design", "design": [{"name": "x", "x": 0.3, "y": 0}]}),
+                                ("achieve", {"goal": "reuse_blueprint", "pattern_id": pattern_id,
+                                             "design": [{"name": "x", "x": 0, "y": 0}]}),
                                 ("observe", {"view": "unknown-view"}),
                                 ("report", {"job_id": "unknown"}),
                             ]:

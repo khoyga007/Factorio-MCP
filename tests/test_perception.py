@@ -1,6 +1,17 @@
+import json
+from pathlib import Path
 import unittest
 
 from perception import summarize
+
+FIXTURE = Path(__file__).parent / "fixtures" / "nearby_r32_live.json"
+# Hard caps on what the agent reads. Raise only with a measured reason in the commit message.
+LIVE_R32_MAX_CHARS = 6000   # 19/09 baseline 4683 chars for 295 entities (raw dump was 103191)
+ARRAY_MAX_CHARS = 400       # a row of identical machines must not grow with its length
+
+
+def size(value) -> int:
+    return len(json.dumps(value, ensure_ascii=False, separators=(",", ":")))
 
 
 def pipe(x, y, amount=99.99990159273148):
@@ -82,6 +93,38 @@ class PerceptionTest(unittest.TestCase):
                  "status_name": "working"} for x in (-69, -65, -61, -53)]
         s = summarize(rows)["machines"]["stone-furnace"]
         self.assertEqual([{"at": [-69, 21], "n": 3, "step": [4, 0]}, {"at": [-53, 21]}], s)
+
+
+class OutputBudgetTest(unittest.TestCase):
+    def test_live_factory_fits_budget(self):
+        rows = json.loads(FIXTURE.read_text(encoding="utf-8"))["rows"]
+        out = summarize(rows)
+        self.assertEqual(295, len(rows))
+        self.assertLessEqual(size(out), LIVE_R32_MAX_CHARS,
+                             f"nearby output grew to {size(out)} chars; measure before raising the cap")
+        faults = {(i["name"], tuple(i["at"]), i["status"]) for i in out["issues"]}
+        self.assertIn(("lab", (-54.5, 30.5), "no_research_in_progress"), faults)
+        self.assertIn(("assembling-machine-1", (-33.5, 23.5), "item_ingredient_shortage"), faults)
+
+    def test_every_tile_survives_compression(self):
+        rows = json.loads(FIXTURE.read_text(encoding="utf-8"))["rows"]
+        out = summarize(rows)
+        machines = sum(r.get("n", 1) for rs in out["machines"].values() for r in rs) + len(out["issues"])
+        tiles = sum(abs(r["to"][0] - r["from"][0]) + abs(r["to"][1] - r["from"][1]) + 1 if "to" in r else 1
+                    for rs in out["runs"].values() for r in rs)
+        poles = sum(len(p) for p in out["poles"].values())
+        self.assertEqual(len(rows), machines + tiles + poles)
+
+    def test_repetition_does_not_grow_output(self):
+        def smelters(n):
+            return [{"name": "stone-furnace", "type": "furnace", "x": 2 * i, "y": 0, "direction": 0,
+                     "status_name": "working", "fuel": [{"name": "coal", "count": 5}]} for i in range(n)]
+        small, big = size(summarize(smelters(5))), size(summarize(smelters(200)))
+        self.assertLessEqual(big, ARRAY_MAX_CHARS)
+        self.assertLessEqual(big - small, 4)  # only the digits of n change
+        belts = [{"name": "transport-belt", "type": "transport-belt", "x": i + 0.5, "y": 0.5,
+                  "direction": 4, "status_name": "working", "lines": [[], []]} for i in range(500)]
+        self.assertLessEqual(size(summarize(belts)), 120)
 
 
 if __name__ == "__main__":

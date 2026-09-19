@@ -40,6 +40,8 @@ Nguồn: [MCP Python SDK 1.27.1](https://github.com/modelcontextprotocol/python-
    - Flow status aliases on rows (not issues): `blocked`=waiting_for_space_in_destination, `idle`=waiting_for_source_items, `full`=full_output.
    - Array row: identical machines evenly spaced on one line → `at`+`n`+`step`; i-th = at + i·step.
    - Run: belt `from`=upstream end; no `to` = single tile; tiles = |dx|+|dy|+1. `dir` omitted for chest/pole/pipe/furnace/lab and dir-0 assemblers.
+   - One snapshot = one sample: a burner-fed stone furnace flickers `no_ingredients` (drill 0.25 ore/s < furnace 0.3125) and looks the same as a starved one. Confirm with an executor metric (`products_finished`) before acting.
+   - Budget guard: tests/test_perception.py caps (live fixture tests/fixtures/nearby_r32_live.json ≤6000 chars, repetition must not grow output, every tile accounted for). Re-measure live at each scale step: `python tests/measure_nearby.py --x X --y Y --radius 32` (19/09: 25 calls/102 960 chars → 1/6 429, ×16).
    - Live 19/09 r16 (155 entities): old 13 calls/34 455 chars → v1 1 call/4 957 → v2 2 650. `view="entities"` = old raw rows paged by 12 (debug).
 2. `achieve(goal="first_iron_plates"|"first_copper_plates")` nhận diện cặp
    máy khoan → lò đá đang có, kiểm tra nhiên liệu và nạp lại nếu đủ than. Nếu

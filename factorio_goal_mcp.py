@@ -242,7 +242,8 @@ def achieve(goal: str,
             return _result({"ok": False, "error": str(exc), "pattern_id": pattern_id}, True)
         return _result({"ok": p.get("ok", False), "goal": goal, "pattern_id": pattern_id,
                         **_fields(p, "job_id", "state", "site", "site_validated", "materials",
-                                  "missing", "locked", "steps", "rejects", "checks", "error")},
+                                  "missing", "locked", "steps", "rejects", "checks", "unconnected",
+                                  "placed_at", "error")},
                        not p.get("ok", False))
     if pattern_id is not None:
         return _result({"ok": False, "error": "pattern-id-only-for-reuse"}, True)
@@ -315,7 +316,8 @@ def report(job_id: str) -> CallToolResult:
     return _result({"ok": p.get("ok", False), "job_id": job_id, **extra,
                     "pattern_id": (p.get("pattern") or {}).get("pattern_id"),
                     **_fields(p, "state", "product", "existing", "output", "coal", "refuels", "site", "placed", "feed",
-                              "missing", "locked", "connections", "audit", "error", "artifact")},
+                              "missing", "locked", "connections", "audit", "cleared", "placed_at",
+                              "error", "artifact")},
                    not p.get("ok", False))
 
 

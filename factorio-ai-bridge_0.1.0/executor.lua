@@ -120,6 +120,86 @@ local function in_footprint(surface,e,types)
   return surface.find_entities_filtered{area={{e.x-e.w/2+d,e.y-e.h/2+d},{e.x+e.w/2-d,e.y+e.h/2-d}},type=types}
 end
 
+-- Inserter ends: pickup and drop tiles must hold something that takes/gives items,
+-- planned in this layout or already built (own force).
+local RECEIVERS={"transport-belt","underground-belt","splitter","loader","loader-1x1","linked-belt",
+  "container","logistic-container","infinity-container","furnace","assembling-machine","lab",
+  "mining-drill","boiler","burner-generator","reactor","rocket-silo","ammo-turret","artillery-turret",
+  "car","cargo-wagon","locomotive","artillery-wagon","spider-vehicle","agricultural-tower"}
+local RECEIVER={} for _,t in ipairs(RECEIVERS) do RECEIVER[t]=true end
+local function turn(x,y,q) for _=1,q%4 do x,y=-y,x end return x,y end
+local function covers(e,px,py) return math.abs(px-e.x)<e.w/2 and math.abs(py-e.y)<e.h/2 end
+local function receives(e) return RECEIVER[prototypes.entity[e.name].type] end
+
+local function gaps_of(surface,force,placed)
+  local out={}
+  for _,ins in ipairs(placed) do
+    local proto=prototypes.entity[ins.name]
+    if proto.type=="inserter" then
+      for side,v in pairs{pickup=proto.inserter_pickup_position,drop=proto.inserter_drop_position} do
+        -- Prototype vectors are for direction 0 (north = pickup side); rotate clockwise by dir.
+        local vx,vy=turn(v[1] or v.x,v[2] or v.y,ins.dir/4)
+        local px,py=math.floor(ins.x+vx)+0.5,math.floor(ins.y+vy)+0.5
+        local hit=false
+        for _,e in ipairs(placed) do
+          if e~=ins and receives(e) and covers(e,px,py) then hit=true break end
+        end
+        if not hit and surface.count_entities_filtered{position={px,py},force=force,type=RECEIVERS,limit=1}==0 then
+          out[#out+1]={ins=ins,side=side,px=px,py=py}
+        end
+      end
+    end
+  end
+  table.sort(out,function(a,b)
+    if a.ins.y~=b.ins.y then return a.ins.y<b.ins.y end
+    if a.ins.x~=b.ins.x then return a.ins.x<b.ins.x end return a.side<b.side
+  end)
+  return out
+end
+
+-- Unconnected inserter ends, each with a hint when exactly one planned receiver one tile
+-- away would cover the tile AND moving it lowers the total gap count. Never auto-moved.
+local function inserter_gaps(surface,force,placed,rotation)
+  local raw,out=gaps_of(surface,force,placed),{}
+  for _,g in ipairs(raw) do
+    local gap={inserter={g.ins.x,g.ins.y},side=g.side,tile={g.px,g.py}}
+    local cands={}
+    for _,e in ipairs(placed) do
+      if e~=g.ins and receives(e) then
+        for _,d in ipairs{{1,0},{-1,0},{0,1},{0,-1}} do
+          if covers({x=e.x+d[1],y=e.y+d[2],w=e.w,h=e.h},g.px,g.py) then cands[#cands+1]={e=e,d=d} end
+        end
+      end
+    end
+    if #cands==1 then
+      local c=cands[1]
+      local moved={}
+      for i,e in ipairs(placed) do
+        moved[i]=e==c.e and {name=e.name,x=e.x+c.d[1],y=e.y+c.d[2],dir=e.dir,w=e.w,h=e.h} or e
+      end
+      local m,clash=moved[1],false
+      for i,e in ipairs(placed) do
+        if e==c.e then m=moved[i] end
+      end
+      for _,e in ipairs(placed) do
+        if e~=c.e and math.abs(e.x-m.x)<(e.w+m.w)/2 and math.abs(e.y-m.y)<(e.h+m.h)/2 then clash=true break end
+      end
+      if not clash and #gaps_of(surface,force,moved)<#raw then
+        local sx,sy=turn(c.d[1],c.d[2],4-rotation/4)
+        gap.hint={entity=c.e.name,from={c.e.x,c.e.y},to={c.e.x+c.d[1],c.e.y+c.d[2]},design_shift={sx==0 and 0 or sx,sy==0 and 0 or sy}}
+      end
+    end
+    out[#out+1]=gap
+  end
+  return out
+end
+
+local function placed_at(layout)
+  local out={}
+  for i,e in ipairs(layout) do out[i]={e.name,e.x,e.y,e.dir} end
+  return out
+end
+
 local function check_site(surface,force,c,placed,rejects)
   local function no(reason) rejects[reason]=(rejects[reason] or 0)+1 return false end
   local x1,y1,x2,y2=math.huge,math.huge,-math.huge,-math.huge
@@ -300,7 +380,8 @@ function M.attach(ctx)
   local function summary(j)
     return {job_id=j.id,state=j.state,pattern_id=j.pattern_id,site=j.site,
       step=j.step,steps=#(j.steps or {}),placed=j.placed,materials=j.materials,
-      missing=j.missing,audit=j.audit,feed=j.feed,error=j.error,artifact=j.artifact,cleared=j.cleared}
+      missing=j.missing,audit=j.audit,feed=j.feed,error=j.error,artifact=j.artifact,cleared=j.cleared,
+      placed_at=j.layout and placed_at(j.layout)}
   end
   local function save(j)
     helpers.write_file(j.artifact..".receipt.json",helpers.table_to_json{
@@ -604,13 +685,19 @@ function M.attach(ctx)
     end
     local steps,missing=prepare(surface,force,c.center,c.radius,stock,cost)
     local site_out={x=site.x,y=site.y,rotation=site.rotation,checks=checks}
+    local placed=place_list(site.shape,site.x,site.y)
     local clear=0
-    for _,e in ipairs(place_list(site.shape,site.x,site.y)) do clear=clear+#in_footprint(surface,e,NATURAL) end
+    for _,e in ipairs(placed) do clear=clear+#in_footprint(surface,e,NATURAL) end
     if clear>0 then site_out.clear=clear end
+    local gaps=inserter_gaps(surface,force,placed,site.rotation)
+    if #gaps>0 then
+      return ctx.response(nonce,true,{state="blocked",error="inserter-unconnected",unconnected=gaps,
+        site=site_out,placed_at=placed_at(placed),materials=cost})
+    end
     if #locked>0 then table.sort(locked) end
     if r.dry_run or next(missing) or #locked>0 then
       return ctx.response(nonce,true,{state=(next(missing) or #locked>0) and "blocked" or "planned",
-        site=site_out,site_validated=true,materials=cost,missing=missing,
+        site=site_out,site_validated=true,materials=cost,missing=missing,placed_at=placed_at(placed),
         locked=#locked>0 and locked or nil,steps=#steps,rejects=rejects})
     end
     local state=ctx.state() state.executor_seq=(state.executor_seq or 0)+1

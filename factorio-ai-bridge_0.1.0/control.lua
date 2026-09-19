@@ -1,5 +1,5 @@
 local BRIDGE_VERSION = 1
-local BRIDGE_BUILD = "2026-09-19-clear-obstacles"
+local BRIDGE_BUILD = "2026-09-19-inserter-check"
 local MAX_PACKET_BYTES = 32768
 local MAX_RADIUS = 32
 local MAX_ENTITIES = 64

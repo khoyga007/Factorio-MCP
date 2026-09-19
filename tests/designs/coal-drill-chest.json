@@ -1,14 +1,80 @@
-{"source": "agent-authored, no template: burner drill facing north drops straight into a chest; chest feeds its drill back.",
+{
+ "source": "agent-authored, no template: drills drop into own chest; executor feed returns coal. Path test only; NOT self-sustaining (no physical return, drills starve after job end).",
  "design": [
-  {"name": "burner-mining-drill", "x": 1, "y": 2, "direction": 0},
-  {"name": "wooden-chest", "x": 0.5, "y": 0.5},
-  {"name": "burner-mining-drill", "x": 4, "y": 2, "direction": 0},
-  {"name": "wooden-chest", "x": 3.5, "y": 0.5}],
+  {
+   "name": "burner-mining-drill",
+   "x": 1,
+   "y": 2,
+   "direction": 0
+  },
+  {
+   "name": "wooden-chest",
+   "x": 0.5,
+   "y": 0.5
+  },
+  {
+   "name": "burner-mining-drill",
+   "x": 4,
+   "y": 2,
+   "direction": 0
+  },
+  {
+   "name": "wooden-chest",
+   "x": 3.5,
+   "y": 0.5
+  }
+ ],
  "contract": {
-  "site": {"mode": "search", "rotations": [0, 4, 8, 12]},
-  "resources": [{"entity": "burner-mining-drill", "resource": "coal", "min_per_tile": 100, "min_total": 800}],
-  "primer": [{"entity": "burner-mining-drill", "item": "coal", "count": 3}],
-  "feeds": [{"from": "wooden-chest", "to": "burner-mining-drill", "item": "coal", "keep": 2}],
-  "verify": {"window_ticks": 3600, "max_windows": 5,
-             "metrics": [{"key": "coal_gained", "kind": "container_gain", "entity": "wooden-chest", "item": "coal", "min": 15},
-                         {"key": "active", "kind": "working_count", "entity": "burner-mining-drill", "min": 2}]}}}
+  "site": {
+   "mode": "search",
+   "rotations": [
+    0,
+    4,
+    8,
+    12
+   ]
+  },
+  "resources": [
+   {
+    "entity": "burner-mining-drill",
+    "resource": "coal",
+    "min_per_tile": 100,
+    "min_total": 800
+   }
+  ],
+  "primer": [
+   {
+    "entity": "burner-mining-drill",
+    "item": "coal",
+    "count": 3
+   }
+  ],
+  "feeds": [
+   {
+    "from": "wooden-chest",
+    "to": "burner-mining-drill",
+    "item": "coal",
+    "keep": 2
+   }
+  ],
+  "verify": {
+   "window_ticks": 3600,
+   "max_windows": 5,
+   "metrics": [
+    {
+     "key": "coal_gained",
+     "kind": "container_gain",
+     "entity": "wooden-chest",
+     "item": "coal",
+     "min": 15
+    },
+    {
+     "key": "active",
+     "kind": "working_count",
+     "entity": "burner-mining-drill",
+     "min": 2
+    }
+   ]
+  }
+ }
+}

@@ -126,6 +126,21 @@ class BlueprintLibraryTest(unittest.TestCase):
             self.assertEqual("verified", reply["pattern"]["state"])
             self.assertEqual(8, load_pattern(reply["pattern"]["pattern_id"])["audit"]["coal_gained"])
 
+    def test_fed_layout_is_built_not_verified(self):
+        with tempfile.TemporaryDirectory() as directory, patch.dict(
+            os.environ, {"FACTORIO_BLUEPRINT_CATALOG": str(Path(directory) / "catalog"),
+                         "FACTORIO_SCRIPT_OUTPUT": directory}
+        ), patch("factorio_ai.request", return_value={
+            "ok": True, "state": "verified", "artifact": "executor/exec-2",
+            "audit": {"status": "passed", "windows": [{"feed_moved": 0}, {"feed_moved": 4}]},
+        }):
+            artifact = Path(directory) / "executor" / "exec-2.blueprint.txt"
+            artifact.parent.mkdir()
+            artifact.write_text(NATIVE + "\n", encoding="ascii")
+            reply = execute(argparse.Namespace(command="blueprint-job", job_id="exec-2",
+                                               host="127.0.0.1", port=34198))
+            self.assertEqual("built", reply["pattern"]["state"])
+
 
 if __name__ == "__main__":
     unittest.main()

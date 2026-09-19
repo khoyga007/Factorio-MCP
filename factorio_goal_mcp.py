@@ -11,7 +11,7 @@ from mcp.types import CallToolResult, TextContent, ToolAnnotations
 from pydantic import Field, FiniteFloat
 
 from factorio_mcp import invoke
-from factorio_ai import DEFAULT_HOST, DEFAULT_PORT, request
+from factorio_ai import DEFAULT_HOST, DEFAULT_PORT, request, self_sustaining
 from blueprint_library import (encode_blueprint, list_patterns, load_pattern,
                                pattern_entities, pattern_id_for, record_blueprint)
 
@@ -51,8 +51,10 @@ def observe(view: str = "situation",
             surface: str = "nauvis", x: FiniteFloat | None = None,
             y: FiniteFloat | None = None,
             radius: Annotated[float, Field(ge=1, le=32, allow_inf_nan=False)] = 16,
-            resource: str | None = None, pattern_id: str | None = None) -> CallToolResult:
-    """Read situation, deposits, nearby objects, or saved blueprint patterns (+pattern_id: its entities)."""
+            resource: str | None = None, pattern_id: str | None = None,
+            offset: Annotated[int, Field(ge=0)] = 0) -> CallToolResult:
+    """Read situation, deposits, nearby objects, or saved blueprint patterns (+pattern_id: its entities).
+    deposits/nearby page by offset (next_offset in reply)."""
     if (x is None) != (y is None):
         return _result({"ok": False, "error": "x-and-y-required-together"}, True)
     if view not in {"situation", "deposits", "nearby", "patterns"}:
@@ -74,12 +76,12 @@ def observe(view: str = "situation",
             "nearest_enemies", "ore_total", "ore_patches", "treasury", "error")},
             not p.get("ok", False))
     if view == "deposits":
-        p = _read(invoke("ore-marks", surface=surface, name=resource, offset=0, limit=12))
+        p = _read(invoke("ore-marks", surface=surface, name=resource, offset=offset, limit=12))
         return _result({"ok": p.get("ok", False), "view": view,
                         **_fields(p, "total", "marks", "next_offset", "error")},
                        not p.get("ok", False))
     p = _read(invoke("snapshot", surface=surface, x=x, y=y, radius=radius,
-                     offset=0, limit=12, tiles=False, name=None, obstacles=True))
+                     offset=offset, limit=12, tiles=False, name=None, obstacles=True))
     rows = p.get("entities") or []
     entities = [_fields(e, "name", "type", "x", "y", "direction", "status_name",
                         "fuel", "input", "output", "fluids", "lines")
@@ -220,7 +222,10 @@ def report(job_id: str) -> CallToolResult:
         p = _read(invoke("smelt-status", plan_id=job_id))
     else:
         return _result({"ok": False, "error": "unknown-job-id"}, True)
-    return _result({"ok": p.get("ok", False), "job_id": job_id,
+    extra = {}
+    if job_id.startswith("exec-") and p.get("audit"):
+        extra["self_sustaining"] = self_sustaining(p["audit"])
+    return _result({"ok": p.get("ok", False), "job_id": job_id, **extra,
                     "pattern_id": (p.get("pattern") or {}).get("pattern_id"),
                     **_fields(p, "state", "product", "existing", "output", "coal", "refuels", "site", "placed", "feed",
                               "missing", "locked", "connections", "audit", "error", "artifact")},

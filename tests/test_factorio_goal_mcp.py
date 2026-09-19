@@ -103,7 +103,8 @@ class GoalMCPTest(unittest.IsolatedAsyncioTestCase):
                             p = await call("observe", {"view": "deposits", "resource": "iron-ore"},
                                            ["ore_marks"])
                             self.assertEqual(1, p["total"])
-                            p = await call("observe", {"view": "nearby"}, ["snapshot"])
+                            p = await call("observe", {"view": "nearby", "offset": 12}, ["snapshot"])
+                            self.assertEqual(12, seen[-1]["offset"])
                             self.assertEqual("working", p["entities"][0]["status_name"])
                             p = await call("observe", {"view": "patterns"}, [])
                             self.assertEqual(pattern_id, p["patterns"][0]["pattern_id"])
@@ -124,6 +125,7 @@ class GoalMCPTest(unittest.IsolatedAsyncioTestCase):
                             p = await call("report", {"job_id": "exec-1"}, ["blueprint_job"])
                             self.assertEqual("verified", p["state"])
                             self.assertEqual(4, p["feed"]["coal"])
+                            self.assertTrue(p["self_sustaining"])
                             p = await call("observe", {"view": "patterns", "pattern_id": pattern_id}, [])
                             design = p["entities"]
                             self.assertIn("wooden-chest", {e["name"] for e in design})

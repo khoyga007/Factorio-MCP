@@ -462,13 +462,21 @@ def execute(args: argparse.Namespace) -> dict[str, Any]:
        and reply.get("ok") and reply.get("state") == "verified" \
        and (reply.get("audit") or {}).get("status") == "passed" \
        and reply.get("artifact"):
+        # A layout that only passed because the executor fed it is built, not verified.
+        state = "verified" if self_sustaining(reply["audit"]) else "built"
         try:
             reply["pattern"] = record_blueprint(
-                artifact_blueprint(reply["artifact"]), state="verified",
+                artifact_blueprint(reply["artifact"]), state=state,
                 source=args.command, audit=reply["audit"])
         except (OSError, ValueError, KeyError, json.JSONDecodeError) as exc:
             reply["catalog_error"] = str(exc)
     return reply
+
+
+def self_sustaining(audit: dict) -> bool:
+    """False when the executor's declared feed still moved items in the deciding (last) window."""
+    last = audit.get("last") or (audit.get("windows") or [{}])[-1]
+    return not (last.get("feed_moved") or 0)
 
 
 def main() -> int:

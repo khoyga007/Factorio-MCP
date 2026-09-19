@@ -8,7 +8,9 @@ Job id `exec-N`; read with `report(job_id)` (action `blueprint_job`). Receipt + 
 
 `achieve(goal="build_design", design=[{name,x,y,direction?,recipe?,type?}], contract, x?, y?, dry_run?)`. Agent designs from game rules (sizes, drill area/drop, inserter reach, ratios); no human template required. `design` = entity centers in tiles: odd-size entity on .5, even-size on integer (2x2 drill center `1,2`); direction 16-way 0N 4E 8S 12W. Python `encode_blueprint` → native string (≤500 entities, bad row → `invalid-design-entity:<i>`) → same `blueprint_run` path as reuse. Not dry → catalog pattern state `designed` + contract saved; report(exec-N) verified → upgraded to `verified`. Read any saved pattern's layout: `observe(view="patterns", pattern_id)` → entities shifted by whole tiles (parity kept) + contract; edit and resubmit as `design`. Human blueprint = optional reference only.
 
-Engine PASS 2026-09-19 (tests/verify_design_runtime.py, tests/designs/coal-drill-chest.json): 2 burner drills facing N drop straight into own chest, feed chest→drill keep 2; 4 entities, windows coal 34/36/34, active 2/2, feed 12 total. Beats saved 10-entity coal pattern.
+Engine PASS 2026-09-19 (tests/verify_design_runtime.py, tests/designs/coal-drill-chest.json): 2 burner drills facing N drop straight into own chest, feed chest→drill keep 2; 4 entities, windows coal 34/36/34, active 2/2, feed 12 total. NOT self-sustaining: no physical return path, feed moved 4 every window; live exec-2 (19/09) drills went no_fuel after job end with coal still in chests. Proves the build_design path only, not a good layout. Physical closed loop found live by Sonnet-agent: belt ring + 2 burner inserters feeding drills (pattern bp-888ab81fe7579dfd, exec-3).
+
+`report(exec-N)` → `self_sustaining` = last window `feed_moved`==0. Catalog upgrade on verified: self-sustaining → `verified`, fed → `built` only.
 
 ## Schema
 
@@ -28,7 +30,7 @@ Engine PASS 2026-09-19 (tests/verify_design_runtime.py, tests/designs/coal-drill
 }
 ```
 
-Unknown keys ignored (notes: `source`). Contract errors (refused, nothing built): `invalid-site`, `invalid-rotation`, `exact-site-needs-one-rotation`, `invalid-connect`, `invalid-declared-load`, `invalid-metric[-item|-fluid|-fraction|-load-fraction|-min]`, `declared-load-required`.
+Unknown keys ignored (notes: `source`). Contract errors (refused, nothing built): `invalid-site`, `invalid-rotation`, `exact-site-needs-one-rotation`, `invalid-connect`, `invalid-declared-load`, `invalid-metric[-item|-fluid|-fraction|-load-fraction|-min]:<metric key>`, `declared-load-required:<metric key>`.
 
 ## Site
 

@@ -47,7 +47,7 @@ return function(handlers,state,blueprint,contract_json)
         local r1=call("blueprint_run",{blueprint=blueprint,surface=surface.name,x=0,y=0,contract=spin})
         check(not r1.ok and r1.error=="exact-site-needs-one-rotation","exact-refuses-multi-rotation")
         local r2=call("blueprint_run",{blueprint=blueprint,surface=surface.name,x=0,y=0,contract=helpers.json_to_table(contract_json)})
-        check(not r2.ok and r2.error=="declared-load-required","load-fraction-needs-declared-load")
+        check(not r2.ok and r2.error=="declared-load-required:actual_power_output_mw","load-fraction-needs-declared-load")
         local nopole=call("blueprint_run",{blueprint=blueprint,surface=surface.name,x=20,y=-30,radius=48,contract=contract,dry_run=true})
         check(nopole.ok and nopole.error=="no-site" and (nopole.rejects["no-power"] or 0)>0,"no-pole-rejected-prebuild:"..helpers.table_to_json(nopole))
 

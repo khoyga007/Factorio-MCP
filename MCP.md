@@ -26,6 +26,10 @@ nhận ra cặp máy đã có, nạp 1 coal từ kho thật và đo thêm 5 iron
 1.800 tick; output tăng 8→13. Codex đang mở có thể cache catalog cũ đến khi
 nạp lại Codex.
 
+Schema cache (19/09 live): after adding a param (e.g. `design`, observe `pattern_id`/`offset`) server restart serves it, but a client's cached tool description/schema may stay stale until the client session restarts; the call is still accepted. Check CONTRACT.md, not the cached description.
+
+`first_iron_plates`/`first_copper_plates` = legacy bootstrap: no hand-craft (bag must hold drill+furnace), fuel ≤5 per burner (was 1 → drill starved ~26 s), site = first ore match (may sit on patch edge). For anything else prefer `build_design` (executor crafts + searches resource cover).
+
 Nguồn: [MCP Python SDK 1.27.1](https://github.com/modelcontextprotocol/python-sdk/tree/v1.27.1),
 [đăng ký MCP trong Codex](https://developers.openai.com/codex/mcp#configure-with-the-cli).
 

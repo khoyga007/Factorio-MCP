@@ -172,9 +172,11 @@ function M.attach(ctx)
     if not step(job, "place", {name = "stone-furnace", x = f.x, y = f.y,
       surface = base.surface, force = base.force}) then return end
     job.placed = job.placed + 1
-    if not step(job, "insert", {item = "coal", count = 1, x = f.x, y = f.y,
+    -- One coal per burner starved the drill in ~26 s live (starter-2/3); give up to 5 each.
+    local each = math.min(5, math.floor(stock.get_item_count("coal") / 2))
+    if not step(job, "insert", {item = "coal", count = each, x = f.x, y = f.y,
       surface = base.surface, force = base.force}) then return end
-    if not step(job, "insert", {item = "coal", count = 1, x = d.x, y = d.y,
+    if not step(job, "insert", {item = "coal", count = each, x = d.x, y = d.y,
       surface = base.surface, force = base.force}) then return end
     job.drill = surface.find_entity("burner-mining-drill", {d.x, d.y})
     job.furnace = surface.find_entity("stone-furnace", {f.x, f.y})
@@ -247,7 +249,7 @@ function M.attach(ctx)
         {"existing-drill", "existing-furnace", "coal:" .. #needs}, {}, owner)
       job.existing, job.drill, job.furnace = true, pair.drill, pair.furnace
       for _, entity in ipairs(needs) do
-        if not step(job, "insert", {item = "coal", count = 1,
+        if not step(job, "insert", {item = "coal", count = math.min(5, math.floor(available / #needs)),
           x = entity.position.x, y = entity.position.y,
           surface = surface.name, force = force.name}) then
           save(job)

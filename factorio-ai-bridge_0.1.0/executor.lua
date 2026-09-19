@@ -234,28 +234,29 @@ local function parse_contract(raw,r)
   local load=raw.declared_load_mw
   if load~=nil and (not finite(load) or load<=0) then return nil,"invalid-declared-load" end
   for _,m in ipairs(list(verify.metrics)) do
+    local tag=type(m.key)=="string" and ":"..m.key or ""
     if type(m.key)~="string" or not METRICS[m.kind] or type(m.entity)~="string"
-      or not prototypes.entity[m.entity] then return nil,"invalid-metric" end
+      or not prototypes.entity[m.entity] then return nil,"invalid-metric"..tag end
     if m.kind=="container_gain" and (type(m.item)~="string" or not prototypes.item[m.item]) then
-      return nil,"invalid-metric-item"
+      return nil,"invalid-metric-item"..tag
     end
     if m.kind=="fluid_temperature" and m.fluid~=nil and not prototypes.fluid[m.fluid] then
-      return nil,"invalid-metric-fluid"
+      return nil,"invalid-metric-fluid"..tag
     end
     if m.kind=="working_count" and m.fraction~=nil and (not finite(m.fraction) or m.fraction<=0 or m.fraction>1) then
-      return nil,"invalid-metric-fraction"
+      return nil,"invalid-metric-fraction"..tag
     end
     -- Power min derives from the declared load: min = load_fraction*min(load, capacity_mw).
     if m.load_fraction~=nil then
       if m.kind~="electric_output_mw" or m.min~=nil or not finite(m.load_fraction)
         or m.load_fraction<=0 or m.load_fraction>1 or (m.capacity_mw~=nil and not finite(m.capacity_mw)) then
-        return nil,"invalid-metric-load-fraction"
+        return nil,"invalid-metric-load-fraction"..tag
       end
-      if not load then return nil,"declared-load-required" end
+      if not load then return nil,"declared-load-required"..tag end
       local copy={} for k,v in pairs(m) do copy[k]=v end
       m=copy m.min=m.load_fraction*math.min(load,m.capacity_mw or math.huge)
     end
-    if not finite(m.min) then return nil,"invalid-metric-min" end
+    if not finite(m.min) then return nil,"invalid-metric-min"..tag end
     c.metrics[#c.metrics+1]=m
   end
   c.center={x=r.x,y=r.y} c.radius=r.radius or 192

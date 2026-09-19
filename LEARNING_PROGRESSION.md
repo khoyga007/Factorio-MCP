@@ -13,6 +13,8 @@ Nhật ký quan sát trong Sandbox Factorio 2.0. Các kết luận phụ thuộc
 4. [Tay gắp & Cơ chế Chuyển dịch (Inserter Mechanics)](#4-tay-gắp--cơ-chế-chuyển-dịch-inserter-mechanics)
 5. [Đầu vào / Đầu ra của Thiết bị Sản xuất (Machine I/O)](#5-đầu-vào--đầu-ra-của-thiết-bị-sản-xuất-machine-io)
 6. [Đặc tả Nâng cấp Tooling (Bridge Tool Specifications)](#6-đặc-tả-nâng-cấp-tooling-bridge-tool-specifications)
+7. [Bài Test Sát hạch Tích hợp Sandbox: Mini-Factory Hoàn chỉnh (Phương án A)](#7-bài-test-sát-hạch-tích-hợp-sandbox-mini-factory-hoàn-chỉnh-phương-án-a)
+8. [Generic Blueprint Acceptance & Holdout Criteria (PORTING.md §5)](#8-generic-blueprint-acceptance--holdout-criteria-portingmd-5)
 
 ---
 
@@ -352,3 +354,105 @@ Số liệu trích xuất trực tiếp từ Prototype Engine Factorio 2.0 (`tic
 ### Vá 8: Tham số `type` ("input" | "output") chỉ cho `underground-belt`
 * **Hiện trạng**: `handle_place` bỏ qua tham số `type`, ép mọi entity ngầm phải phụ thuộc vào thuật toán auto-flip của engine vốn dễ bị lỗi khi đặt cùng chiều dòng chảy.
 * **Đã sửa**: CLI `place --type input|output`, MCP `place(type=...)`; Lua kiểm tra loại entity trước khi trừ vật tư. Snapshot/receipt trả `belt_to_ground_type`. `pipe-to-ground` không có tham số này và bị từ chối nếu truyền nhầm. Test engine xác nhận hai belt có `neighbours` trỏ nhau; chưa bổ sung tự chọn/ghép cặp.
+
+---
+
+## 8. Generic Blueprint Acceptance & Holdout Criteria (PORTING.md §5)
+
+Input schema contract for generic blueprint executor (`factorio_goal_mcp.py` + Lua executor core). Defines ground resource prerequisites, initial fueling/priming, and holdout audit metrics for `bp-f30d8a84af3098ee` (2 coal miners) and `bp-985eb5fc230538b4` (1:2 steam power station).
+
+### 8.1. FLE Holdout Protocol Rules (`PORTING.md` §5)
+* **Window Duration**: 60 seconds (`window_ticks = 3600` @ 60 ticks/s).
+* **Intervention Freeze**: Audit starts immediately after last executor mutation (placement, wiring, primer insertion). Zero external inventory injection, cheat craft, or agent command during audit windows.
+* **Window Loop**: Measure production / state window-by-window until non-increasing.
+* **Terminal Condition (Pass/Fail)**: **LAST window MUST satisfy target metrics** (`last_window >= quota`). Prevents false PASS from depleting starter buffers.
+* **Audit Receipt**: Store all window measurements verbatim in goal receipt.
+
+---
+
+### 8.2. Blueprint 1: `bp-f30d8a84af3098ee` — Coal Mining Outpost (2 Drills)
+
+* **Schema Pattern ID**: `bp-f30d8a84af3098ee`
+* **Entity Manifest (10 total)**:
+  - `burner-mining-drill`: 2
+  - `transport-belt`: 6
+  - `burner-inserter`: 1
+  - `wooden-chest`: 1
+* **Relative Centers Span**: `[min_x: 0, min_y: 0]` to `[max_x: 7.0, max_y: 1.5]`.
+
+#### A. Ground & Resource Contracts
+| Requirement | Specification | Enforcement / Verification |
+| :--- | :--- | :--- |
+| **Ground Resource** | `coal` entity on resource layer | Both drills (2x2) mining footprint must sit 100% on `coal` resource tiles. |
+| **Minimum Tile Amount** | $\ge 100$ per tile | Reject candidate site if any drill footprint tile has $< 100$ resource count. |
+| **Total Patch Reserve** | $\ge 800$ coal per drill | Ensures outpost lifetime $> 53$ minutes continuous mining. |
+| **Terrain / Collision** | Land, buildable | Zero water / cliff / obstacle collision across all 10 entity bounding boxes. |
+
+#### B. Fuel Priming & Bootstrap Buffer
+| Entity | Target Inventory | Fuel Type | Min Primer Count | Self-Sustaining Feed |
+| :--- | :--- | :--- | :---: | :--- |
+| `burner-mining-drill` #1 | `fuel` | `coal` / `wood` | $\ge 1$ (rec. 5) | No loop-back; runs on primer + buffer. Burn rate: 1 coal / 26.7s @ 150 kW. 5 coal = 133s run. |
+| `burner-mining-drill` #2 | `fuel` | `coal` / `wood` | $\ge 1$ (rec. 5) | Same as drill #1. |
+| `burner-inserter` | `fuel` | `coal` | $\ge 1$ | **Yes**; self-fuels automatically from coal on incoming belt when energy drops. |
+| `wooden-chest` | `chest` | N/A | 0 | Destination container for produced coal. |
+
+#### C. Numeric Holdout Acceptance Matrix (60s Window = 3600 Ticks)
+* **Nominal Theoretical Production**:
+  - Drill mining speed = $0.25\text{ items/s}$.
+  - 2 drills = $0.50\text{ coal/s} \times 60\text{s} = 30\text{ coal/window}$.
+  - Burner inserter consumption = $\sim 0.5 - 1.0\text{ coal/window}$ (self-fueling).
+  - Theoretical net deposit to chest = $29\text{ coal/window}$.
+* **Audit Acceptance Thresholds**:
+  | Metric Key | Operator | Threshold Value | Failure Meaning |
+  | :--- | :---: | :---: | :--- |
+  | `layout_intact` | `==` | `true` | Entity destroyed, decommissioned, or missing. |
+  | `entity_count` | `==` | `10` | Exact match with catalog manifest. |
+  | `active_drills` | `==` | `2` | Drill status $\ne$ `working` (out of fuel or blocked output). |
+  | `coal_gained` (per 60s window) | $\ge$ | **$20$** | Throughput choked, belt jam, or fuel starvation. |
+  | `last_window.coal_gained` | $\ge$ | **$20$** | **Terminal holdout rule**: Must sustain $\ge 20$ in final window. |
+
+---
+
+### 8.3. Blueprint 2: `bp-985eb5fc230538b4` — Steam Power Column (1:2)
+
+* **Schema Pattern ID**: `bp-985eb5fc230538b4`
+* **Entity Manifest (5 total)**:
+  - `boiler`: 1
+  - `steam-engine`: 2
+  - `burner-inserter`: 1
+  - `iron-chest`: 1
+* **Relative Centers Span**: `[min_x: 0, min_y: 0]` to `[max_x: 0.0, max_y: 11.0]`.
+
+#### A. Ground, Fluid & Grid Connection Contracts
+| Requirement | Specification | Enforcement / Verification |
+| :--- | :--- | :--- |
+| **Terrain** | Land, buildable | 100% dry land under boiler (3x2), steam engines (3x5 x 2), inserter, chest. |
+| **Fluid Source Input** | `water` | Boiler input port connected to offshore supply / pipe network. |
+| **Water Supply Flow** | $\ge 60\text{ fluid/s}$ | Boiler maximum consumption rate at full 1.8 MW output = 60 water/s. |
+| **Water Temperature** | $\le 25^\circ\text{C}$ (ambient) | Native fresh water input. |
+| **Electric Network Link** | `electric-network` | Small/medium electric pole covering steam engine connection boxes. |
+
+#### B. Fuel Priming & Bootstrap Buffer
+| Entity | Target Inventory | Fuel Type | Min Primer Count | Consumption Dynamics |
+| :--- | :--- | :--- | :---: | :--- |
+| `iron-chest` | `chest` | `coal` | $\ge 50$ | Fuel depot for burner inserter. 50 coal sustains 1.8 MW full load for 111 seconds. |
+| `burner-inserter` | `fuel` | `coal` | $\ge 1$ | Grabs coal from `iron-chest`, feeds boiler fuel box; self-fuels from chest. |
+| `boiler` | `fuel` | `coal` | $\ge 5$ | Initial fuel buffer. Burn rate: 1.8 MW / 4 MJ = 0.45 coal/s = 27 coal / 60s window. |
+
+#### C. Numeric Holdout Acceptance Matrix (60s Window = 3600 Ticks)
+* **Nominal Steam & Power Capacity**:
+  - Boiler steam output: $60\text{ steam/s} @ 165^\circ\text{C}$.
+  - Steam engine steam consumption: $30\text{ steam/s}$ each $\times 2 = 60\text{ steam/s}$.
+  - Power generation: $900\text{ kW}$ each $\times 2 = 1800\text{ kW} = 1.80\text{ MW}$.
+* **Audit Acceptance Thresholds**:
+  | Metric Key | Operator | Threshold Value | Failure Meaning |
+  | :--- | :---: | :---: | :--- |
+  | `layout_intact` | `==` | `true` | Entity missing or destroyed. |
+  | `entity_count` | `==` | `5` | Exact match with catalog manifest. |
+  | `boiler_temperature` | $\ge$ | **$165.0^\circ\text{C}$** | Insufficient heat; lack of fuel or water flow stall. |
+  | `active_steam_engines` | `==` | `2` | Engines not connected or starving for steam. |
+  | `power_capacity_mw` | $\ge$ | **$1.80$** | Network capacity below nominal 2-engine rating. |
+  | `boiler_fuel_remaining` | $>$ | `0` | Fuel ran dry during window. |
+  | `last_window.power_capacity_mw` | $\ge$ | **$1.80$** | **Terminal holdout rule**: Generator capacity sustained throughout final window. |
+  | `last_window.boiler_temperature`| $\ge$ | **$165.0^\circ\text{C}$** | No heat decay in terminal window. |
+

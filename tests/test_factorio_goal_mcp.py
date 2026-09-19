@@ -117,7 +117,7 @@ class GoalMCPTest(unittest.IsolatedAsyncioTestCase):
                             self.assertEqual("working", p["entities"][0]["status_name"])
                             p = await call("observe", {"view": "nearby"}, ["snapshot"])
                             self.assertEqual(64, seen[-1]["limit"])
-                            self.assertEqual([0, 0], p["machines"][0]["at"])
+                            self.assertEqual([0, 0], p["machines"]["stone-furnace"][0]["at"])
                             self.assertEqual([], p["issues"])
                             p = await call("observe", {"view": "patterns"}, [])
                             self.assertEqual(pattern_id, p["patterns"][0]["pattern_id"])

@@ -13,6 +13,9 @@ QUIET = {"working", "normal", None}
 # Flow states: backpressure or idle between items. Shown on the row, not raised as issues.
 WAITING = {"waiting_for_space_in_destination", "waiting_for_source_items", "full_output",
            "waiting_to_launch_rocket", "waiting_for_target_to_be_built"}
+# Flow states are frequent and long: short aliases (documented in MCP.md).
+SHORT = {"waiting_for_space_in_destination": "blocked", "waiting_for_source_items": "idle",
+         "full_output": "full"}
 # Direction carries no meaning for these; omit it.
 NO_DIRECTION = {"electric-pole", "container", "pipe", "furnace", "lab", "logistic-container"}
 
@@ -52,10 +55,11 @@ def fluid(rows) -> str | None:
 
 def machine(e: dict) -> dict:
     row = {"name": e["name"], "at": [num(e["x"]), num(e["y"])]}
-    if e.get("type") not in NO_DIRECTION and e.get("direction") is not None:
-        row["dir"] = e["direction"]
+    d = e.get("direction")
+    if e.get("type") not in NO_DIRECTION and d is not None and (d or e.get("type") != "assembling-machine"):
+        row["dir"] = d
     if e.get("status_name") not in QUIET:
-        row["status"] = e["status_name"]
+        row["status"] = SHORT.get(e["status_name"], e["status_name"])
     if e.get("recipe"):
         row["recipe"] = e["recipe"]
     if e.get("belt_to_ground_type"):
@@ -97,8 +101,9 @@ def _span(a, b):
 
 def _run(name, cells, keys, direction=None) -> dict:
     rows = [cells[k] for k in keys]
-    run = {"name": name, "from": [num(keys[0][0]), num(keys[0][1])],
-           "to": [num(keys[-1][0]), num(keys[-1][1])], "len": len(keys)}
+    run = {"name": name, "from": [num(keys[0][0]), num(keys[0][1])]}
+    if len(keys) > 1:
+        run["to"] = [num(keys[-1][0]), num(keys[-1][1])]  # straight: len = |dx|+|dy|+1
     if direction is not None:
         run["dir"] = direction
     items = stock([i for r in rows for line in r.get("lines") or [] for i in
@@ -154,13 +159,55 @@ TYPE_ORDER = ["boiler", "generator", "offshore-pump", "mining-drill", "furnace",
               "pipe-to-ground", "container"]
 
 
+def arrays(rows: list[dict]) -> list[dict]:
+    """Identical rows (all fields but position) evenly spaced on one line -> one row with
+    n + step. Geometry stays exact: i-th = at + i*step."""
+    groups = defaultdict(list)
+    for r in rows:
+        key = tuple(sorted((k, str(v)) for k, v in r.items() if k != "at"))
+        groups[key].append(r)
+    out = []
+    for members in groups.values():
+        members.sort(key=lambda r: (r["at"][1], r["at"][0]))
+        left = members
+        for axis in (0, 1):  # rows along x first, then columns along y
+            lines = defaultdict(list)
+            for r in left:
+                lines[r["at"][1 - axis]].append(r)
+            left = []
+            for line in lines.values():
+                line.sort(key=lambda r: r["at"][axis])
+                i = 0
+                while i < len(line):
+                    j = i + 1
+                    step = line[j]["at"][axis] - line[i]["at"][axis] if j < len(line) else None
+                    while j < len(line) and line[j]["at"][axis] - line[j - 1]["at"][axis] == step:
+                        j += 1
+                    if j - i >= 3 or (axis == 1 and j - i >= 2):
+                        row = dict(line[i], n=j - i)
+                        row["step"] = [num(step), 0] if axis == 0 else [0, num(step)]
+                        out.append(row)
+                    else:
+                        left += line[i:j]
+                    i = j
+        out += left
+    out.sort(key=lambda r: (r["at"][1], r["at"][0]))
+    return out
+
+
+def _by_name(rows: list[dict]) -> dict:
+    out = defaultdict(list)
+    for r in rows:
+        r = dict(r)
+        out[r.pop("name")].append(r)
+    return dict(out)
+
+
 def summarize(rows: list[dict]) -> dict:
-    counts: dict[str, int] = defaultdict(int)
     run_rows, machines, poles = [], [], defaultdict(list)
     for e in rows:
         if not isinstance(e, dict) or "x" not in e:
             continue
-        counts[e["name"]] += 1
         t = e.get("type")
         if t in RUN_TYPES:
             run_rows.append(e)
@@ -171,11 +218,17 @@ def summarize(rows: list[dict]) -> dict:
     rank = {t: i for i, t in enumerate(TYPE_ORDER)}
     machines.sort(key=lambda e: (rank.get(e.get("type"), len(rank)), e["name"], e["y"], e["x"]))
     compact = [machine(e) for e in machines]
-    issues = [m for m in compact if m.get("status") not in WAITING and "status" in m]
-    rest = [m for m in compact if m.get("status") in WAITING or "status" not in m]
+    waiting = set(SHORT.values()) | WAITING
+    issues = [m for m in compact if "status" in m and m["status"] not in waiting]
+    rest = [m for m in compact if "status" not in m or m["status"] in waiting]
     runs_out = runs(run_rows)
     issues += [dict(r, kind="run") for r in runs_out if "status" in r]
     for name in poles:
         poles[name].sort(key=lambda p: (p[1], p[0]))
-    return {"counts": dict(sorted(counts.items())), "issues": issues, "machines": rest,
-            "runs": [r for r in runs_out if "status" not in r], "poles": dict(poles)}
+    ordered = {}
+    for m in rest:  # keep TYPE_ORDER between names
+        ordered.setdefault(m["name"], []).append(m)
+    return {"issues": issues,
+            "machines": {n: [{k: v for k, v in r.items() if k != "name"} for r in arrays(ms)]
+                         for n, ms in ordered.items()},
+            "runs": _by_name(r for r in runs_out if "status" not in r), "poles": dict(poles)}

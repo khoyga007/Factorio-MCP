@@ -16,29 +16,30 @@ def belt(x, y, d, coal=4):
 class PerceptionTest(unittest.TestCase):
     def test_twelve_pipes_collapse_to_one_run(self):
         s = summarize([pipe(-55.5 + i, 18.5) for i in range(12)])
-        self.assertEqual([{"name": "pipe", "from": [-55.5, 18.5], "to": [-44.5, 18.5],
-                           "len": 12, "fluid": "water:100"}], s["runs"])
-        self.assertEqual({"pipe": 12}, s["counts"])
+        self.assertEqual({"pipe": [{"from": [-55.5, 18.5], "to": [-44.5, 18.5], "fluid": "water:100"}]},
+                         s["runs"])
 
     def test_pipe_corner_splits_and_keeps_every_tile(self):
         rows = [pipe(0.5 + i, 0.5) for i in range(3)] + [pipe(2.5, 1.5 + i) for i in range(2)]
         s = summarize(rows)
-        self.assertEqual(5, sum(r["len"] for r in s["runs"]))
-        self.assertIn({"name": "pipe", "from": [2.5, 1.5], "to": [2.5, 2.5], "len": 2,
-                       "fluid": "water:100"}, s["runs"])
+        tiles = sum(abs(r["to"][0] - r["from"][0]) + abs(r["to"][1] - r["from"][1]) + 1 if "to" in r else 1
+                    for r in s["runs"]["pipe"])
+        self.assertEqual(5, tiles)
+        self.assertIn({"from": [2.5, 1.5], "to": [2.5, 2.5], "fluid": "water:100"}, s["runs"]["pipe"])
 
     def test_belt_run_from_is_upstream(self):
-        north = summarize([belt(1.5, 5.5 - i, 0) for i in range(4)])["runs"][0]
+        north = summarize([belt(1.5, 5.5 - i, 0) for i in range(4)])["runs"]["transport-belt"][0]
         self.assertEqual(([1.5, 5.5], [1.5, 2.5], 0, "coal:16"),
                          (north["from"], north["to"], north["dir"], north["items"]))
-        west = summarize([belt(5.5 - i, 1.5, 12) for i in range(3)])["runs"][0]
+        west = summarize([belt(5.5 - i, 1.5, 12) for i in range(3)])["runs"]["transport-belt"][0]
         self.assertEqual(([5.5, 1.5], [3.5, 1.5]), (west["from"], west["to"]))
-        south = summarize([belt(1.5, 0.5 + i, 8) for i in range(2)])["runs"][0]
+        south = summarize([belt(1.5, 0.5 + i, 8) for i in range(2)])["runs"]["transport-belt"][0]
         self.assertEqual(([1.5, 0.5], [1.5, 1.5]), (south["from"], south["to"]))
 
     def test_opposite_belts_on_one_line_stay_separate(self):
         s = summarize([belt(0.5, 0.5, 4), belt(1.5, 0.5, 4), belt(2.5, 0.5, 12)])
-        self.assertEqual(sorted([2, 1]), sorted(r["len"] for r in s["runs"]))
+        self.assertEqual([{"from": [0.5, 0.5], "to": [1.5, 0.5], "dir": 4, "items": "coal:8"},
+                          {"from": [2.5, 0.5], "dir": 12, "items": "coal:4"}], s["runs"]["transport-belt"])
 
     def test_faults_raised_waiting_kept_on_row(self):
         rows = [
@@ -53,7 +54,7 @@ class PerceptionTest(unittest.TestCase):
         self.assertEqual(["assembling-machine-1", "lab"], [m["name"] for m in s["issues"]])
         self.assertEqual("in", [k for k in s["issues"][1] if k == "in"][0])
         self.assertNotIn("dir", s["issues"][1])
-        self.assertEqual("waiting_for_space_in_destination", s["machines"][0]["status"])
+        self.assertEqual("blocked", s["machines"]["inserter"][0]["status"])
 
     def test_rounding_and_poles(self):
         rows = [{"name": "boiler", "type": "boiler", "x": -60.5, "y": 26, "direction": 8,
@@ -62,9 +63,25 @@ class PerceptionTest(unittest.TestCase):
                             {"index": 2, "name": "steam", "amount": 199.82826709747314, "temperature": 165}]},
                 {"name": "small-electric-pole", "type": "electric-pole", "x": -57.5, "y": 30.5, "direction": 0}]
         s = summarize(rows)
-        self.assertEqual({"name": "boiler", "at": [-60.5, 26], "dir": 8, "fuel": "coal:5",
-                          "fluid": "water:200 steam:199.8@165"}, s["machines"][0])
+        self.assertEqual([{"at": [-60.5, 26], "dir": 8, "fuel": "coal:5",
+                           "fluid": "water:200 steam:199.8@165"}], s["machines"]["boiler"])
         self.assertEqual({"small-electric-pole": [[-57.5, 30.5]]}, s["poles"])
+
+    def test_evenly_spaced_identical_machines_become_array(self):
+        rows = [{"name": "burner-inserter", "type": "inserter", "x": -69.5 + 2 * i, "y": 22.5, "direction": 8,
+                 "status_name": "waiting_for_space_in_destination", "fuel": [{"name": "coal", "count": 1}]}
+                for i in range(5)]
+        rows.append(dict(rows[0], x=-60.5, y=24.5, direction=0))
+        s = summarize(rows)["machines"]["burner-inserter"]
+        self.assertEqual([{"at": [-69.5, 22.5], "dir": 8, "status": "blocked", "fuel": "coal:1",
+                           "n": 5, "step": [2, 0]},
+                          {"at": [-60.5, 24.5], "dir": 0, "status": "blocked", "fuel": "coal:1"}], s)
+
+    def test_gap_in_spacing_breaks_array(self):
+        rows = [{"name": "stone-furnace", "type": "furnace", "x": x, "y": 21, "direction": 0,
+                 "status_name": "working"} for x in (-69, -65, -61, -53)]
+        s = summarize(rows)["machines"]["stone-furnace"]
+        self.assertEqual([{"at": [-69, 21], "n": 3, "step": [4, 0]}, {"at": [-53, 21]}], s)
 
 
 if __name__ == "__main__":

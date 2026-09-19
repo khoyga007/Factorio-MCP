@@ -1,0 +1,100 @@
+{
+ "source": "engine test only: products_finished (drill->furnace) + research_units (powered lab); lab site exact x=-20,y=-22, test pre-places EEI+pole west of it",
+ "furnace": {
+  "design": [
+   {
+    "name": "burner-mining-drill",
+    "x": 1,
+    "y": 2,
+    "direction": 0
+   },
+   {
+    "name": "stone-furnace",
+    "x": 1,
+    "y": 0
+   }
+  ],
+  "contract": {
+   "site": {
+    "mode": "search",
+    "rotations": [
+     0
+    ]
+   },
+   "resources": [
+    {
+     "entity": "burner-mining-drill",
+     "resource": "iron-ore",
+     "min_per_tile": 100,
+     "min_total": 400
+    }
+   ],
+   "primer": [
+    {
+     "entity": "burner-mining-drill",
+     "item": "coal",
+     "count": 5
+    },
+    {
+     "entity": "stone-furnace",
+     "item": "coal",
+     "count": 3
+    }
+   ],
+   "verify": {
+    "window_ticks": 1800,
+    "max_windows": 3,
+    "metrics": [
+     {
+      "key": "plates",
+      "kind": "products_finished",
+      "entity": "stone-furnace",
+      "min": 3
+     }
+    ]
+   }
+  }
+ },
+ "lab": {
+  "design": [
+   {
+    "name": "lab",
+    "x": 1.5,
+    "y": 1.5
+   }
+  ],
+  "contract": {
+   "site": {
+    "mode": "exact",
+    "rotations": [
+     0
+    ]
+   },
+   "connect": [
+    {
+     "entity": "lab",
+     "power": true
+    }
+   ],
+   "primer": [
+    {
+     "entity": "lab",
+     "item": "automation-science-pack",
+     "count": 40
+    }
+   ],
+   "verify": {
+    "window_ticks": 1800,
+    "max_windows": 3,
+    "metrics": [
+     {
+      "key": "units",
+      "kind": "research_units",
+      "entity": "lab",
+      "min": 1.5
+     }
+    ]
+   }
+  }
+ }
+}

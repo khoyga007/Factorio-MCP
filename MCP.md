@@ -52,7 +52,10 @@ Nguồn: [MCP Python SDK 1.27.1](https://github.com/modelcontextprotocol/python-
    executor, same path for every pattern. Contract (agent's, else catalog's):
    site search/exact + rotations, resource rules, primer, feeds, holdout
    metrics. Job `exec-N`. Spec: `CONTRACT.md`.
-6. `report(job_id)` đọc audit của các pattern. Blueprint và receipt chi tiết
+6. Research: `observe(view="research")`, `achieve(goal="research", tech)`.
+   Chụp layout đã xây: `achieve(goal="capture", area=[x1,y1,x2,y2])`. Spec:
+   `CONTRACT.md` §Research.
+7. `report(job_id)` đọc audit của các pattern. Blueprint và receipt chi tiết
    nằm trong `script-output/starter/`, `script-output/coal/`,
    `script-output/smelting/` hoặc `script-output/executor/`.
 

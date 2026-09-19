@@ -58,13 +58,22 @@ Cost = place items of every entity + primer item × matching entity count. Plan 
 
 Re-check site + stock right before build. Exact landing of native `build_blueprint` found by a ghost probe (ghosts built then destroyed, zero items), then `blueprint_import` direct mode at the corrected position with rotation. Every entity must then sit at its planned position/direction or `import-geometry-mismatch`. Primer inserted from treasury (receipt per insert). Primer is the LAST executor mutation.
 
+## Research (`control.lua` handle_research)
+
+- `observe(view="research")` → current, progress, `queue`, `labs` {status→count on surface}, `available` (enabled, unresearched, prerequisites met).
+- `achieve(goal="research", tech)` → `force.add_research`: starts or appends to queue; 2.0 accepts a tech whose prerequisites are researched OR already queued. Refused → `cannot-queue` + `missing_prerequisites`, `current`. Unknown → `technology-not-found`.
+- `achieve(goal="capture", area=[x1,y1,x2,y2], contract?)` → blueprint_export of a built area → catalog `captured` + `layout` (design rows). Resubmit via build_design/reuse_blueprint to verify.
+- Engine PASS 2026-09-19 tests/verify_metrics_runtime.py: queue automation→logistics, unknown refused; drill→furnace products_finished 7/window verified; 1 powered lab 40 packs research_units 9.8/window ≤ speed cap, verified.
+
 ## Holdout audit (PORTING §5, stricter than FLE)
 
 - After primer: wait `settle_ticks`, then windows of `window_ticks`. No executor action in windows except declared `feeds`.
 - Samples every 60 ticks. Layout broken (entity missing/moved/rotated) → `needs-attention: layout-broken:<i>`.
 - Metric kinds (all compare `value >= min`; `min` required unless `load_fraction`):
   - `container_gain` {entity,item} (item required): item count at window end − start, summed over matching chests. Net: feed withdrawals count against it.
-  - `working_count` {entity, fraction=0.8}: number of matching entities with status `working` in ≥ fraction of samples.
+  - `working_count` {entity, fraction=0.8}: number of matching entities with status `working` in ≥ fraction of samples. Wrong for rate-limited consumers: stone furnace 0.3125 ore/s > burner drill 0.25 → idles ~20%, fails 0.8. Use `products_finished`.
+  - `products_finished` {entity furnace|assembling-machine}: Σ `products_finished` window end − start over matching entities. Crafts, not item count (1 craft may yield >1).
+  - `research_units` {entity lab}: Σ over job labs with status `working` of Δtick × researching_speed × (1+force.laboratory_speed_modifier) × (1+module speed) / current research_unit_energy. Own labs only (force research_progress would count every lab on the map — first draft did, 10.6 units/window from 1 lab, dropped). Estimate at 60-tick sample grain.
   - `electric_output_mw` {entity}: mean over samples of Σ `energy_generated_last_tick`×60 /1e6. Real output, zero without load. Alt to `min`: `load_fraction` (+opt `capacity_mw`) → min = load_fraction×min(`declared_load_mw`, capacity_mw); top-level `declared_load_mw` then required.
   - `fluid_temperature` {entity, fluid="steam"}: min over samples of max fluid temperature in entity fluidboxes (0 if absent).
   - `fuel_min` {entity}: min over samples of fuel-inventory items + 1 if still burning.

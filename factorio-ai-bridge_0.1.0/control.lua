@@ -1,5 +1,5 @@
 local BRIDGE_VERSION = 1
-local BRIDGE_BUILD = "2026-09-19-water-recall"
+local BRIDGE_BUILD = "2026-09-19-research-metrics"
 local MAX_PACKET_BYTES = 32768
 local MAX_RADIUS = 32
 local MAX_ENTITIES = 64
@@ -1143,12 +1143,19 @@ local function handle_research(nonce, request)
     if not tech then return response(nonce, false, {error = "technology-required"}) end
     if tech.researched then return response(nonce, false, {error = "already-researched"}) end
     if not tech.enabled then return response(nonce, false, {error = "technology-disabled"}) end
-    local current = force.current_research
-    if current and current.name ~= name then
-      return response(nonce, false, {error = "research-in-progress", current = current.name})
+    -- Busy lab queue: append instead of refusing (2.0 research queue).
+    local queued = false
+    for _, t in pairs(force.research_queue or {}) do
+      if t.name == name then queued = true end
     end
-    if not current and not force.add_research(name) then
-      return response(nonce, false, {error = "prerequisites-not-met"})
+    if not queued and not force.add_research(name) then
+      local missing = {}
+      for pname, pre in pairs(tech.prerequisites) do
+        if not pre.researched then missing[#missing + 1] = pname end
+      end
+      table.sort(missing)
+      return response(nonce, false, {error = "cannot-queue", missing_prerequisites = missing,
+        current = force.current_research and force.current_research.name or nil})
     end
   end
   local current = force.current_research
@@ -1159,8 +1166,30 @@ local function handle_research(nonce, request)
       ingredients[#ingredients + 1] = {name = ingredient.name, amount = ingredient.amount}
     end
   end
+  local queue = {}
+  for _, t in pairs(force.research_queue or {}) do queue[#queue + 1] = t.name end
+  local labs = {}
+  local surface = surface_for(request)
+  if surface then
+    for _, lab in pairs(surface.find_entities_filtered {type = "lab", force = force}) do
+      local key = entity_status_name(lab.status) or "unknown"
+      labs[key] = (labs[key] or 0) + 1
+    end
+  end
+  local available = {}
+  if request.available then
+    for tname, t in pairs(force.technologies) do
+      if t.enabled and not t.researched then
+        local ready = true
+        for _, pre in pairs(t.prerequisites) do if not pre.researched then ready = false break end end
+        if ready then available[#available + 1] = tname end
+      end
+    end
+    table.sort(available)
+  end
   return response(nonce, true, {
     action = "research", tick = game.tick, force = force.name,
+    queue = queue, labs = labs, available = request.available and available or nil,
     current = current and current.name or nil,
     progress = current and force.research_progress or nil,
     requested = name,

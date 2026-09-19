@@ -64,12 +64,14 @@ def observe(view: str = "situation",
             radius: Annotated[float, Field(ge=1, le=2048, allow_inf_nan=False)] = 16,
             resource: str | None = None, pattern_id: str | None = None,
             offset: Annotated[int, Field(ge=0)] = 0) -> CallToolResult:
-    """situation|deposits|nearby|water|patterns(+pattern_id: entities). offset pages (next_offset).
+    """situation|deposits|nearby|water|research|patterns(+pattern_id: entities). offset pages (next_offset).
     water: pump spots nearest x,y, radius<=2048 (others <=32), dir+output, blocked+obstacles."""
     if (x is None) != (y is None):
         return _result({"ok": False, "error": "x-and-y-required-together"}, True)
-    if view not in {"situation", "deposits", "nearby", "patterns", "water"}:
+    if view not in {"situation", "deposits", "nearby", "patterns", "water", "research"}:
         return _result({"ok": False, "error": "unknown-view"}, True)
+    if view == "research":
+        return _send({"action": "research", "surface": surface, "available": True}, 5)
     if view == "water":
         body = {"action": "water_sites", "surface": surface, "radius": max(radius, 8), "offset": offset}
         if x is not None:
@@ -120,16 +122,40 @@ def achieve(goal: str,
             surface: str = "nauvis", force: str = "player",
             dry_run: bool = False, pattern_id: str | None = None,
             contract: dict | None = None, design: list[dict] | None = None,
-            area: list[float] | None = None, force_active: bool = False) -> CallToolResult:
+            area: list[float] | None = None, force_active: bool = False,
+            tech: str | None = None) -> CallToolResult:
     """Goals: first_iron_plates, first_copper_plates, coal_stockpile, iron_smelting_row,
     reuse_blueprint(pattern_id), build_design(design=[{name,x,y,direction?}] centers, dir 0N 4E 8S
     12W), recall(area=[x1,y1,x2,y2] or design=[{name,x,y}]; own entities+contents to bag;
-    force_active overrides live job). contract: see CONTRACT.md."""
+    force_active overrides live job), capture(area -> catalog), research(tech; queued if busy).
+    contract: see CONTRACT.md."""
     if (x is None) != (y is None) or (input_x is None) != (input_y is None):
         return _result({"ok": False, "error": "coordinate-pairs-required"}, True)
     if goal not in {"first_iron_plates", "first_copper_plates", "coal_stockpile",
-                    "iron_smelting_row", "reuse_blueprint", "build_design", "recall"}:
+                    "iron_smelting_row", "reuse_blueprint", "build_design", "recall",
+                    "capture", "research"}:
         return _result({"ok": False, "error": "unknown-goal"}, True)
+    if (tech is not None) != (goal == "research"):
+        return _result({"ok": False, "error": "tech-only-for-research"}, True)
+    if goal == "research":
+        return _send({"action": "research", "name": tech, "start": True, "force": force,
+                      "surface": surface}, 5)
+    if goal == "capture":
+        if area is None or len(area) != 4:
+            return _result({"ok": False, "error": "area-is-x1-y1-x2-y2"}, True)
+        try:
+            p = request({"action": "blueprint_export", "surface": surface, "force": force,
+                         "x1": area[0], "y1": area[1], "x2": area[2], "y2": area[3]},
+                        host=os.environ.get("FACTORIO_HOST", DEFAULT_HOST),
+                        port=int(os.environ.get("FACTORIO_PORT", DEFAULT_PORT)), timeout=5)
+            if not p.get("ok"):
+                return _result({"ok": False, **_fields(p, "error", "entities")}, True)
+            saved = record_blueprint(p["blueprint"], state="captured", source="capture",
+                                     contract=contract)
+        except (OSError, ValueError, KeyError, TimeoutError, json.JSONDecodeError) as exc:
+            return _result({"ok": False, "error": str(exc)}, True)
+        return _result({"ok": True, "goal": goal, **saved,
+                        "layout": pattern_entities(p["blueprint"])})
     if goal == "recall":
         if pattern_id or contract or target_per_minute is not None or x is not None or input_x is not None:
             return _result({"ok": False, "error": "recall-takes-area-or-design-only"}, True)
@@ -145,7 +171,7 @@ def achieve(goal: str,
             return _result({"ok": False, "error": "area-or-design-required"}, True)
         return _send(body, 15)
     if area is not None or force_active:
-        return _result({"ok": False, "error": "area-only-for-recall"}, True)
+        return _result({"ok": False, "error": "area-only-for-recall-or-capture"}, True)
     if goal in {"reuse_blueprint", "build_design"} and (
             target_per_minute is not None or input_x is not None):
         return _result({"ok": False, "error": "blueprint-goal-does-not-use-rate-or-input"}, True)

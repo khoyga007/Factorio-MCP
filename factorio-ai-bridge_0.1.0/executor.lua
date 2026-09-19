@@ -5,6 +5,7 @@ local M = {}
 local MAX_CHECKS, MAX_WINDOWS, MIN_WINDOWS = 20000, 8, 2
 local ROTATIONS = {[0]=true,[4]=true,[8]=true,[12]=true}
 local METRICS = {container_gain=true, working_count=true, electric_output_mw=true,
+  products_finished=true, research_units=true,
   fluid_temperature=true, fuel_min=true}
 
 local function finite(n) return type(n)=="number" and n==n and math.abs(n)<1000000 end
@@ -240,6 +241,11 @@ local function parse_contract(raw,r)
     if m.kind=="container_gain" and (type(m.item)~="string" or not prototypes.item[m.item]) then
       return nil,"invalid-metric-item"..tag
     end
+    local etype=prototypes.entity[m.entity].type
+    if m.kind=="products_finished" and etype~="furnace" and etype~="assembling-machine" then
+      return nil,"invalid-metric-entity"..tag
+    end
+    if m.kind=="research_units" and etype~="lab" then return nil,"invalid-metric-entity"..tag end
     if m.kind=="fluid_temperature" and m.fluid~=nil and not prototypes.fluid[m.fluid] then
       return nil,"invalid-metric-fluid"..tag
     end
@@ -410,6 +416,27 @@ function M.attach(ctx)
           end
         end
         acc.min=math.min(acc.min or math.huge,best)
+      elseif m.kind=="research_units" then
+        -- Units these labs researched: working ticks x lab speed / unit energy. Force progress would
+        -- also count labs outside the job.
+        local tick=game.tick
+        if acc.t then
+          local dt=tick-acc.t
+          for _,e in ipairs(es) do
+            if e.name==m.entity and e.status==defines.entity_status.working then
+              local cur=e.force.current_research
+              local energy=cur and cur.research_unit_energy
+              if energy and energy>0 then
+                local speed=(e.prototype.get_researching_speed and e.prototype.get_researching_speed(e.quality)
+                  or e.prototype.researching_speed or 1)*(1+e.force.laboratory_speed_modifier)
+                local ok,fx=pcall(function() return e.effects end)
+                if ok and fx and fx.speed then speed=speed*(1+fx.speed) end
+                acc.sum=(acc.sum or 0)+dt*speed/energy
+              end
+            end
+          end
+        end
+        acc.t=tick
       elseif m.kind=="fuel_min" then
         for _,e in ipairs(es) do
           if e.name==m.entity then
@@ -434,11 +461,19 @@ function M.attach(ctx)
     return n
   end
 
+  local function finished(es,m)
+    local n=0
+    for _,e in ipairs(es) do if e.name==m.entity then n=n+(e.products_finished or 0) end end
+    return n
+  end
+
   local function open_window(j,es)
     j.window={start=game.tick,samples=0,acc={},base={}}
     for _,m in ipairs(j.metrics) do
       j.window.acc[m.key]={}
       if m.kind=="container_gain" then j.window.base[m.key]=container_count(es,m) end
+      if m.kind=="products_finished" then j.window.base[m.key]=finished(es,m) end
+      if m.kind=="research_units" then j.window.acc[m.key].t=game.tick end
     end
   end
 
@@ -447,6 +482,8 @@ function M.attach(ctx)
     for _,m in ipairs(j.metrics) do
       local acc,v=w.acc[m.key],0
       if m.kind=="container_gain" then v=container_count(es,m)-w.base[m.key]
+      elseif m.kind=="products_finished" then v=finished(es,m)-w.base[m.key]
+      elseif m.kind=="research_units" then v=acc.sum or 0
       elseif m.kind=="working_count" then
         for _,n in pairs(acc) do if n>=(m.fraction or 0.8)*w.samples then v=v+1 end end
       elseif m.kind=="electric_output_mw" then v=(acc.sum or 0)/math.max(w.samples,1)

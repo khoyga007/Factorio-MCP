@@ -12,6 +12,12 @@ Engine PASS 2026-09-19 (tests/verify_design_runtime.py, tests/designs/coal-drill
 
 `report(exec-N)` → `self_sustaining` = last window `feed_moved`==0. Catalog upgrade on verified: self-sustaining → `verified`, fed → `built` only.
 
+## Field actions (live play, `field.lua`)
+
+- `observe(view="water", x?, y?, radius≤2048, offset)` → action `water_sites`. Scans every generated chunk in radius holding fluid tiles (not the capped survey index), nearest first. Shore spots tried ×4 directions, center snapped to pump footprint. `candidates` (≤12/page, `next_offset`): `can_place_entity` manual true → `{x,y,direction,output,distance}`; `output` = tile the pump's pipe must occupy (from prototype pipe_connections; engine-checked: pipe there connects). `blocked` (≤12): placeable only with `forced` ghost check → `obstacles` [{name,x,y}] trees/rocks/cliffs to clear by hand. `clusters` (≤12): chunk, tiles, per-tile-type counts. Budget 40000 checks → `truncated`.
+- `achieve(goal="recall", area=[x1,y1,x2,y2] (≤64) | design=[{name,x,y}], dry_run, force_active)` → action `recall`. Own force only, minable, no characters; trees/rocks never. Each entity `mine`d into a buffer then player bag: contents come along (chest, furnace, belt items). Bag full → spilled on ground, listed. Refuses `active-job:<id>` when a target sits in the layout of an executor job in preparing..auditing unless `force_active`. Reply: receipts per entity {items}, `delta` of bag.
+- Engine PASS 2026-09-19 tests/verify_field_runtime.py: pond + tree-lined shore → candidates on free shore, tree spots in blocked with obstacles, pump at candidate + pipe at output connects; recall chest(10 plates)+belt(1 coal)+furnace(7 ore)+inserter → exact delta, tree untouched, active job refused.
+
 ## Schema
 
 ```json

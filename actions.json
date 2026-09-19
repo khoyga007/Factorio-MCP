@@ -29,6 +29,8 @@
     "set_recipe":   { "client": "set-recipe", "required": ["recipe", "x", "y"], "optional": ["surface", "force"] },
     "research":     { "required": [], "optional": ["name", "start", "force"] },
     "insert":       { "required": ["item", "count", "x", "y"], "optional": ["surface", "force", "source"], "note": "input for lab/assembler/ammo-turret, chest storage, furnace source when requested, else fuel" },
-    "place":        { "required": ["name", "x", "y"], "optional": ["surface", "force", "direction", "dry_run", "type"], "note": "dry_run reports blockers; type input/output applies only to underground-belt" }
+    "place":        { "required": ["name", "x", "y"], "optional": ["surface", "force", "direction", "dry_run", "type"], "note": "dry_run reports blockers; type input/output applies only to underground-belt" },
+    "water_sites":  { "client": "water-sites", "required": [], "optional": ["surface", "x", "y", "radius", "offset"], "note": "offshore-pump spots nearest x,y + blocked spots with obstacles" },
+    "recall":       { "required": ["x1", "y1", "x2", "y2"], "optional": ["surface", "dry_run", "force_active"], "note": "mine own-force entities + contents into player bag; MCP also takes an entity list" }
   }
 }

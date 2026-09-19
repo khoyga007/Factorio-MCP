@@ -96,6 +96,20 @@ def ore_marks(name: str | None = None, offset: Offset = 0, limit: Limit = 50,
 
 
 @mcp.tool(annotations=READ)
+def water_sites(x: FiniteFloat | None = None, y: FiniteFloat | None = None, radius: float = 512,
+                offset: Offset = 0, surface: str = "nauvis") -> CallToolResult:
+    """Offshore-pump spots nearest x,y (default player), blocked spots with obstacles."""
+    return invoke("water-sites", **locals())
+
+
+@mcp.tool(annotations=WRITE)
+def recall(x1: FiniteFloat, y1: FiniteFloat, x2: FiniteFloat, y2: FiniteFloat,
+           surface: str = "nauvis", dry_run: bool = False, force_active: bool = False) -> CallToolResult:
+    """Mine own-force entities in an area (<=64) plus contents into the player bag."""
+    return invoke("recall", **locals())
+
+
+@mcp.tool(annotations=READ)
 def spec(kind: Literal["entity", "item", "recipe"], name: str | None = None,
          entity: str | None = None, force: str = "player") -> CallToolResult:
     """Read native prototype/recipe data, including fluid ports. Recipe accepts entity instead of name."""

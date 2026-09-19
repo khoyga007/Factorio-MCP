@@ -1,5 +1,5 @@
 local BRIDGE_VERSION = 1
-local BRIDGE_BUILD = "2026-09-19-live-fixes"
+local BRIDGE_BUILD = "2026-09-19-water-recall"
 local MAX_PACKET_BYTES = 32768
 local MAX_RADIUS = 32
 local MAX_ENTITIES = 64
@@ -1747,6 +1747,12 @@ local executor = require("executor").attach {
   import = handle_blueprint_import, craft = handle_craft, collect = handle_collect,
   mine = handle_mine, insert = handle_insert,
 }
+local field = require("field").attach {
+  state = bridge_state, response = response, inventory = treasury_inventory,
+  fluid_tiles = fluid_tile_names,
+}
+local function handle_water_sites(nonce, request) return field.water(nonce, request) end
+local function handle_recall(nonce, request) return field.recall(nonce, request) end
 local function handle_blueprint_run(nonce, request) return executor.start(nonce, request) end
 local function handle_blueprint_job(nonce, request) return executor.status(nonce, request) end
 local function handle_smelt_plan(nonce, request) return smelting.plan(nonce, request) end
@@ -1786,6 +1792,8 @@ HANDLERS = {
   coal_stockpile = handle_coal_stockpile,
   coal_status = handle_coal_status,
   place = handle_place,
+  recall = handle_recall,
+  water_sites = handle_water_sites,
 }
 
 local function on_packet(event)

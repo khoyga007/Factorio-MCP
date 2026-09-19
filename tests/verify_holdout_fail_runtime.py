@@ -18,7 +18,7 @@ def main():
     args = parser.parse_args()
     MOD.mkdir(parents=True, exist_ok=True)
     (MOD / "replica.lua").unlink(missing_ok=True)
-    for name in ("control.lua", "smelting.lua", "starter.lua", "coal.lua", "executor.lua", "info.json"):
+    for name in ("control.lua", "smelting.lua", "starter.lua", "coal.lua", "executor.lua", "field.lua", "info.json"):
         shutil.copy2(ROOT / "factorio-ai-bridge_0.1.0" / name, MOD / name)
     shutil.copy2(HERE / "test_holdout_fail_runtime.lua", MOD / "test_holdout_fail_runtime.lua")
     pattern = json.loads((ROOT / "blueprints/catalog/bp-f30d8a84af3098ee.json").read_text(encoding="utf-8"))

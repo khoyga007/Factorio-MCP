@@ -42,6 +42,17 @@ def _result(data: dict, error: bool = False) -> CallToolResult:
     )
 
 
+def _send(body: dict, timeout: float) -> CallToolResult:
+    try:
+        p = request(body, host=os.environ.get("FACTORIO_HOST", DEFAULT_HOST),
+                    port=int(os.environ.get("FACTORIO_PORT", DEFAULT_PORT)), timeout=timeout)
+    except (OSError, ValueError, TimeoutError) as exc:
+        return _result({"ok": False, "error": str(exc)}, True)
+    p.pop("nonce", None)
+    p.pop("v", None)
+    return _result(p, not p.get("ok", False))
+
+
 def _fields(source: dict, *names: str) -> dict:
     return {name: source[name] for name in names if name in source}
 
@@ -50,15 +61,22 @@ def _fields(source: dict, *names: str) -> dict:
 def observe(view: str = "situation",
             surface: str = "nauvis", x: FiniteFloat | None = None,
             y: FiniteFloat | None = None,
-            radius: Annotated[float, Field(ge=1, le=32, allow_inf_nan=False)] = 16,
+            radius: Annotated[float, Field(ge=1, le=2048, allow_inf_nan=False)] = 16,
             resource: str | None = None, pattern_id: str | None = None,
             offset: Annotated[int, Field(ge=0)] = 0) -> CallToolResult:
-    """Read situation, deposits, nearby objects, or saved blueprint patterns (+pattern_id: its entities).
-    deposits/nearby page by offset (next_offset in reply)."""
+    """situation|deposits|nearby|water|patterns(+pattern_id: entities). offset pages (next_offset).
+    water: pump spots nearest x,y, radius<=2048 (others <=32), dir+output, blocked+obstacles."""
     if (x is None) != (y is None):
         return _result({"ok": False, "error": "x-and-y-required-together"}, True)
-    if view not in {"situation", "deposits", "nearby", "patterns"}:
+    if view not in {"situation", "deposits", "nearby", "patterns", "water"}:
         return _result({"ok": False, "error": "unknown-view"}, True)
+    if view == "water":
+        body = {"action": "water_sites", "surface": surface, "radius": max(radius, 8), "offset": offset}
+        if x is not None:
+            body.update(x=x, y=y)
+        return _send(body, 60)
+    if radius > 32:
+        return _result({"ok": False, "error": "radius-over-32-only-for-water"}, True)
     if view == "patterns" and pattern_id:
         try:
             pattern = load_pattern(pattern_id)
@@ -101,22 +119,33 @@ def achieve(goal: str,
             input_x: FiniteFloat | None = None, input_y: FiniteFloat | None = None,
             surface: str = "nauvis", force: str = "player",
             dry_run: bool = False, pattern_id: str | None = None,
-            contract: dict | None = None, design: list[dict] | None = None) -> CallToolResult:
-    """Choose first_iron_plates, first_copper_plates, coal_stockpile, iron_smelting_row, reuse_blueprint, build_design.
-
-    build_design: design=[{name,x,y,direction?,recipe?,type?}] entity centers (odd size .5,
-    even size integer), direction 0N 4E 8S 12W; saved as pattern state designed, then run like
-    reuse_blueprint.
-
-    reuse_blueprint takes an optional contract (else the pattern's saved one): site{mode,rotations,
-    clearance}, resources[{entity,resource,min_per_tile,min_total}], primer[{entity,item,count}],
-    feeds[{from,to,item,keep}], verify{window_ticks,max_windows,metrics[{key,kind,entity,min}]}.
-    See CONTRACT.md."""
+            contract: dict | None = None, design: list[dict] | None = None,
+            area: list[float] | None = None, force_active: bool = False) -> CallToolResult:
+    """Goals: first_iron_plates, first_copper_plates, coal_stockpile, iron_smelting_row,
+    reuse_blueprint(pattern_id), build_design(design=[{name,x,y,direction?}] centers, dir 0N 4E 8S
+    12W), recall(area=[x1,y1,x2,y2] or design=[{name,x,y}]; own entities+contents to bag;
+    force_active overrides live job). contract: see CONTRACT.md."""
     if (x is None) != (y is None) or (input_x is None) != (input_y is None):
         return _result({"ok": False, "error": "coordinate-pairs-required"}, True)
     if goal not in {"first_iron_plates", "first_copper_plates", "coal_stockpile",
-                    "iron_smelting_row", "reuse_blueprint", "build_design"}:
+                    "iron_smelting_row", "reuse_blueprint", "build_design", "recall"}:
         return _result({"ok": False, "error": "unknown-goal"}, True)
+    if goal == "recall":
+        if pattern_id or contract or target_per_minute is not None or x is not None or input_x is not None:
+            return _result({"ok": False, "error": "recall-takes-area-or-design-only"}, True)
+        body = {"action": "recall", "surface": surface, "force": force,
+                "dry_run": dry_run, "force_active": force_active}
+        if area is not None:
+            if len(area) != 4:
+                return _result({"ok": False, "error": "area-is-x1-y1-x2-y2"}, True)
+            body.update(x1=area[0], y1=area[1], x2=area[2], y2=area[3])
+        elif design:
+            body["entities"] = design
+        else:
+            return _result({"ok": False, "error": "area-or-design-required"}, True)
+        return _send(body, 15)
+    if area is not None or force_active:
+        return _result({"ok": False, "error": "area-only-for-recall"}, True)
     if goal in {"reuse_blueprint", "build_design"} and (
             target_per_minute is not None or input_x is not None):
         return _result({"ok": False, "error": "blueprint-goal-does-not-use-rate-or-input"}, True)

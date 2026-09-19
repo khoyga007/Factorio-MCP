@@ -192,6 +192,19 @@ def parser() -> argparse.ArgumentParser:
     bp_job = commands.add_parser("blueprint-job")
     bp_job.add_argument("job_id")
 
+    water = commands.add_parser("water-sites", help="offshore-pump spots nearest a point")
+    water.add_argument("--x", type=float)
+    water.add_argument("--y", type=float)
+    water.add_argument("--radius", type=float, default=512)
+    water.add_argument("--offset", type=int, default=0)
+    water.add_argument("--surface", default="nauvis")
+    recall = commands.add_parser("recall", help="mine own entities in an area into the player bag")
+    for key in ("x1", "y1", "x2", "y2"):
+        recall.add_argument(key, type=float)
+    recall.add_argument("--surface", default="nauvis")
+    recall.add_argument("--dry-run", action="store_true")
+    recall.add_argument("--force-active", action="store_true")
+
     smelt = commands.add_parser("smelt-plan", help="size, site and preflight one reusable iron-smelting row")
     smelt.add_argument("rate", type=float, help="target iron plates per minute")
     smelt.add_argument("--surface", default="nauvis")
@@ -366,6 +379,15 @@ def command_body(args: argparse.Namespace) -> dict[str, Any]:
         return body
     if args.command == "blueprint-job":
         return {"action": "blueprint_job", "job_id": args.job_id}
+    if args.command == "water-sites":
+        body = {"action": "water_sites", "radius": args.radius, "offset": args.offset,
+                "surface": args.surface}
+        if args.x is not None:
+            body.update(x=args.x, y=args.y)
+        return body
+    if args.command == "recall":
+        return {"action": "recall", "x1": args.x1, "y1": args.y1, "x2": args.x2, "y2": args.y2,
+                "surface": args.surface, "dry_run": args.dry_run, "force_active": args.force_active}
     if args.command == "smelt-plan":
         body = {"action": "smelt_plan", "rate": args.rate,
                 "surface": args.surface, "force": args.force}

@@ -17,7 +17,7 @@ def main():
     parser.add_argument("--player-save", type=Path, required=True)
     args = parser.parse_args()
     MOD.mkdir(parents=True, exist_ok=True)
-    for name in ("control.lua", "smelting.lua", "starter.lua", "coal.lua", "executor.lua", "info.json"):
+    for name in ("control.lua", "smelting.lua", "starter.lua", "coal.lua", "executor.lua", "field.lua", "info.json"):
         shutil.copy2(ROOT / "factorio-ai-bridge_0.1.0" / name, MOD / name)
     shutil.copy2(HERE / "test_coal_line_runtime.lua", MOD / "test_coal_line_runtime.lua")
     with (MOD / "control.lua").open("a", encoding="utf-8") as f:

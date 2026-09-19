@@ -59,6 +59,10 @@ class GoalMCPTest(unittest.IsolatedAsyncioTestCase):
                     reply.update(state="planned" if body.get("dry_run") else "preparing",
                                  site_validated=True, job_id=None if body.get("dry_run") else "exec-1",
                                  contract_seen=body["contract"])
+                elif action == "water_sites":
+                    reply.update(candidates=[{"x": 1.5, "y": 2, "direction": 0}])
+                elif action == "recall":
+                    reply.update(state="planned" if body.get("dry_run") else "done", count=1)
                 elif action == "blueprint_job":
                     reply.update(state="verified", feed={"coal": 4},
                                  audit={"status": "passed", "windows": [{"index": 1}]})
@@ -141,6 +145,13 @@ class GoalMCPTest(unittest.IsolatedAsyncioTestCase):
                             self.assertEqual(own, seen[-1]["contract"])
                             saved = json.loads((Path(catalog_dir) / (p["pattern_id"] + ".json")).read_text())
                             self.assertEqual(("designed", own), (saved["state"], saved["contract"]))
+                            p = await call("observe", {"view": "water", "x": 5, "y": 6, "radius": 300}, ["water_sites"])
+                            self.assertEqual((300, 5), (seen[-1]["radius"], seen[-1]["x"]))
+                            self.assertEqual(0, p["candidates"][0]["direction"])
+                            p = await call("achieve", {"goal": "recall", "area": [0, 0, 4, 4], "dry_run": True}, ["recall"])
+                            self.assertEqual(("planned", 4, True), (p["state"], seen[-1]["x2"], seen[-1]["dry_run"]))
+                            p = await call("achieve", {"goal": "recall", "design": [{"name": "pipe", "x": 0.5, "y": 0.5}]}, ["recall"])
+                            self.assertEqual("pipe", seen[-1]["entities"][0]["name"])
                             p = await call("achieve", {"goal": "first_iron_plates"}, ["starter_smelt"])
                             self.assertEqual("starter-3", p["job_id"])
                             self.assertTrue(p["existing"])
@@ -165,6 +176,10 @@ class GoalMCPTest(unittest.IsolatedAsyncioTestCase):
                                 ("achieve", {"goal": "first_iron_plates", "x": 1}),
                                 ("achieve", {"goal": "unknown-goal"}),
                                 ("achieve", {"goal": "build_design"}),
+                                ("observe", {"view": "nearby", "radius": 100}),
+                                ("achieve", {"goal": "recall"}),
+                                ("achieve", {"goal": "recall", "area": [0, 0, 4]}),
+                                ("achieve", {"goal": "first_iron_plates", "area": [0, 0, 1, 1]}),
                                 ("achieve", {"goal": "build_design", "design": [{"name": "x", "x": 0.3, "y": 0}]}),
                                 ("achieve", {"goal": "reuse_blueprint", "pattern_id": pattern_id,
                                              "design": [{"name": "x", "x": 0, "y": 0}]}),

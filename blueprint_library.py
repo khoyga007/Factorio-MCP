@@ -113,6 +113,7 @@ def record_blueprint(value: str, *, state: str, source: str,
         },
         "required_items": old.get("required_items") or materials or None,
         "audit": audit if state == "verified" and audit else old.get("audit"),
+        "contract": old.get("contract"),
         "blueprint_string": value,
     }
     with tempfile.NamedTemporaryFile("w", encoding="utf-8", dir=folder,
@@ -132,8 +133,10 @@ def list_patterns() -> list[dict]:
     rows = []
     for path in sorted(folder.glob("bp-*.json")):
         data = json.loads(path.read_text(encoding="utf-8"))
-        rows.append({key: data.get(key) for key in (
-            "pattern_id", "state", "entity_count", "entities", "required_items")})
+        row = {key: data.get(key) for key in (
+            "pattern_id", "state", "entity_count", "entities", "required_items")}
+        row["has_contract"] = bool(data.get("contract"))
+        rows.append(row)
     return rows
 
 

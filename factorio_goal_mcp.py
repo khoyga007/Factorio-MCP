@@ -89,8 +89,14 @@ def achieve(goal: str,
             radius: Annotated[float, Field(ge=4, le=256, allow_inf_nan=False)] = 192,
             input_x: FiniteFloat | None = None, input_y: FiniteFloat | None = None,
             surface: str = "nauvis", force: str = "player",
-            dry_run: bool = False, pattern_id: str | None = None) -> CallToolResult:
-    """Choose first_iron_plates, first_copper_plates, coal_stockpile, iron_smelting_row, or reuse_blueprint."""
+            dry_run: bool = False, pattern_id: str | None = None,
+            contract: dict | None = None) -> CallToolResult:
+    """Choose first_iron_plates, first_copper_plates, coal_stockpile, iron_smelting_row, or reuse_blueprint.
+
+    reuse_blueprint takes an optional contract (else the pattern's saved one): site{mode,rotations,
+    clearance}, resources[{entity,resource,min_per_tile,min_total}], primer[{entity,item,count}],
+    feeds[{from,to,item,keep}], verify{window_ticks,max_windows,metrics[{key,kind,entity,min}]}.
+    See CONTRACT.md."""
     if (x is None) != (y is None) or (input_x is None) != (input_y is None):
         return _result({"ok": False, "error": "coordinate-pairs-required"}, True)
     if goal not in {"first_iron_plates", "first_copper_plates", "coal_stockpile",
@@ -98,49 +104,25 @@ def achieve(goal: str,
         return _result({"ok": False, "error": "unknown-goal"}, True)
     if goal == "reuse_blueprint":
         if not pattern_id or target_per_minute is not None or input_x is not None:
-            return _result({"ok": False, "error": "pattern-id-and-site-required"}, True)
+            return _result({"ok": False, "error": "pattern-id-required"}, True)
         try:
             pattern = load_pattern(pattern_id)
         except (OSError, ValueError, KeyError, json.JSONDecodeError) as exc:
             return _result({"ok": False, "error": str(exc)}, True)
-        if pattern_id == "bp-f30d8a84af3098ee":
-            try:
-                body={"action":"blueprint_import","blueprint":pattern["blueprint_string"],
-                      "automate":True,"pattern_id":pattern_id,"surface":surface,
-                      "force":force,"radius":radius,"dry_run":dry_run}
-                if x is not None: body.update(x=x,y=y)
-                p=request(body,host=os.environ.get("FACTORIO_HOST",DEFAULT_HOST),
-                          port=int(os.environ.get("FACTORIO_PORT",DEFAULT_PORT)),timeout=15)
-                return _result({"ok":p.get("ok",False),"goal":goal,
-                    **_fields(p,"job_id","state","pattern_id","site","site_validated",
-                              "materials","missing","steps","error")},not p.get("ok",False))
-            except (OSError, ValueError, TimeoutError) as exc:
-                return _result({"ok":False,"error":str(exc)},True)
-        if x is None:
-            return _result({"ok":False,"error":"site-required-for-this-pattern"},True)
-        if dry_run:
-            return _result({"ok": True, "goal": goal, "state": "pattern-loaded",
-                            "site_validated": False, "pattern_id": pattern_id,
-                            "entities": pattern["entities"],
-                            "required_items": pattern.get("required_items")})
+        # The agent's contract wins; otherwise the one saved with the pattern.
+        body = {"action": "blueprint_run", "blueprint": pattern["blueprint_string"],
+                "pattern_id": pattern_id, "contract": contract or pattern.get("contract") or {},
+                "surface": surface, "force": force, "radius": radius, "dry_run": dry_run}
+        if x is not None:
+            body.update(x=x, y=y)
         try:
-            p = request({"action": "blueprint_import", "blueprint": pattern["blueprint_string"],
-                         "x": x, "y": y, "surface": surface, "force": force,
-                         "mode": "direct"},
-                        host=os.environ.get("FACTORIO_HOST", DEFAULT_HOST),
+            p = request(body, host=os.environ.get("FACTORIO_HOST", DEFAULT_HOST),
                         port=int(os.environ.get("FACTORIO_PORT", DEFAULT_PORT)), timeout=15)
         except (OSError, ValueError, TimeoutError) as exc:
             return _result({"ok": False, "error": str(exc), "pattern_id": pattern_id}, True)
-        if p.get("ok"):
-            try:
-                record_blueprint(pattern["blueprint_string"], state="built",
-                                 source="reuse-blueprint", materials=p.get("spent"))
-            except (OSError, ValueError, KeyError, json.JSONDecodeError):
-                pass  # The actual build receipt remains authoritative.
-        return _result({"ok": p.get("ok", False), "goal": goal,
-                        "state": "built" if p.get("ok") else "blocked",
-                        "pattern_id": pattern_id,
-                        **_fields(p, "placed", "expected", "spent", "error")},
+        return _result({"ok": p.get("ok", False), "goal": goal, "pattern_id": pattern_id,
+                        **_fields(p, "job_id", "state", "site", "site_validated", "materials",
+                                  "missing", "locked", "steps", "rejects", "checks", "error")},
                        not p.get("ok", False))
     if pattern_id is not None:
         return _result({"ok": False, "error": "pattern-id-only-for-reuse"}, True)
@@ -199,7 +181,9 @@ def report(job_id: str) -> CallToolResult:
     """Read one saved goal's audit, progress, blocker and blueprint/receipt artifact path."""
     if job_id.startswith("starter-"):
         p = _read(invoke("starter-status", job_id=job_id))
-    elif job_id.startswith(("coal-", "replica-")):
+    elif job_id.startswith("exec-"):
+        p = _read(invoke("blueprint-job", job_id=job_id))
+    elif job_id.startswith("coal-"):
         p = _read(invoke("coal-status", job_id=job_id))
     elif job_id.startswith("smelt-"):
         p = _read(invoke("smelt-status", plan_id=job_id))
@@ -207,7 +191,7 @@ def report(job_id: str) -> CallToolResult:
         return _result({"ok": False, "error": "unknown-job-id"}, True)
     return _result({"ok": p.get("ok", False), "job_id": job_id,
                     "pattern_id": (p.get("pattern") or {}).get("pattern_id"),
-                    **_fields(p, "state", "product", "existing", "output", "coal", "refuels", "site", "placed",
+                    **_fields(p, "state", "product", "existing", "output", "coal", "refuels", "site", "placed", "feed",
                               "missing", "locked", "connections", "audit", "error", "artifact")},
                    not p.get("ok", False))
 

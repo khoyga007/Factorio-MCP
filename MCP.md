@@ -43,17 +43,14 @@ Nguồn: [MCP Python SDK 1.27.1](https://github.com/modelcontextprotocol/python-
 4. `achieve(goal="iron_smelting_row", target_per_minute=60)` dùng pattern dãy
    lò lớn. Một lượt gọi MCP tự plan rồi build nếu có vật tư, công nghệ, belt
    quặng–than và điện. Thiếu điều kiện thì trả blocker, không xây.
-5. `observe(view="patterns")` liệt kê JSON catalog gọn, không gửi blueprint
-   string vào ngữ cảnh AI. `achieve(goal="reuse_blueprint", pattern_id="bp-...",
-   x=..., y=...)` nhập lại mẫu native bằng item thật; Lua kiểm tra công nghệ,
-   vật tư và va chạm. Mẫu `bp-f30d8a84af3098ee` tự tìm chỗ trên mỏ than nếu
-   không đưa tọa độ, thu nguyên liệu thật, chế máy, nhập blueprint, cấp nhiên
-   liệu và audit cả hai khoan. Trả job `replica-*`, đọc bằng `report`. Với mẫu
-   này `dry_run` kiểm tra thật mặt bằng và nguồn vật tư; thiếu thì không tiêu
-   đồ. Những mẫu khác vẫn cần x/y, `dry_run` mới chỉ đọc metadata.
+5. `observe(view="patterns")` lists catalog (no blueprint string, `has_contract`).
+   `achieve(goal="reuse_blueprint", pattern_id, contract?, x?, y?)` → generic
+   executor, same path for every pattern. Contract (agent's, else catalog's):
+   site search/exact + rotations, resource rules, primer, feeds, holdout
+   metrics. Job `exec-N`. Spec: `CONTRACT.md`.
 6. `report(job_id)` đọc audit của các pattern. Blueprint và receipt chi tiết
-   nằm trong `script-output/starter/`, `script-output/coal/` hoặc
-   `script-output/smelting/`.
+   nằm trong `script-output/starter/`, `script-output/coal/`,
+   `script-output/smelting/` hoặc `script-output/executor/`.
 
 Một lượt gọi `achieve` có thể dùng nhiều action UDP bên trong; agent chỉ nhận
 một kết quả ngắn. Retry UDP dùng lại nonce; nếu mutation timeout, đọc trạng thái
@@ -85,6 +82,7 @@ python contract_check.py
 python tests/verify_smelting_runtime.py
 python tests/verify_smelting_runtime.py --player-save 'C:\Users\user\AppData\Roaming\Factorio\saves\Legendary Seed.zip'
 python tests/verify_starter_runtime.py --player-save 'C:\Users\user\AppData\Roaming\Factorio\saves\Sandbox.zip'
+python tests/verify_executor_runtime.py --player-save .runtime-test/saves/replica-player.zip
 python tests/verify_coal_runtime.py --player-save 'C:\Users\user\AppData\Roaming\Factorio\saves\Sandbox.zip'
 ```
 

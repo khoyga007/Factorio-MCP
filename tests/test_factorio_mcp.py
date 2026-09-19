@@ -73,6 +73,9 @@ class MCPTest(unittest.IsolatedAsyncioTestCase):
                                 "audit": {"item": "iron-plate", "expected_per_second": 2},
                                 "blueprint_export": {"x1": 0, "y1": 0, "x2": 2, "y2": 2, "file": export},
                                 "blueprint_import": {"file": export, "x": 10, "y": 20},
+                                "blueprint_run": {"file": export, "contract": {"site": {"mode": "exact"}},
+                                                  "x": 1, "y": 2},
+                                "blueprint_job": {"job_id": "exec-1"},
                             }
                             for name, args in cases.items():
                                 with self.subTest(tool=name):
@@ -91,6 +94,8 @@ class MCPTest(unittest.IsolatedAsyncioTestCase):
                                     if name == "blueprint_import":
                                         self.assertEqual("0fixture-blueprint", seen[-1]["blueprint"])
                                         self.assertEqual("direct", seen[-1]["mode"])
+                                    if name == "blueprint_run":
+                                        self.assertEqual({"site": {"mode": "exact"}}, seen[-1]["contract"])
                             for name, args in [("smelt_plan", {"rate": 0}), ("brief", {"x": 1}),
                                                ("blueprint_import", {"file": "relative.txt", "x": 0, "y": 0})]:
                                 before = len(seen)

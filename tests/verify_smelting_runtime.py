@@ -26,7 +26,7 @@ def main():
             shutil.copy2(args.player_save, save)
     dest = SANDBOX / "mods" / MOD
     dest.mkdir(parents=True, exist_ok=True)
-    for name in ("control.lua", "smelting.lua", "starter.lua", "coal.lua", "replica.lua", "info.json"):
+    for name in ("control.lua", "smelting.lua", "starter.lua", "coal.lua", "executor.lua", "info.json"):
         shutil.copy2(ROOT / MOD / name, dest / name)
     shutil.copy2(HERE / "test_smelting_runtime.lua", dest / "test_smelting_runtime.lua")
     shutil.copy2(HERE / "test_bridge_runtime.lua", dest / "test_bridge_runtime.lua")

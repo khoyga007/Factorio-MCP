@@ -55,12 +55,13 @@ class GoalMCPTest(unittest.IsolatedAsyncioTestCase):
                     reply.update(state="auditing", placed=28, artifact="smelting/smelt-2")
                 elif action == "smelt_status":
                     reply.update(state="verified", audit={"status": "passed"})
-                elif action == "blueprint_import":
-                    reply.update(placed=10, expected=10,
-                                 spent={"burner-mining-drill": 2})
-                    if body.get("automate"):
-                        reply.update(state="planned" if body.get("dry_run") else "preparing",
-                                     site_validated=True,job_id="replica-1")
+                elif action == "blueprint_run":
+                    reply.update(state="planned" if body.get("dry_run") else "preparing",
+                                 site_validated=True, job_id=None if body.get("dry_run") else "exec-1",
+                                 contract_seen=body["contract"])
+                elif action == "blueprint_job":
+                    reply.update(state="verified", feed={"coal": 4},
+                                 audit={"status": "passed", "windows": [{"index": 1}]})
                 sock.sendto(json.dumps(reply).encode(), self.client_address)
 
         server = socketserver.UDPServer(("127.0.0.1", 0), Peer)
@@ -107,17 +108,22 @@ class GoalMCPTest(unittest.IsolatedAsyncioTestCase):
                             p = await call("observe", {"view": "patterns"}, [])
                             self.assertEqual(pattern_id, p["patterns"][0]["pattern_id"])
                             self.assertNotIn("blueprint_string", p["patterns"][0])
+                            own = {"site": {"mode": "exact"}, "primer": []}
                             p = await call("achieve", {"goal": "reuse_blueprint",
-                                                       "pattern_id": pattern_id,
-                                                       "x": 10, "y": 20, "dry_run": True}, ["blueprint_import"])
+                                                       "pattern_id": pattern_id, "contract": own,
+                                                       "x": 10, "y": 20, "dry_run": True}, ["blueprint_run"])
                             self.assertTrue(p["site_validated"])
+                            self.assertEqual(own, seen[-1]["contract"])
+                            self.assertEqual((10, 20), (seen[-1]["x"], seen[-1]["y"]))
                             p = await call("achieve", {"goal": "reuse_blueprint",
                                                        "pattern_id": pattern_id,
-                                                       }, ["blueprint_import"])
-                            self.assertEqual("replica-1", p["job_id"])
+                                                       }, ["blueprint_run"])
+                            self.assertEqual("exec-1", p["job_id"])
                             self.assertNotIn("x", seen[-1])
-                            p=await call("report",{"job_id":"replica-1"},["coal_status"])
-                            self.assertEqual("verified",p["state"])
+                            self.assertEqual({}, seen[-1]["contract"])
+                            p = await call("report", {"job_id": "exec-1"}, ["blueprint_job"])
+                            self.assertEqual("verified", p["state"])
+                            self.assertEqual(4, p["feed"]["coal"])
                             p = await call("achieve", {"goal": "first_iron_plates"}, ["starter_smelt"])
                             self.assertEqual("starter-3", p["job_id"])
                             self.assertTrue(p["existing"])

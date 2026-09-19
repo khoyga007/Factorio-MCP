@@ -127,15 +127,20 @@ Nhật ký quan sát trong Sandbox Factorio 2.0. Các kết luận phụ thuộc
 
 ### 2.3. Quy chuẩn Khớp nối của Ống ngầm (`pipe-to-ground`)
 * **Kích thước**: $1 \times 1$ tile. Tâm luôn là $(n + 0.5, m + 0.5)$.
-* **Quy luật Đối đầu**: Hai đầu ống ngầm bắt buộc phải quay hướng đối diện nhau (ví dụ: Đầu Nam quay `north` (0), Đầu Bắc quay `south` (8)).
-* **Định luật Tầm ngầm Tối đa (Đo thực tế Runtime Tick 121644)**:
+* **Bản chất `direction` của Engine Factorio**:
+  * `direction` của entity `pipe-to-ground` chính là **hướng quay của CỔNG NỐI MẶT ĐẤT (Surface Flange)**, còn đoạn ống ngầm (underground connection) luôn đâm vào lòng đất theo **hướng ngược lại (`(dir + 8) % 16`)**.
+  * **Quy tắc đặt 2 đầu ngầm đối nhau**:
+    * **Đầu Bắc** (nối với ống nổi phía Bắc, chui ngầm về phía Nam): Bắt buộc `direction = 0` (`north`).
+    * **Đầu Nam** (nối với ống nổi phía Nam, chui ngầm về phía Bắc): Bắt buộc `direction = 8` (`south`).
+    * **Đầu Tây** (nối với ống nổi phía Tây, chui ngầm về phía Đông): Bắt buộc `direction = 12` (`west`).
+    * **Đầu Đông** (nối với ống nổi phía Đông, chui ngầm về phía Tây): Bắt buộc `direction = 4` (`east`).
+  * *(Cảnh báo sai lầm chết người: Nếu nhầm `direction` là hướng ống ngầm thì 2 cổng nổi sẽ quay vào khoảng trống giữa 2 đầu ngầm, còn 2 đầu ngầm chọc ngược ra ngoài, làm đứt dòng chảy hoàn toàn!)*.
+* **Định luật Tầm ngầm Tối đa (Đo thực tế Runtime Tick 121644 & 380500)**:
   * Khoảng cách ngầm tối đa cho phép là **đúng 10 ô tile khoảng trống** ở giữa.
   * Tương ứng với **khoảng cách tâm giữa 2 đầu đúng bằng $11.0$ tile**.
   * *Ví dụ thực tế đã kiểm chứng*:
-    * Đầu 1 (#1075) đặt tại $(100.5, -100.5)$ quay `south`.
-    * Đầu 2 (#1076) đặt tại $(100.5, -89.5)$ quay `north`.
-    * Cả 2 đều chuyển trạng thái `working` (1), dẫn lưu dịch xuyên suốt vào bồn chứa `storage-tank` (#1078) đặt tiếp giáp ở $(100.5, -87.5)$.
-* **Cổng Nổi trên mặt đất (Surface Flanges)**: Cổng sau lưng và 2 bên sườn của đầu nổi tự động mở cút nối với mọi `pipe` thường nếu khoảng cách tâm đúng bằng $1.0$ tile.
+    * Cặp crossing tại $x = -57.5$: Đầu Bắc tại $(-57.5, 19.5)$ quay `north` (0); Đầu Nam tại $(-57.5, 23.5)$ quay `south` (8). Đoạn ngầm vượt qua 3 tile rỗng $y \in [20, 23]$, nước chảy thông suốt $100.0$ unit.
+* **Cổng Nổi trên mặt đất (Surface Flanges)**: Cổng sau lưng của đầu nổi tự động khớp nối với `pipe` thường cùng hướng `direction` khi khoảng cách tâm đúng bằng $1.0$ tile.
 
 ### 2.4. Ma trận Cổng Chất lỏng của Nhà máy Hóa chất (`chemical-plant`) và Lọc dầu (`oil-refinery`)
 Được kiểm chứng chính xác $100\%$ qua đo đạc độ giãn Bounding Box của `pipe` trên runtime Sandbox:

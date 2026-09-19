@@ -241,5 +241,21 @@ def blueprint_import(file: str, x: FiniteFloat, y: FiniteFloat, ghosts: bool = F
     return invoke("blueprint-import", **locals())
 
 
+@mcp.tool(annotations=WRITE)
+def blueprint_run(file: str, contract: dict | None = None, pattern_id: str | None = None,
+                  x: FiniteFloat | None = None, y: FiniteFloat | None = None,
+                  radius: Annotated[float, Field(ge=4, le=256, allow_inf_nan=False)] = 192,
+                  surface: str = "nauvis", force: str = "player",
+                  dry_run: bool = False) -> CallToolResult:
+    """Generic executor: agent contract drives site search, real-item gather, build, prime, holdout audit."""
+    return invoke("blueprint-run", **locals())
+
+
+@mcp.tool(annotations=READ)
+def blueprint_job(job_id: str) -> CallToolResult:
+    """Read one executor job: state, site, feed totals and every holdout window."""
+    return invoke("blueprint-job", **locals())
+
+
 if __name__ == "__main__":
     mcp.run(transport="stdio")

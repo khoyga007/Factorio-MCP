@@ -178,6 +178,19 @@ def parser() -> argparse.ArgumentParser:
     bp_import.add_argument("--surface", default="nauvis")
     bp_import.add_argument("--force", default="player")
     bp_import.add_argument("--ghosts", action="store_true", help="place ghosts for construction robots instead")
+    bp_import.add_argument("--direction", type=int, choices=(0, 4, 8, 12), default=0)
+    bp_run = commands.add_parser("blueprint-run", help="generic executor: contract-driven site search, gather, build, audit")
+    bp_run.add_argument("file", type=Path)
+    bp_run.add_argument("--contract", type=Path, help="JSON contract file (site/resources/primer/feeds/verify)")
+    bp_run.add_argument("--pattern-id")
+    bp_run.add_argument("--x", type=float)
+    bp_run.add_argument("--y", type=float)
+    bp_run.add_argument("--radius", type=float, default=192)
+    bp_run.add_argument("--surface", default="nauvis")
+    bp_run.add_argument("--force", default="player")
+    bp_run.add_argument("--dry-run", action="store_true")
+    bp_job = commands.add_parser("blueprint-job")
+    bp_job.add_argument("job_id")
 
     smelt = commands.add_parser("smelt-plan", help="size, site and preflight one reusable iron-smelting row")
     smelt.add_argument("rate", type=float, help="target iron plates per minute")
@@ -333,7 +346,26 @@ def command_body(args: argparse.Namespace) -> dict[str, Any]:
             "action": "blueprint_import", "blueprint": args.file.read_text(encoding="ascii").strip(),
             "x": args.x, "y": args.y, "surface": args.surface, "force": args.force,
             "mode": "ghosts" if args.ghosts else "direct",
+            "direction": getattr(args, "direction", 0),
         }
+    if args.command == "blueprint-run":
+        if (args.x is None) != (args.y is None):
+            raise ValueError("x and y must be supplied together")
+        body = {"action": "blueprint_run", "blueprint": args.file.read_text(encoding="ascii").strip(),
+                "radius": args.radius, "surface": args.surface, "force": args.force}
+        if isinstance(args.contract, Path):
+            body["contract"] = json.loads(args.contract.read_text(encoding="utf-8"))
+        elif args.contract is not None:
+            body["contract"] = args.contract
+        if args.pattern_id:
+            body["pattern_id"] = args.pattern_id
+        if args.x is not None:
+            body.update(x=args.x, y=args.y)
+        if args.dry_run:
+            body["dry_run"] = True
+        return body
+    if args.command == "blueprint-job":
+        return {"action": "blueprint_job", "job_id": args.job_id}
     if args.command == "smelt-plan":
         body = {"action": "smelt_plan", "rate": args.rate,
                 "surface": args.surface, "force": args.force}
@@ -400,7 +432,7 @@ def execute(args: argparse.Namespace) -> dict[str, Any]:
     # on the live save 2026-09-17: a cold build takes ~4.1 s, so the 1.0 s x3
     # window expired first and every cold ore-marks call reported "did not answer"
     # while the engine was healthy and answering ping/index.
-    timeout = 15.0 if args.command in {"smelt-plan", "smelt-build", "starter-smelt", "coal-stockpile", "index", "ore-marks"} else 1.0
+    timeout = 15.0 if args.command in {"smelt-plan", "smelt-build", "starter-smelt", "coal-stockpile", "index", "ore-marks", "blueprint-run"} else 1.0
     body = command_body(args)
     reply = request(body, host=args.host, port=args.port, timeout=timeout)
     if args.command == "audit" and reply.get("ok"):
@@ -426,7 +458,7 @@ def execute(args: argparse.Namespace) -> dict[str, Any]:
                                                   materials=reply.get("spent"))
         except (OSError, ValueError, KeyError, json.JSONDecodeError) as exc:
             reply["catalog_error"] = str(exc)
-    if args.command in {"starter-status", "coal-status", "smelt-status"} \
+    if args.command in {"starter-status", "coal-status", "smelt-status", "blueprint-job"} \
        and reply.get("ok") and reply.get("state") == "verified" \
        and (reply.get("audit") or {}).get("status") == "passed" \
        and reply.get("artifact"):

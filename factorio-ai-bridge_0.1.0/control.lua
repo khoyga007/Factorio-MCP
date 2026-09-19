@@ -1,5 +1,5 @@
 local BRIDGE_VERSION = 1
-local BRIDGE_BUILD = "2026-09-18-autonomous-replica"
+local BRIDGE_BUILD = "2026-09-19-generic-executor"
 local MAX_PACKET_BYTES = 32768
 local MAX_RADIUS = 32
 local MAX_ENTITIES = 64
@@ -1426,6 +1426,11 @@ local function handle_blueprint_import(nonce, request)
     return response(nonce, false, {error = "blueprint-too-many-entities", entities = count})
   end
   local mode = request.mode or "direct"
+  local rotation = request.direction or defines.direction.north
+  if rotation ~= 0 and rotation ~= 4 and rotation ~= 8 and rotation ~= 12 then
+    inventory.destroy()
+    return response(nonce, false, {error = "invalid-blueprint-direction"})
+  end
   if mode ~= "direct" and mode ~= "ghosts" then
     inventory.destroy()
     return response(nonce, false, {error = "invalid-blueprint-mode"})
@@ -1477,7 +1482,7 @@ local function handle_blueprint_import(nonce, request)
   local built, ghosts = pcall(function()
     return stack.build_blueprint {
       surface = surface, force = force, position = pos,
-      direction = defines.direction.north,
+      direction = rotation,
       build_mode = defines.build_mode.normal, raise_built = true,
     }
   end)
@@ -1737,34 +1742,29 @@ local coal = require("coal").attach {
   state = bridge_state, response = response, inventory = treasury_inventory,
   place = handle_place, insert = handle_insert, export = handle_blueprint_export,
 }
-local replica = require("replica").attach {
-  state=bridge_state,response=response,inventory=treasury_inventory,
-  import=handle_blueprint_import,craft=handle_craft,collect=handle_collect,
-  mine=handle_mine,insert=handle_insert,
+local executor = require("executor").attach {
+  state = bridge_state, response = response, inventory = treasury_inventory,
+  import = handle_blueprint_import, craft = handle_craft, collect = handle_collect,
+  mine = handle_mine, insert = handle_insert,
 }
-local function handle_blueprint_request(nonce, request)
-  if request.automate then return replica.start(nonce, request) end
-  return handle_blueprint_import(nonce, request)
-end
+local function handle_blueprint_run(nonce, request) return executor.start(nonce, request) end
+local function handle_blueprint_job(nonce, request) return executor.status(nonce, request) end
 local function handle_smelt_plan(nonce, request) return smelting.plan(nonce, request) end
 local function handle_smelt_build(nonce, request) return smelting.build(nonce, request) end
 local function handle_smelt_status(nonce, request) return smelting.status(nonce, request) end
 local function handle_starter_smelt(nonce, request) return starter.start(nonce, request) end
 local function handle_starter_status(nonce, request) return starter.status(nonce, request) end
 local function handle_coal_stockpile(nonce, request) return coal.start(nonce, request) end
-local function handle_coal_status(nonce, request)
-  if type(request.job_id)=="string" and request.job_id:sub(1,8)=="replica-" then
-    return replica.status(nonce,request)
-  end
-  return coal.status(nonce, request)
-end
+local function handle_coal_status(nonce, request) return coal.status(nonce, request) end
 
 HANDLERS = {
   audit = handle_audit,
   autofuel = handle_autofuel,
   brief = handle_brief,
   blueprint_export = handle_blueprint_export,
-  blueprint_import = handle_blueprint_request,
+  blueprint_import = handle_blueprint_import,
+  blueprint_run = handle_blueprint_run,
+  blueprint_job = handle_blueprint_job,
   collect = handle_collect,
   craft = handle_craft,
   repair_demo_economy = handle_repair_demo_economy,
@@ -1841,7 +1841,7 @@ script.on_nth_tick(60, function()
   smelting.tick()
   starter.tick()
   coal.tick()
-  replica.tick()
+  executor.tick()
 end)
 script.on_nth_tick(300, function()
   for _, surface in pairs(game.surfaces) do

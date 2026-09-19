@@ -76,6 +76,8 @@ class MCPTest(unittest.IsolatedAsyncioTestCase):
                                 "blueprint_run": {"file": export, "contract": {"site": {"mode": "exact"}},
                                                   "x": 1, "y": 2},
                                 "blueprint_job": {"job_id": "exec-1"},
+                                "ledger": {},
+                                "ledger_note": {"block": {"name": "hand"}, "x1": 0, "y1": 0, "x2": 2, "y2": 2},
                                 "water_sites": {"x": 1, "y": 2},
                                 "recall": {"x1": 0, "y1": 0, "x2": 2, "y2": 2, "dry_run": True},
                             }

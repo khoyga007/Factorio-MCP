@@ -211,8 +211,12 @@ local function check_site(surface,force,c,placed,rejects)
     return no("out-of-area")
   end
   local gap=c.clearance or 0
-  if surface.count_entities_filtered{area={{x1-gap,y1-gap},{x2+gap,y2+gap}},force=force,limit=1}>0 then
-    return no("occupied")
+  local box={{x1-gap,y1-gap},{x2+gap,y2+gap}}
+  local own=surface.count_entities_filtered{area=box,force=force}
+  if own>0 then
+    -- A player standing in the box blocks too; name it so the agent moves, not the site.
+    -- (invert=true would negate the force filter as well, so count characters apart.)
+    return no(own>surface.count_entities_filtered{area=box,force=force,type="character"} and "occupied" or "character")
   end
   if surface.count_entities_filtered{position={(x1+x2)/2,(y1+y2)/2},radius=c.enemy_radius or 16,
     force="enemy",limit=1}>0 then return no("enemies") end
@@ -288,6 +292,23 @@ local function find_site(surface,force,c,base)
 end
 
 -- Validate the agent's contract into a normalised table, or return an error.
+-- Ledger intent attached to a block (contract.block or note).
+local function text(v,n) return type(v)=="string" and v~="" and #v<=n and v or nil end
+local function parse_block(raw)
+  if raw==nil then return nil end
+  if type(raw)~="table" then return nil,"invalid-block" end
+  local b={id=text(raw.id,40),name=text(raw.name,40),role=text(raw.role,120),notes=text(raw.notes,400)}
+  for _,k in ipairs{"feeds","eats"} do
+    local l=list(raw[k])
+    if #l>12 then return nil,"invalid-block-"..k end
+    for i,e in ipairs(l) do
+      local x=type(e)=="table" and {item=text(e.item,60),block=text(e.block,40),via=text(e.via,80)}
+      if not x or not (x.item or x.block or x.via) then return nil,"invalid-block-"..k end
+      b[k]=b[k] or {} b[k][i]=x
+    end
+  end
+  return b
+end
 local function parse_contract(raw,r)
   raw=type(raw)=="table" and raw or {}
   local c={resources={},primer={},feeds={},rotations={},connect={}}
@@ -380,7 +401,7 @@ function M.attach(ctx)
   local function summary(j)
     return {job_id=j.id,state=j.state,pattern_id=j.pattern_id,site=j.site,
       step=j.step,steps=#(j.steps or {}),placed=j.placed,materials=j.materials,
-      missing=j.missing,audit=j.audit,feed=j.feed,error=j.error,artifact=j.artifact,cleared=j.cleared,
+      missing=j.missing,audit=j.audit,feed=j.feed,error=j.error,artifact=j.artifact,cleared=j.cleared,block=j.block,
       placed_at=j.layout and placed_at(j.layout)}
   end
   local function save(j)
@@ -662,6 +683,8 @@ function M.attach(ctx)
     end
     local c,cerr=parse_contract(r.contract,r)
     if not c then return ctx.response(nonce,false,{error=cerr}) end
+    local block,berr=parse_block(type(r.contract)=="table" and r.contract.block or nil)
+    if berr then return ctx.response(nonce,false,{error=berr}) end
     local cost={}
     for _,e in ipairs(base) do cost[e.item]=(cost[e.item] or 0)+e.count end
     local locked={}
@@ -706,7 +729,7 @@ function M.attach(ctx)
       surface=surface.name,force=force.name,player=owner.index,site=site_out,
       layout=place_list(site.shape,site.x,site.y),contract=c,metrics=c.metrics,
       feeds=c.feeds,max_windows=c.max_windows,materials=cost,steps=steps,step=1,
-      receipts={},feed={},state="preparing",artifact="executor/"..id,deadline=game.tick+18000}
+      receipts={},feed={},state="preparing",block=block,artifact="executor/"..id,deadline=game.tick+18000}
     jobs()[id]=j save(j)
     return ctx.response(nonce,true,summary(j))
   end
@@ -829,6 +852,95 @@ function M.attach(ctx)
         if not ok then j.state,j.error="needs-attention",(tostring(err):gsub("^__[^:]+:%d+: ","")) save(j) end
       end
     end
+  end
+
+  -- Base ledger: what each block is, where, what it feeds/eats. Lives in the save (storage),
+  -- so it travels with the map and survives restarts/handoffs. Executor jobs are blocks
+  -- automatically; hand-built areas can be registered via note. Live state is recomputed
+  -- on every read, only agent intent (name/role/links/notes) is stored.
+  M.parse_block=parse_block
+  local function hands() local s=ctx.state() s.ledger_hand=s.ledger_hand or {} return s.ledger_hand end
+  local function r1(v) return math.floor(v*10+0.5)/10 end
+  local function box_of(layout)
+    local x1,y1,x2,y2=math.huge,math.huge,-math.huge,-math.huge
+    for _,e in ipairs(layout) do
+      x1=math.min(x1,e.x-e.w/2) y1=math.min(y1,e.y-e.h/2) x2=math.max(x2,e.x+e.w/2) y2=math.max(y2,e.y+e.h/2)
+    end
+    return {r1(x1),r1(y1),r1(x2),r1(y2)}
+  end
+  local INTENT={"name","role","feeds","eats","notes"}
+  local function entry(id,b,extra)
+    local out=extra
+    out.id=id
+    for _,k in ipairs(INTENT) do out[k]=b and b[k] end
+    return out
+  end
+
+  function M.ledger(nonce,r)
+    local out,edges,seen={}, {}, {}
+    for _,id in ipairs(sorted_keys(jobs())) do
+      local j=jobs()[id]
+      if j.placed or j.state=="building" or j.state=="settling" or j.state=="auditing" then
+        local surface=game.get_surface(j.surface)
+        local n,miss={},0
+        for _,e in ipairs(j.layout) do
+          n[e.name]=(n[e.name] or 0)+1
+          if not (surface and surface.find_entity(e.name,{e.x,e.y})) then miss=miss+1 end
+        end
+        local st=j.state
+        if st=="needs-attention" or miss>0 then st="attention"
+        elseif st=="verified" then st=j.audit and j.audit.status=="passed" and "verified" or "unverified" end
+        out[#out+1]=entry(id,j.block,{status=st,box=box_of(j.layout),n=n,missing=miss>0 and miss or nil,
+          error=j.error,pattern_id=j.pattern_id,tick=j.last_mutation})
+      end
+    end
+    for _,id in ipairs(sorted_keys(hands())) do
+      local h=hands()[id]
+      local surface=game.get_surface(h.surface)
+      local n={}
+      for _,e in pairs(surface and surface.find_entities_filtered{area={{h.box[1],h.box[2]},{h.box[3],h.box[4]}},
+        force=h.force} or {}) do
+        if e.type~="character" then n[e.name]=(n[e.name] or 0)+1 end
+      end
+      out[#out+1]=entry(id,h,{status="declared",box=h.box,n=n,tick=h.tick})
+    end
+    -- Directed edges producer -> consumer from both sides' declarations.
+    for _,b in ipairs(out) do
+      for _,k in ipairs{"feeds","eats"} do
+        for _,l in ipairs(b[k] or {}) do
+          if l.block then
+            local a,c=b.id,l.block
+            if k=="eats" then a,c=c,a end
+            local key=a..">"..c..">"..(l.item or "")
+            if not seen[key] then seen[key]=true edges[#edges+1]={a,c,l.item} end
+          end
+        end
+      end
+    end
+    return ctx.response(nonce,true,{blocks=out,edges=edges})
+  end
+
+  -- Update intent of a block (job or hand), or register a hand-built area as a new block.
+  function M.note(nonce,r)
+    local b,err=parse_block(r.block)
+    if not b then return ctx.response(nonce,false,{error=err or "block-required"}) end
+    local target=b.id and (jobs()[b.id] and jobs()[b.id].block or hands()[b.id])
+    if b.id and not target then
+      if not jobs()[b.id] then return ctx.response(nonce,false,{error="block-not-found"}) end
+      target={} jobs()[b.id].block=target
+    end
+    if not target then
+      if not (finite(r.x1) and finite(r.y1) and finite(r.x2) and finite(r.y2)) then
+        return ctx.response(nonce,false,{error="block-id-or-area-required"})
+      end
+      local s=ctx.state() s.ledger_seq=(s.ledger_seq or 0)+1
+      b.id="hand-"..s.ledger_seq
+      target={surface=r.surface or "nauvis",force=r.force or "player",tick=game.tick,
+        box={math.min(r.x1,r.x2),math.min(r.y1,r.y2),math.max(r.x1,r.x2),math.max(r.y1,r.y2)}}
+      hands()[b.id]=target
+    end
+    for _,k in ipairs(INTENT) do if b[k]~=nil then target[k]=b[k] end end
+    return ctx.response(nonce,true,{id=b.id,block=target})
   end
 
   function M.status(nonce,r)

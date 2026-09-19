@@ -40,7 +40,7 @@ Yêu cầu: Factorio 2.0.77, Python ≥ 3.11, gói `mcp` ≥ 1.27.1.
    ```
 
    Host/port lấy từ `FACTORIO_HOST` / `FACTORIO_PORT`, mặc định `127.0.0.1:34198`. Sửa Python xong phải khởi động lại phiên agent để nạp schema tool mới.
-4. **Kiểm tra:** gọi `observe(view="situation")`. Kết quả phải có tên build của mod (hiện tại `2026-09-19-inserter-check`).
+4. **Kiểm tra:** gọi `observe(view="situation")`. Kết quả phải có tên build của mod (hiện tại `2026-09-19-ledger`).
 
 ## Ba tool MCP
 

@@ -191,6 +191,13 @@ def parser() -> argparse.ArgumentParser:
     bp_run.add_argument("--dry-run", action="store_true")
     bp_job = commands.add_parser("blueprint-job")
     bp_job.add_argument("job_id")
+    commands.add_parser("ledger")
+    note = commands.add_parser("ledger-note")
+    note.add_argument("block", help="JSON {id?,name,role,feeds,eats,notes}")
+    for k in ("x1", "y1", "x2", "y2"):
+        note.add_argument(f"--{k}", type=float)
+    note.add_argument("--surface", default="nauvis")
+    note.add_argument("--force", default="player")
 
     water = commands.add_parser("water-sites", help="offshore-pump spots nearest a point")
     water.add_argument("--x", type=float)
@@ -379,6 +386,14 @@ def command_body(args: argparse.Namespace) -> dict[str, Any]:
         return body
     if args.command == "blueprint-job":
         return {"action": "blueprint_job", "job_id": args.job_id}
+    if args.command == "ledger":
+        return {"action": "ledger"}
+    if args.command == "ledger-note":
+        body = {"action": "ledger_note", "block": args.block if isinstance(args.block, dict) else json.loads(args.block),
+                "surface": args.surface, "force": args.force}
+        if args.x1 is not None:
+            body.update(x1=args.x1, y1=args.y1, x2=args.x2, y2=args.y2)
+        return body
     if args.command == "water-sites":
         body = {"action": "water_sites", "radius": args.radius, "offset": args.offset,
                 "surface": args.surface}

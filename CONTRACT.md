@@ -4,6 +4,27 @@
 
 Job id `exec-N`; read with `report(job_id)` (action `blueprint_job`). Receipt + audit + blueprint in script-output `executor/exec-N.*`. One active job at a time; repeat call returns the active job.
 
+## Executor rules (cheat sheet)
+
+- Inserter `direction` = pickup side (dir 0 N: picks from north, drops south). Both ends must hold a receiver or `inserter-unconnected` (see §Site).
+- Footprint + `clearance` must contain NO own-force entity → `occupied`. `character` = a player (maintainer's or agent's) stands in it: move the player, not the site.
+- Trees/rocks in footprints auto-mined (products to bag). Cliffs → `cliff`, never cleared.
+- Items come from bag → own chests / furnace+assembler outputs → mining → hand craft. NOT from belts.
+- Job `needs-attention` with `insufficient-items` mid-build: rerun the IDENTICAL call; the executor regathers (Sonnet live 19/09).
+- World coords of what gets built = `placed_at`, never recompute from anchor+rotation.
+- Every job is a ledger block; declare intent with `contract.block` (§Ledger).
+
+## Ledger (base memory, build `2026-09-19-ledger`)
+
+Stored in mod `storage` → travels with the save, survives restarts/handoffs. Only intent stored; live state recomputed per read.
+- `contract.block = {id?, name, role, feeds:[{item?,block?,via?}], eats:[...], notes}` (name/id ≤40, role ≤120, notes ≤400, ≤12 links, link needs ≥1 field). Bad → refused `invalid-block[-feeds|-eats]`, nothing built. Carried on job summary (`report.block`).
+- `observe(view="ledger")` → `blocks` [{id, name, role, feeds, eats, notes, status, box [x1,y1,x2,y2], n {entity: planned count}, missing?, error?, pattern_id, tick}] + `edges` [[producer, consumer, item]].
+  - Job blocks: every exec job that placed anything. `status`: `verified` (audit passed), `unverified` (verified, no passing audit), `attention` (needs-attention OR any planned entity gone: `missing`=count), else raw job state.
+  - Hand blocks `hand-N`: `status=declared`, `n` = live own-force entities in box (characters skipped).
+  - Edges from both sides: A.feeds{block=B} and B.eats{block=A} both give [A,B,item], deduped. "What breaks if I remove X" = every edge with X as producer.
+- `achieve(goal="annotate", contract={block:{id,...}})` merges given fields into block `id` (exec or hand); unknown → `block-not-found`. No id + `area=[x1,y1,x2,y2]` → registers new hand block, returns id. Neither → `block-id-or-area-required`.
+- Engine PASS tests/verify_ledger_runtime.py: bad feeds refused; character in site → `character` reject; 2 jobs + eats → edge; note merges keep other fields; hand chest counted live + edge; chest destroyed → `attention` missing 1; report carries block.
+
 ## Agent-authored design (`build_design`)
 
 `achieve(goal="build_design", design=[{name,x,y,direction?,recipe?,type?}], contract, x?, y?, dry_run?)`. Agent designs from game rules (sizes, drill area/drop, inserter reach, ratios); no human template required. `design` = entity centers in tiles: odd-size entity on .5, even-size on integer (2x2 drill center `1,2`); direction 16-way 0N 4E 8S 12W. Python `encode_blueprint` → native string (≤500 entities, bad row → `invalid-design-entity:<i>`) → same `blueprint_run` path as reuse. Not dry → catalog pattern state `designed` + contract saved; report(exec-N) verified → upgraded to `verified`. Read any saved pattern's layout: `observe(view="patterns", pattern_id)` → entities shifted by whole tiles (parity kept) + contract; edit and resubmit as `design`. Human blueprint = optional reference only.
@@ -43,7 +64,7 @@ Unknown keys ignored (notes: `source`). Contract errors (refused, nothing built)
 - Anchor = top-left tile of the rotated blueprint footprint. `exact`: anchor = `floor(x), floor(y)`. `search`: x,y = search center (default treasury player position), `radius` limit.
 - Rotations 16-way units, default `[0]`. `exact` needs exactly ONE rotation (agent placed water/pole for that orientation; spinning would miss them). Rotation turns every entity position AND direction; W/H swap for east/west entities.
 - Candidates, nearest first: with a resource rule → every anchor putting the rule's first matching entity's top-left tile on an ore tile; else square scan ≤64 tiles. Budget `max_checks` (≤20000) → `search-budget-exhausted`.
-- Per candidate, reject reason counted: `out-of-area`, `occupied` (own-force entity inside footprint + `clearance`), `enemies` (within `enemy_radius`), `collision` (`can_place_entity` manual check, every entity; a failure whose footprint holds only trees/rocks passes if a `forced` blueprint_ghost check passes → clearable), `cliff` (cliff inside footprint: never cleared, needs explosives), `foreign-resource`, `resource-cover`, `resource-reserve`.
+- Per candidate, reject reason counted: `out-of-area`, `occupied` (own-force entity inside footprint + `clearance`), `character` (only own characters there: player in the way), `enemies` (within `enemy_radius`), `collision` (`can_place_entity` manual check, every entity; a failure whose footprint holds only trees/rocks passes if a `forced` blueprint_ghost check passes → clearable), `cliff` (cliff inside footprint: never cleared, needs explosives), `foreign-resource`, `resource-cover`, `resource-reserve`.
 - Resource rule area = `mining_drill_radius` of that entity (burner drill: its 2x2). `full_cover` (default): every tile in area holds `resource` ≥ `min_per_tile`. `exclusive` (default): other resource in area rejects. Sum ≥ `min_total`.
 - None fits → `state=blocked, error=no-site, rejects={reason: n}, checks`. Agent picks a new area / relaxes contract.
 - Inserter ends (after site found, before any debit, dry_run too): every inserter's pickup AND drop tile (prototype `inserter_pickup_position`/`inserter_drop_position`, dir 0 = pickup north, rotated by dir) must hold a receiver: planned entity of a receiver type (belt/underground/splitter/loader, chest, furnace, assembler, lab, drill, boiler, turret, wagon, silo...) or an existing own-force one. Else `state=blocked, error=inserter-unconnected, unconnected=[{inserter:[x,y], side:pickup|drop, tile:[x,y], hint?}]`. `hint={entity, from, to, design_shift:[dx,dy]}` only when exactly one planned receiver one tile away covers the tile, the move clashes with no planned entity AND lowers total gaps; `design_shift` is in the agent's design frame (rotation undone). Never auto-moved: agent edits design and resubmits (maintainer 19/09: pre-build check + hint over post-build snap — no wasted build, catalog blueprint = what was built, no guessing when a machine serves several inserters). Engine PASS tests/verify_inserter_runtime.py: lab 1 tile off → drop gap + shift [-1,0] (also under rotation 4), fixed → planned, pickup from existing belt counts, engine pickup/drop positions match.

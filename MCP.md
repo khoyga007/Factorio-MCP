@@ -62,7 +62,8 @@ Nguồn: [MCP Python SDK 1.27.1](https://github.com/modelcontextprotocol/python-
 6. Research: `observe(view="research")`, `achieve(goal="research", tech)`.
    Chụp layout đã xây: `achieve(goal="capture", area=[x1,y1,x2,y2])`. Spec:
    `CONTRACT.md` §Research.
-7. `report(job_id)` đọc audit của các pattern. Blueprint và receipt chi tiết
+7. Ledger: `observe(view="ledger")` = every block (exec job / hand area) with live status + `edges` [[producer, consumer, item]]. Declare intent via `contract.block` on build, or `achieve(goal="annotate", contract={block}, area?)`. Spec + executor cheat sheet: `CONTRACT.md` §Ledger, §Executor rules.
+8. `report(job_id)` đọc audit của các pattern. Blueprint và receipt chi tiết
    nằm trong `script-output/starter/`, `script-output/coal/`,
    `script-output/smelting/` hoặc `script-output/executor/`.
 

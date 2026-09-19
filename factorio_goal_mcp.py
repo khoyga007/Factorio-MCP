@@ -65,12 +65,14 @@ def observe(view: str = "situation",
             radius: Annotated[float, Field(ge=1, le=2048, allow_inf_nan=False)] = 16,
             resource: str | None = None, pattern_id: str | None = None,
             offset: Annotated[int, Field(ge=0)] = 0) -> CallToolResult:
-    """situation|deposits|nearby (1 call: issues, machines, runs, poles)|entities (raw, paged)|water|research|
-    patterns(+pattern_id). offset pages. water: pump spots, radius<=2048 (others <=32)."""
+    """situation|deposits|nearby(issues,machines,runs,poles)|entities(raw)|water|research|ledger(blocks,
+    edges)|patterns(+pattern_id). offset pages. water radius<=2048, others<=32."""
     if (x is None) != (y is None):
         return _result({"ok": False, "error": "x-and-y-required-together"}, True)
-    if view not in {"situation", "deposits", "nearby", "entities", "patterns", "water", "research"}:
+    if view not in {"situation", "deposits", "nearby", "entities", "patterns", "water", "research", "ledger"}:
         return _result({"ok": False, "error": "unknown-view"}, True)
+    if view == "ledger":
+        return _send({"action": "ledger"}, 5)
     if view == "research":
         return _send({"action": "research", "surface": surface, "available": True}, 5)
     if view == "water":
@@ -159,19 +161,27 @@ def achieve(goal: str,
     """Goals: first_iron_plates, first_copper_plates, coal_stockpile, iron_smelting_row,
     reuse_blueprint(pattern_id), build_design(design=[{name,x,y,direction?}] centers, dir 0N 4E 8S
     12W), recall(area=[x1,y1,x2,y2] or design=[{name,x,y}]; own entities+contents to bag;
-    force_active overrides live job), capture(area -> catalog), research(tech; queued if busy).
-    contract: see CONTRACT.md."""
+    force_active overrides live job), capture(area -> catalog), research(tech; queued if busy),
+    annotate(contract.block; new block needs area). contract: CONTRACT.md."""
     if (x is None) != (y is None) or (input_x is None) != (input_y is None):
         return _result({"ok": False, "error": "coordinate-pairs-required"}, True)
     if goal not in {"first_iron_plates", "first_copper_plates", "coal_stockpile",
                     "iron_smelting_row", "reuse_blueprint", "build_design", "recall",
-                    "capture", "research"}:
+                    "capture", "research", "annotate"}:
         return _result({"ok": False, "error": "unknown-goal"}, True)
     if (tech is not None) != (goal == "research"):
         return _result({"ok": False, "error": "tech-only-for-research"}, True)
     if goal == "research":
         return _send({"action": "research", "name": tech, "start": True, "force": force,
                       "surface": surface}, 5)
+    if goal == "annotate":
+        body = {"action": "ledger_note", "block": (contract or {}).get("block"),
+                "surface": surface, "force": force}
+        if area is not None:
+            if len(area) != 4:
+                return _result({"ok": False, "error": "area-is-x1-y1-x2-y2"}, True)
+            body.update(x1=area[0], y1=area[1], x2=area[2], y2=area[3])
+        return _send(body, 5)
     if goal == "capture":
         if area is None or len(area) != 4:
             return _result({"ok": False, "error": "area-is-x1-y1-x2-y2"}, True)
@@ -299,7 +309,7 @@ def achieve(goal: str,
 
 @mcp.tool(annotations=READ)
 def report(job_id: str) -> CallToolResult:
-    """Read one saved goal's audit, progress, blocker and blueprint/receipt artifact path."""
+    """One goal's audit, progress, blocker, block and artifact path."""
     if job_id.startswith("starter-"):
         p = _read(invoke("starter-status", job_id=job_id))
     elif job_id.startswith("exec-"):
@@ -317,7 +327,7 @@ def report(job_id: str) -> CallToolResult:
                     "pattern_id": (p.get("pattern") or {}).get("pattern_id"),
                     **_fields(p, "state", "product", "existing", "output", "coal", "refuels", "site", "placed", "feed",
                               "missing", "locked", "connections", "audit", "cleared", "placed_at",
-                              "error", "artifact")},
+                              "block", "error", "artifact")},
                    not p.get("ok", False))
 
 

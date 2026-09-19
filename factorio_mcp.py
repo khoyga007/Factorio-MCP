@@ -271,5 +271,19 @@ def blueprint_job(job_id: str) -> CallToolResult:
     return invoke("blueprint-job", **locals())
 
 
+@mcp.tool(annotations=READ)
+def ledger() -> CallToolResult:
+    """Base ledger: every executor/hand block with live status, declared feeds/eats and edges."""
+    return invoke("ledger")
+
+
+@mcp.tool(annotations=WRITE)
+def ledger_note(block: dict, x1: FiniteFloat | None = None, y1: FiniteFloat | None = None,
+                x2: FiniteFloat | None = None, y2: FiniteFloat | None = None,
+                surface: str = "nauvis", force: str = "player") -> CallToolResult:
+    """Set block intent by id, or register a hand-built area (x1..y2) as a new block."""
+    return invoke("ledger-note", **locals())
+
+
 if __name__ == "__main__":
     mcp.run(transport="stdio")

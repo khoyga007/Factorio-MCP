@@ -11,6 +11,7 @@ from mcp.types import CallToolResult, TextContent, ToolAnnotations
 from pydantic import Field, FiniteFloat
 
 from factorio_mcp import invoke
+from perception import summarize
 from factorio_ai import DEFAULT_HOST, DEFAULT_PORT, request, self_sustaining
 from blueprint_library import (encode_blueprint, list_patterns, load_pattern,
                                pattern_entities, pattern_id_for, record_blueprint)
@@ -64,11 +65,11 @@ def observe(view: str = "situation",
             radius: Annotated[float, Field(ge=1, le=2048, allow_inf_nan=False)] = 16,
             resource: str | None = None, pattern_id: str | None = None,
             offset: Annotated[int, Field(ge=0)] = 0) -> CallToolResult:
-    """situation|deposits|nearby|water|research|patterns(+pattern_id: entities). offset pages (next_offset).
-    water: pump spots nearest x,y, radius<=2048 (others <=32), dir+output, blocked+obstacles."""
+    """situation|deposits|nearby (1 call: issues, machines, runs, poles)|entities (raw, paged)|water|research|
+    patterns(+pattern_id). offset pages. water: pump spots, radius<=2048 (others <=32)."""
     if (x is None) != (y is None):
         return _result({"ok": False, "error": "x-and-y-required-together"}, True)
-    if view not in {"situation", "deposits", "nearby", "patterns", "water", "research"}:
+    if view not in {"situation", "deposits", "nearby", "entities", "patterns", "water", "research"}:
         return _result({"ok": False, "error": "unknown-view"}, True)
     if view == "research":
         return _send({"action": "research", "surface": surface, "available": True}, 5)
@@ -100,6 +101,8 @@ def observe(view: str = "situation",
         return _result({"ok": p.get("ok", False), "view": view,
                         **_fields(p, "total", "marks", "next_offset", "error")},
                        not p.get("ok", False))
+    if view == "nearby":
+        return _nearby(surface, x, y, radius)
     p = _read(invoke("snapshot", surface=surface, x=x, y=y, radius=radius,
                      offset=offset, limit=12, tiles=False, name=None, obstacles=True))
     rows = p.get("entities") or []
@@ -111,6 +114,34 @@ def observe(view: str = "situation",
                               "entities_next_offset", "obstacles_total", "obstacles",
                               "ground_items", "error"), "entities": entities},
                    not p.get("ok", False))
+
+
+NEARBY_MAX_PAGES = 16  # x64 rows per Lua page
+
+
+def _nearby(surface, x, y, radius) -> CallToolResult:
+    """Pull every snapshot page, then compress in Python (Lua stays a cheap fact dump)."""
+    rows, offset, head = [], 0, None
+    for _ in range(NEARBY_MAX_PAGES):
+        p = _read(invoke("snapshot", surface=surface, x=x, y=y, radius=radius,
+                         offset=offset, limit=64, tiles=False, name=None, obstacles=offset == 0))
+        if not p.get("ok", False):
+            return _result({"ok": False, "view": "nearby", **_fields(p, "error")}, True)
+        head = head or p
+        rows += [e for e in p.get("entities") or [] if isinstance(e, dict)]
+        offset = p.get("entities_next_offset")
+        if offset is None:
+            break
+    data = {"ok": True, "view": "nearby", **_fields(head, "center", "entities_total"),
+            **summarize(rows)}
+    if offset is not None:
+        data["truncated_at"] = len(rows)
+    data["resources"] = [[r.get("name"), r.get("x"), r.get("y"), r.get("amount")]
+                         for r in head.get("resources") or [] if isinstance(r, dict)]
+    for key in ("obstacles", "ground_items"):
+        if head.get(key):
+            data[key] = head[key]
+    return _result(data)
 
 
 @mcp.tool(annotations=WRITE)

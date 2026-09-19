@@ -46,7 +46,7 @@ Yêu cầu: Factorio 2.0.77, Python ≥ 3.11, gói `mcp` ≥ 1.27.1.
 
 | Tool | Dùng để |
 |---|---|
-| `observe(view=…)` | `situation` · `deposits` (mỏ) · `nearby` · `water` (chỗ đặt bơm) · `research` (tiến độ, hàng chờ, lab) · `patterns` (catalog, `pattern_id` để xem layout) |
+| `observe(view=…)` | `situation` · `deposits` (mỏ) · `nearby` (1 lần gọi: lỗi lên đầu, máy, đoạn belt/ống gộp, cột điện) · `entities` (dữ liệu thô, debug) · `water` (chỗ đặt bơm) · `research` (tiến độ, hàng chờ, lab) · `patterns` (catalog, `pattern_id` để xem layout) |
 | `achieve(goal=…)` | `build_design` (layout agent tự thiết kế) · `reuse_blueprint` (mẫu trong catalog) · `capture` (chụp vùng đã xây vào catalog) · `recall` (thu hồi công trình về túi) · `research` · goal khởi đầu `first_iron_plates` / `first_copper_plates` / `coal_stockpile` / `iron_smelting_row`. Có `dry_run` để xem trước. |
 | `report(job_id)` | Trạng thái job `exec-N`: vị trí, vật tư, từng window audit, `self_sustaining` |
 

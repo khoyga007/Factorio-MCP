@@ -36,6 +36,7 @@ Nguồn: [MCP Python SDK 1.27.1](https://github.com/modelcontextprotocol/python-
 ## Luồng ưu tiên
 
 1. `observe(view="situation"|"deposits"|"nearby")` đọc tóm tắt khi cần.
+   `nearby` (19/09, `perception.py`): all snapshot pages pulled inside (64/page, ≤16 pages), compressed in Python. Keys: `counts`, `issues` (faults only: no_power, no_fuel, ingredient shortage, no_research...), `machines` (compact rows `at`/`dir`/`status`/`recipe`/`fuel`/`in`/`out`/`fluid`; waiting/backpressure status stays on row), `runs` (belts same dir along travel axis, `from`=upstream; pipes straight chains; from/to/len kept), `poles` {name:[[x,y]]}, `resources` [[name,x,y,amount]]. Live 19/09 r16: 155 entities, 13 calls/34 455 chars → 1 call/4 957. r32: 295 entities 11 198 chars. `view="entities"` = old raw rows paged by 12 (debug).
 2. `achieve(goal="first_iron_plates"|"first_copper_plates")` nhận diện cặp
    máy khoan → lò đá đang có, kiểm tra nhiên liệu và nạp lại nếu đủ than. Nếu
    chưa có, planner tìm mỏ, tự đào than bằng 1 gỗ ban đầu khi cần, xây cặp máy

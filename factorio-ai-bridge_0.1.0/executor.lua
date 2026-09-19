@@ -68,6 +68,17 @@ local function tile_area(cx,cy,r)
   return math.floor(cx-r+0.01),math.floor(cy-r+0.01),math.ceil(cx+r-0.01)-1,math.ceil(cy+r-0.01)-1
 end
 
+-- Supply area of an own-force pole covers the planned entity (pre-build power check).
+local function pole_covers(surface,force,e)
+  for _,p in pairs(surface.find_entities_filtered{position={e.x,e.y},radius=math.max(e.w,e.h)/2+32,
+    type="electric-pole",force=force}) do
+    local ok,d=pcall(function() return p.prototype.get_supply_area_distance() end)
+    if not ok then d=p.prototype.supply_area_distance end
+    if d and math.abs(p.position.x-e.x)<d+e.w/2 and math.abs(p.position.y-e.y)<d+e.h/2 then return true end
+  end
+  return false
+end
+
 -- One resource rule against one placed entity. Returns reject reason or nil.
 local function resource_ok(surface,e,rule)
   local p=prototypes.entity[e.name]
@@ -115,6 +126,9 @@ local function check_site(surface,force,c,placed,rejects)
         local bad=resource_ok(surface,e,rule)
         if bad then return no(bad) end
       end
+    end
+    for _,rule in ipairs(c.connect) do
+      if rule.entity==e.name and rule.power and not pole_covers(surface,force,e) then return no("no-power") end
     end
   end
   return true
@@ -171,7 +185,7 @@ end
 -- Validate the agent's contract into a normalised table, or return an error.
 local function parse_contract(raw,r)
   raw=type(raw)=="table" and raw or {}
-  local c={resources={},primer={},feeds={},rotations={}}
+  local c={resources={},primer={},feeds={},rotations={},connect={}}
   local site=type(raw.site)=="table" and raw.site or {}
   c.exact=site.mode=="exact"
   c.clearance=tonumber(site.clearance) or 0
@@ -183,6 +197,14 @@ local function parse_contract(raw,r)
     c.rotations[#c.rotations+1]=v
   end
   if #c.rotations==0 then c.rotations={0} end
+  -- exact = agent already placed water/pole for ONE orientation; spinning would miss them.
+  if c.exact and #c.rotations~=1 then return nil,"exact-site-needs-one-rotation" end
+  for _,v in ipairs(list(raw.connect)) do
+    if type(v.entity)~="string" or not prototypes.entity[v.entity]
+      or (v.power~=true)==(type(v.fluid)~="string")
+      or (v.fluid and not prototypes.fluid[v.fluid]) then return nil,"invalid-connect" end
+    c.connect[#c.connect+1]=v
+  end
   for _,v in ipairs(list(raw.resources)) do
     if type(v.entity)~="string" or type(v.resource)~="string" or not prototypes.entity[v.resource] then
       return nil,"invalid-resource-rule"
@@ -209,9 +231,31 @@ local function parse_contract(raw,r)
   if c.window_ticks<600 or c.window_ticks>36000 or c.max_windows<MIN_WINDOWS
     or c.settle_ticks<0 or c.settle_ticks>36000 then return nil,"invalid-verify" end
   c.metrics={}
+  local load=raw.declared_load_mw
+  if load~=nil and (not finite(load) or load<=0) then return nil,"invalid-declared-load" end
   for _,m in ipairs(list(verify.metrics)) do
     if type(m.key)~="string" or not METRICS[m.kind] or type(m.entity)~="string"
-      or not finite(m.min) then return nil,"invalid-metric" end
+      or not prototypes.entity[m.entity] then return nil,"invalid-metric" end
+    if m.kind=="container_gain" and (type(m.item)~="string" or not prototypes.item[m.item]) then
+      return nil,"invalid-metric-item"
+    end
+    if m.kind=="fluid_temperature" and m.fluid~=nil and not prototypes.fluid[m.fluid] then
+      return nil,"invalid-metric-fluid"
+    end
+    if m.kind=="working_count" and m.fraction~=nil and (not finite(m.fraction) or m.fraction<=0 or m.fraction>1) then
+      return nil,"invalid-metric-fraction"
+    end
+    -- Power min derives from the declared load: min = load_fraction*min(load, capacity_mw).
+    if m.load_fraction~=nil then
+      if m.kind~="electric_output_mw" or m.min~=nil or not finite(m.load_fraction)
+        or m.load_fraction<=0 or m.load_fraction>1 or (m.capacity_mw~=nil and not finite(m.capacity_mw)) then
+        return nil,"invalid-metric-load-fraction"
+      end
+      if not load then return nil,"declared-load-required" end
+      local copy={} for k,v in pairs(m) do copy[k]=v end
+      m=copy m.min=m.load_fraction*math.min(load,m.capacity_mw or math.huge)
+    end
+    if not finite(m.min) then return nil,"invalid-metric-min" end
     c.metrics[#c.metrics+1]=m
   end
   c.center={x=r.x,y=r.y} c.radius=r.radius or 192
@@ -318,6 +362,25 @@ function M.attach(ctx)
       out[i]=found
     end
     return out
+  end
+
+  -- power: entity sits on an electric network. fluid: a box for that fluid links to an entity outside the job.
+  local function connected(es,e,rule)
+    if rule.power then return e.electric_network_id~=nil end
+    local own={}
+    for _,x in ipairs(es) do if x.unit_number then own[x.unit_number]=true end end
+    for k=1,#e.fluidbox do
+      local filter=e.fluidbox.get_filter(k)
+      local proto=e.fluidbox.get_prototype(k)
+      if proto and not proto.object_name and proto[1] then proto=proto[1] end
+      local name=(filter and filter.name) or (proto and proto.filter and proto.filter.name)
+      if name==rule.fluid then
+        for _,other in pairs(e.fluidbox.get_connections(k)) do
+          if other.owner and not own[other.owner.unit_number] then return true end
+        end
+      end
+    end
+    return false
   end
 
   local function sample(j,es)
@@ -552,6 +615,14 @@ function M.attach(ctx)
             if not result.ok then save(j) return end
             local es,bad=built_entities(j)
             if not es then error("import-geometry-mismatch:"..bad) end
+            -- Declared infrastructure must be connected BEFORE primer spends fuel.
+            for _,rule in ipairs(j.contract.connect) do
+              for i,e in ipairs(es) do
+                if e.name==rule.entity and not connected(es,e,rule) then
+                  error("infra-missing:"..(rule.fluid or "power")..":"..e.name.."@"..j.layout[i].x..","..j.layout[i].y)
+                end
+              end
+            end
             for _,p in ipairs(j.contract.primer) do
               for i,e in ipairs(j.layout) do
                 if e.name==p.entity then
@@ -581,7 +652,7 @@ function M.attach(ctx)
           sample(j,es)
           if game.tick-j.window.start>=j.contract.window_ticks then close_window(j,es) save(j) end
         end)
-        if not ok then j.state,j.error="needs-attention",tostring(err) save(j) end
+        if not ok then j.state,j.error="needs-attention",(tostring(err):gsub("^__[^:]+:%d+: ","")) save(j) end
       end
     end
   end

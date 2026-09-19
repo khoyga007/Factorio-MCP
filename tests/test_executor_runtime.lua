@@ -38,6 +38,9 @@ return function(handlers,state,blueprint,contract_json)
 
         local bad=helpers.json_to_table(contract_json) bad.site.rotations={3}
         check(not call("blueprint_run",{blueprint=blueprint,surface=surface.name,contract=bad}).ok,"bad-contract-refused")
+        local noitem=helpers.json_to_table(contract_json) noitem.verify.metrics[1].item=nil
+        local r=call("blueprint_run",{blueprint=blueprint,surface=surface.name,contract=noitem})
+        check(not r.ok and r.error=="invalid-metric-item","metric-without-item-refused")
 
         base.dry_run=true
         local dry=call("blueprint_run",base)

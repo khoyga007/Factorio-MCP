@@ -81,9 +81,11 @@ python -m unittest discover -q -s tests -t .
 python contract_check.py
 python tests/verify_smelting_runtime.py
 python tests/verify_smelting_runtime.py --player-save 'C:\Users\user\AppData\Roaming\Factorio\saves\Legendary Seed.zip'
-python tests/verify_starter_runtime.py --player-save 'C:\Users\user\AppData\Roaming\Factorio\saves\Sandbox.zip'
+python tests/verify_starter_runtime.py --player-save .runtime-test/saves/replica-player.zip
 python tests/verify_executor_runtime.py --player-save .runtime-test/saves/replica-player.zip
-python tests/verify_coal_runtime.py --player-save 'C:\Users\user\AppData\Roaming\Factorio\saves\Sandbox.zip'
+python tests/verify_coal_runtime.py --player-save .runtime-test/saves/replica-player.zip
+python tests/verify_steam_runtime.py --player-save .runtime-test/saves/replica-player.zip
+python tests/verify_holdout_fail_runtime.py --player-save .runtime-test/saves/replica-player.zip
 ```
 
 Lệnh cuối sao chép save vào `.runtime-test` để kiểm tra chuyển đồ với một player

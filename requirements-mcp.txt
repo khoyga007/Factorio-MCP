@@ -1,0 +1,2 @@
+# Official SDK's built-in FastMCP; compatible with the installed 1.27.1 runtime.
+mcp>=1.27.1,<2

@@ -3,7 +3,7 @@
   "schema_version": 1,
   "actions": {
     "ping":         { "required": [], "optional": [] },
-    "snapshot":     { "required": [], "optional": ["surface", "x", "y", "radius", "offset", "limit", "tiles", "name"] },
+    "snapshot":     { "required": [], "optional": ["surface", "x", "y", "radius", "offset", "limit", "tiles", "name", "obstacles"] },
     "brief":        { "required": [], "optional": ["surface", "x", "y", "radius"], "note": "one reply: owned counts, issues, enemies, ore_total/ore_patches, nearest_water, treasury" },
     "blueprint_export": { "client": "blueprint-export", "required": ["x1", "y1", "x2", "y2", "file"], "optional": ["surface", "force"], "note": "read built area into Factorio blueprint string; client writes a new file" },
     "blueprint_import": { "client": "blueprint-import", "required": ["file", "x", "y"], "optional": ["surface", "force", "ghosts"], "note": "default direct construction debits real treasury items; --ghosts defers construction to robots" },
@@ -12,16 +12,21 @@
     "smelt_plan":  { "client": "smelt-plan", "required": ["rate"], "optional": ["surface", "force", "x", "y", "input_x", "input_y"], "note": "size/site/preflight a reusable iron-smelting row in one call; no construction" },
     "smelt_build": { "client": "smelt-build", "required": ["plan_id"], "optional": [], "note": "revalidate, build with real items, export blueprint and start in-game audit" },
     "smelt_status": { "client": "smelt-status", "required": ["plan_id"], "optional": [], "note": "compact result for the exact row, including a 60-game-second production audit" },
+    "starter_smelt": { "client": "starter-smelt", "required": [], "optional": ["product", "x", "y", "radius", "surface", "force", "dry_run"], "note": "one-call real-coal bootstrap, direct burner drill to furnace and in-game audit" },
+    "starter_status": { "client": "starter-status", "required": ["job_id"], "optional": [], "note": "compact starter job progress and measured plate output" },
+    "coal_stockpile": { "client": "coal-stockpile", "required": [], "optional": ["x", "y", "radius", "surface", "force", "dry_run"], "note": "one burner drill drops real coal into adjacent chest and audits output" },
+    "coal_status": { "client": "coal-status", "required": ["job_id"], "optional": [], "note": "compact coal cell production audit" },
+    "repair_demo_economy": { "client": "repair-demo-economy", "required": ["key"], "optional": [], "note": "one-time exact Sandbox ingredient debit for cheat-mode crafting demo" },
     "set_treasury": { "client": "treasury", "required": ["x", "y"], "optional": ["surface"] },
     "craft":        { "required": ["recipe"], "optional": ["count"] },
     "mine":         { "required": ["name", "x", "y"], "optional": ["surface"] },
-    "collect":      { "required": ["item", "count", "x", "y"], "optional": ["surface"] },
+    "collect":      { "required": ["item", "count", "x", "y"], "optional": ["surface", "ground"] },
     "autofuel":     { "required": ["state"], "optional": [], "note": "client arg state on|off maps to action field enabled(bool)" },
     "spec":         { "required": ["kind"], "optional": ["name", "entity", "force"], "note": "kind recipe is force-level: enabled/have/via_entity/unlocked_by" },
     "audit":        { "required": ["item"], "optional": ["surface", "force", "precision", "expected_per_second"], "note": "expected_per_second is client-only, not sent to Lua" },
     "set_recipe":   { "client": "set-recipe", "required": ["recipe", "x", "y"], "optional": ["surface", "force"] },
     "research":     { "required": [], "optional": ["name", "start", "force"] },
-    "insert":       { "required": ["item", "count", "x", "y"], "optional": ["surface", "force"], "note": "input slot for lab/assembler/ammo-turret, else fuel slot (burner)" },
-    "place":        { "required": ["name", "x", "y"], "optional": ["surface", "force", "direction", "dry_run"], "note": "dry_run reports blockers and builds nothing" }
+    "insert":       { "required": ["item", "count", "x", "y"], "optional": ["surface", "force", "source"], "note": "input for lab/assembler/ammo-turret, chest storage, furnace source when requested, else fuel" },
+    "place":        { "required": ["name", "x", "y"], "optional": ["surface", "force", "direction", "dry_run", "type"], "note": "dry_run reports blockers; type input/output applies only to underground-belt" }
   }
 }

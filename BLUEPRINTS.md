@@ -1,6 +1,6 @@
 # Blueprint import cho map mới
 
-Trạng thái: đã có lệnh `blueprint-export` và `blueprint-import` (xây trực tiếp bằng vật tư thật hoặc đặt ghost với `--ghosts`), nhưng chưa nghiệm thu live; chưa có blueprint string từ map mới.
+Trạng thái: đã có lệnh `blueprint-export` và `blueprint-import` (xây trực tiếp bằng vật tư thật hoặc đặt ghost với `--ghosts`). Planner `starter_smelt` đã xuất blueprint string của cặp máy khoan → lò trong bài thử engine trên bản sao save Sandbox; chưa nhập string này trở lại map live. Xem `MCP.md`.
 
 Đầu ra cần bàn giao là **blueprint string nhập được trực tiếp vào Factorio**, xây dần trong quá trình chơi. Mỗi blueprint dùng tọa độ tương đối và có thể xoay/đặt lại trên map mới. Bridge đọc map, spec và recipe để chọn chỗ đặt; không mang tọa độ, kho, mỏ hay sản lượng của save cũ.
 
@@ -73,3 +73,28 @@ Một module chỉ được coi là hoạt động khi đầu vào đi vào, đ�
 5. Xây từ nguồn tới đầu ra, lấy receipt sau từng nhóm có thể kiểm chứng; cuối cùng audit theo ngưỡng.
 
 Các mục 1–4 là danh sách module cần biến thành blueprint string trong quá trình chơi, không phải blueprint đã xuất. Ưu tiên hoàn tất và thử nhập lại từng string trước giai đoạn tech xanh để việc scale về sau chỉ còn chọn module, kiểm tra vị trí và cấp đủ vật tư.
+
+## Mẫu đã kiểm chứng: 2 khoan than → belt → tay gắp → rương
+
+`blueprints/coal-line-v1.blueprint.txt` là blueprint native đã xuất và thử
+nhập lại trong engine. Nó gồm 2 burner-mining-drill, 6 transport-belt,
+1 burner-inserter, 1 wooden-chest. Hai khoan phải nằm trên than. Với gốc
+`(-104,64)` trên Sandbox, tool nhập trực tiếp đặt đủ 10 công trình và trừ
+đúng item. Cần cấp 1 than thật cho mỗi khoan và tay gắp; sau 30 giây rương
+tăng từ 3 lên 29 than. Tay gắp dùng hướng tây để **lấy** từ belt phía tây,
+thả vào rương phía đông.
+
+## Catalog JSON tự ghi
+
+CLI/MCP ghi `blueprints/catalog/bp-<hash>.json` sau mỗi lần nhập blueprint
+trực tiếp thành công. `blueprint-export` cũng ghi mẫu ở trạng thái `captured`;
+`starter-status`, `coal-status` hoặc `smelt-status` nâng thành `verified` khi
+audit trong game đạt. File chứa blueprint string native, số entity, vật tư đã
+trừ nếu biết và bằng chứng audit; hash loại trùng cùng một mẫu. Tọa độ map
+thuộc biên nhận lần xây, không đưa vào mẫu tái dùng.
+
+Agent dùng `observe(view="patterns")` để xem danh sách ngắn, sau đó
+`achieve(goal="reuse_blueprint", pattern_id="bp-...", x=..., y=...)`. Tool đọc
+JSON từ đĩa; bản thân blueprint string không xuất hiện trong câu trả lời MCP.
+Vị trí mới vẫn phải có mỏ/địa hình phù hợp; import Lua kiểm tra va chạm,
+công nghệ và vật tư thật trước khi đặt.

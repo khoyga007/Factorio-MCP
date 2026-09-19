@@ -42,12 +42,30 @@ python E:\FactorioMayor\factorio_ai.py index
 python E:\FactorioMayor\factorio_ai.py ore-marks --name iron-ore
 ```
 
+Khai cuộc trên map có máy khoan đốt nhiên liệu, lò đá và 1 gỗ: planner tự lấy
+than thật, ghép máy khoan nhả thẳng vào lò, rồi đo plate đầu ra. Không cần
+belt, inserter, điện hay robot. Nếu thiếu đồ/mỏ/vị trí thì trả blocker và không
+xây. Dùng `--dry-run` để chỉ xem phương án.
+
+```powershell
+python E:\FactorioMayor\factorio_ai.py starter-smelt iron-plate
+python E:\FactorioMayor\factorio_ai.py starter-status starter-1  # thay bằng job_id vừa nhận
+```
+
+MCP dùng `achieve(goal="first_iron_plates")` và `report(job_id)`; xem [MCP.md](MCP.md). Blueprint
+cặp máy được lưu trong `script-output/starter/` khi xây thành công.
+
+Nguồn than đầu game: `achieve(goal="coal_stockpile")` dùng 1 khoan đốt nhiên liệu,
+1 rương gỗ và 1 gỗ/than thật để tạo ô khai thác than có cấp nhiên liệu lại từ
+rương kề bên. `report(job_id)` đo than tăng và blueprint nằm trong
+`script-output/coal/`. Luồng CLI tương ứng là `coal-stockpile` và `coal-status`.
+
 Để thử xây thật, đặt một rương, bỏ vật phẩm xây dựng vào đó, rồi dùng tọa độ rương:
 
 ```powershell
 python E:\FactorioMayor\factorio_ai.py treasury 10.5 20.5
 python E:\FactorioMayor\factorio_ai.py place transport-belt 14.5 20.5 --direction east
-python E:\FactorioMayor\factorio_ai.py fuel coal 1 14.5 20.5
+python E:\FactorioMayor\factorio_ai.py insert coal 1 14.5 20.5
 python E:\FactorioMayor\factorio_ai.py craft iron-gear-wheel 2
 python E:\FactorioMayor\factorio_ai.py mine stone-furnace 4 -23
 python E:\FactorioMayor\factorio_ai.py collect iron-plate 6 9.5 -26.5
@@ -58,9 +76,9 @@ python E:\FactorioMayor\factorio_ai.py autofuel on
 Đọc mặt đất trước khi xây (không tiêu gì, không xây gì):
 
 ```powershell
-python E:\FactorioMayor\factorio_ai.py tiles --x 10 --y -28 --radius 32
-python E:\FactorioMayor\factorio_ai.py probe offshore-pump 12.5 -30.5 --direction south
-python E:\FactorioMayor\factorio_ai.py recipe --entity lab
+python E:\FactorioMayor\factorio_ai.py snapshot --tiles --obstacles --x 10 --y -28 --radius 32
+python E:\FactorioMayor\factorio_ai.py place offshore-pump 12.5 -30.5 --direction south --dry-run
+python E:\FactorioMayor\factorio_ai.py spec recipe --entity lab
 python E:\FactorioMayor\factorio_ai.py spec entity burner-mining-drill
 python E:\FactorioMayor\factorio_ai.py spec entity stone-furnace
 python E:\FactorioMayor\factorio_ai.py spec entity iron-ore
@@ -89,8 +107,8 @@ một entity lỗi giữa chừng, lệnh báo số đã xây và số vật tư
 còn lại được dọn. Chế độ trực tiếp giới hạn 64 entity mỗi module. Thêm
 `--ghosts` nếu muốn robot xây về sau. String trong file
 cũng nhập được bằng nút Import string của Factorio.
-Hai action này cần game nạp build `2026-09-17-blueprint-direct`; hiện chưa nghiệm thu live
-trên map mới.
+Hai action này đã kiểm thử trong engine bằng save tách biệt; xem [MCP.md](MCP.md)
+cho build hiện tại và cách gọi trực tiếp bằng MCP.
 
 Nung sắt: `smelt-plan` tính một dãy lò đá (tối đa 6 lò) đủ chạm mức đĩa/phút yêu
 cầu, tìm chỗ đặt + hướng, nối một nhánh belt cấp liệu tới belt quặng–than gần
@@ -108,14 +126,14 @@ python E:\FactorioMayor\factorio_ai.py smelt-status smelt-1
 trí belt cấp liệu. `smelt-build` kiểm tra lại công nghệ, vị trí và vật tư rồi mới
 xây, trừ vật tư thật có receipt và xuất blueprint; site đã đổi hoặc thiếu vật tư
 thì từ chối trước khi đặt gì. `smelt-status` đọc audit sau khi chạy ổn định (khoảng
-60 giây trong game): sản lượng đo được so với mục tiêu và trạng thái từng lò.
+30 giây khởi động + 60 giây đo trong game): sản lượng so với mục tiêu và trạng thái từng lò.
 
-- `tiles` mặc định liệt kê mọi ô mà offshore pump hút được, suy ra từ
+- `snapshot --tiles` mặc định liệt kê mọi ô mà offshore pump hút được, suy ra từ
   `LuaTilePrototype.fluid` lúc chạy nên không sót biến thể nước của mod.
   Trả bin 8x8 cộng tối đa 200 ô lẻ, ô giáp bờ xếp trước.
-- `probe` chạy khô đúng cổng mà `place` dùng: vị trí, item, công nghệ, kho.
+- `place --dry-run` chạy khô đúng cổng mà `place` dùng: vị trí, item, công nghệ, kho.
   Trả `blockers` và `would_build`. Không xây, không trừ item.
-- `recipe` trả nguyên liệu (kèm số đang có), sản phẩm, và khi recipe bị khoá thì
+- `spec recipe` trả nguyên liệu (kèm số đang có), sản phẩm, và khi recipe bị khoá thì
   nêu tên công nghệ mở nó.
 - `spec` đọc từng prototype từ map đang chạy: tốc độ đào/chế tạo/băng chuyền,
   thời gian đào, năng lượng, nhiên liệu, kích thước và recipe. Dùng các số này
@@ -139,6 +157,9 @@ thì từ chối trước khi đặt gì. `smelt-status` đọc audit sau khi ch
 > **Bẫy triển khai:** game nạp mod từ `%APPDATA%\Factorio\mods\factorio-ai-bridge_0.1.0\`,
 > đó là BẢN SAO chứ không phải junction. Sửa `control.lua` trong repo xong phải chép
 > sang đó và đối chiếu md5, rồi load lại save thì code mới chạy.
+
+MCP stdio có 3 tool `observe`, `achieve`, `report`; xem [MCP.md](MCP.md).
+Các lệnh chi tiết vẫn có trong CLI để chẩn đoán.
 
 `snapshot` gom mỏ theo ô 8x8 để gói UDP nhỏ, giới hạn bán kính 32 và trả tối
 đa 64 công trình mỗi trang. Dùng `entities_next_offset` làm `--offset` cho trang

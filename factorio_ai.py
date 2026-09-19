@@ -11,6 +11,8 @@ import time
 from pathlib import Path
 from typing import Any
 
+from blueprint_library import artifact_blueprint, record_blueprint
+
 
 DEFAULT_HOST = "127.0.0.1"
 DEFAULT_PORT = 34198
@@ -48,8 +50,9 @@ def request(
                 if reply.get("nonce") == packet["nonce"]:
                     return reply
     raise TimeoutError(
-        f"Factorio did not answer on UDP {host}:{port}; "
-        "start it with --enable-lua-udp and load a map"
+        f"Factorio did not answer on UDP {host}:{port} within {timeout}s x{retries}; "
+        "the engine may be busy on a whole-map scan rather than absent -- check ping "
+        "before restarting it with --enable-lua-udp and a loaded map"
     )
 
 
@@ -69,6 +72,7 @@ def parser() -> argparse.ArgumentParser:
     scan.add_argument("--offset", type=int, default=0)
     scan.add_argument("--limit", type=int, default=64)
     scan.add_argument("--tiles", action="store_true", help="also map tiles (default pumpable water)")
+    scan.add_argument("--obstacles", action="store_true", help="also page natural trees, rocks and cliffs")
     scan.add_argument("--name", action="append", help="tile prototype name, repeatable; only with --tiles")
 
     brief = commands.add_parser("brief", help="one-call survey: base counts, machine issues, nearby enemies, ore patches, nearest water, treasury")
@@ -101,6 +105,7 @@ def parser() -> argparse.ArgumentParser:
         "--direction", choices=("north", "east", "south", "west"), default="north"
     )
     place.add_argument("--dry-run", action="store_true", help="report every blocker, build nothing")
+    place.add_argument("--type", choices=("input", "output"), help="underground-belt endpoint type only")
 
     craft = commands.add_parser("craft")
     craft.add_argument("recipe")
@@ -118,6 +123,7 @@ def parser() -> argparse.ArgumentParser:
     collect.add_argument("x", type=float)
     collect.add_argument("y", type=float)
     collect.add_argument("--surface", default="nauvis")
+    collect.add_argument("--ground", action="store_true", help="pick a ground stack even if a machine occupies the same position")
 
     autofuel = commands.add_parser("autofuel")
     autofuel.add_argument("state", choices=("on", "off"))
@@ -185,6 +191,27 @@ def parser() -> argparse.ArgumentParser:
     smelt_build.add_argument("plan_id")
     smelt_status = commands.add_parser("smelt-status")
     smelt_status.add_argument("plan_id")
+    starter = commands.add_parser("starter-smelt", help="bootstrap real coal, then feed a stone furnace from one burner drill")
+    starter.add_argument("product", choices=("iron-plate", "copper-plate"), nargs="?", default="iron-plate")
+    starter.add_argument("--x", type=float)
+    starter.add_argument("--y", type=float)
+    starter.add_argument("--radius", type=float, default=192)
+    starter.add_argument("--surface", default="nauvis")
+    starter.add_argument("--force", default="player")
+    starter.add_argument("--dry-run", action="store_true")
+    starter_status = commands.add_parser("starter-status")
+    starter_status.add_argument("job_id")
+    coal = commands.add_parser("coal-stockpile", help="build one real-coal burner drill and chest cell")
+    coal.add_argument("--x", type=float)
+    coal.add_argument("--y", type=float)
+    coal.add_argument("--radius", type=float, default=192)
+    coal.add_argument("--surface", default="nauvis")
+    coal.add_argument("--force", default="player")
+    coal.add_argument("--dry-run", action="store_true")
+    coal_status = commands.add_parser("coal-status")
+    coal_status.add_argument("job_id")
+    repair = commands.add_parser("repair-demo-economy", help="one-time Sandbox coal-demo ingredient correction")
+    repair.add_argument("key")
     return root
 
 
@@ -203,6 +230,8 @@ def command_body(args: argparse.Namespace) -> dict[str, Any]:
             body["tiles"] = True
             if args.name:
                 body["name"] = args.name
+        if args.obstacles:
+            body["obstacles"] = True
         if args.x is not None and args.y is not None:
             body.update(x=args.x, y=args.y)
         elif args.x is not None or args.y is not None:
@@ -243,7 +272,7 @@ def command_body(args: argparse.Namespace) -> dict[str, Any]:
             "y": args.y,
         }
     if args.command == "collect":
-        return {
+        body = {
             "action": "collect",
             "item": args.item,
             "count": args.count,
@@ -251,6 +280,9 @@ def command_body(args: argparse.Namespace) -> dict[str, Any]:
             "x": args.x,
             "y": args.y,
         }
+        if args.ground:
+            body["ground"] = True
+        return body
     if args.command == "autofuel":
         return {"action": "autofuel", "enabled": args.state == "on"}
     if args.command == "spec":
@@ -316,6 +348,32 @@ def command_body(args: argparse.Namespace) -> dict[str, Any]:
         return {"action": "smelt_build", "plan_id": args.plan_id}
     if args.command == "smelt-status":
         return {"action": "smelt_status", "plan_id": args.plan_id}
+    if args.command == "starter-smelt":
+        if (args.x is None) != (args.y is None):
+            raise ValueError("x and y must be supplied together")
+        body = {"action": "starter_smelt", "product": args.product,
+                "radius": args.radius, "surface": args.surface, "force": args.force}
+        if args.x is not None:
+            body.update(x=args.x, y=args.y)
+        if args.dry_run:
+            body["dry_run"] = True
+        return body
+    if args.command == "starter-status":
+        return {"action": "starter_status", "job_id": args.job_id}
+    if args.command == "coal-stockpile":
+        if (args.x is None) != (args.y is None):
+            raise ValueError("x and y must be supplied together")
+        body = {"action": "coal_stockpile", "radius": args.radius,
+                "surface": args.surface, "force": args.force}
+        if args.x is not None:
+            body.update(x=args.x, y=args.y)
+        if args.dry_run:
+            body["dry_run"] = True
+        return body
+    if args.command == "coal-status":
+        return {"action": "coal_status", "job_id": args.job_id}
+    if args.command == "repair-demo-economy":
+        return {"action": "repair_demo_economy", "key": args.key}
     if args.command == "place":
         body = {
             "action": "place",
@@ -328,18 +386,23 @@ def command_body(args: argparse.Namespace) -> dict[str, Any]:
         }
         if args.dry_run:
             body["dry_run"] = True
+        if args.type is not None:
+            body["type"] = args.type
         return body
     raise ValueError(f"unknown command: {args.command}")
 
 
-def main() -> int:
-    args = parser().parse_args()
-    try:
-        timeout = 15.0 if args.command in {"smelt-plan", "smelt-build", "index"} else 1.0
-        reply = request(command_body(args), host=args.host, port=args.port, timeout=timeout)
-    except (OSError, ValueError, TimeoutError, json.JSONDecodeError) as exc:
-        print(json.dumps({"ok": False, "error": str(exc)}, ensure_ascii=False))
-        return 1
+def execute(args: argparse.Namespace) -> dict[str, Any]:
+    """Shared CLI/MCP execution: one UDP operation and the same local artifacts."""
+    # ore-marks rides the same whole-map index as `index`: handle_ore_marks calls
+    # get_index (control.lua:1639), which rebuilds whenever the cache is older
+    # than INDEX_TTL_TICKS = 600 (control.lua:1507, ~10 s of game time). Measured
+    # on the live save 2026-09-17: a cold build takes ~4.1 s, so the 1.0 s x3
+    # window expired first and every cold ore-marks call reported "did not answer"
+    # while the engine was healthy and answering ping/index.
+    timeout = 15.0 if args.command in {"smelt-plan", "smelt-build", "starter-smelt", "coal-stockpile", "index", "ore-marks"} else 1.0
+    body = command_body(args)
+    reply = request(body, host=args.host, port=args.port, timeout=timeout)
     if args.command == "audit" and reply.get("ok"):
         actual = reply["produced_per_minute"] / 60
         reply["produced_per_second"] = actual
@@ -348,13 +411,41 @@ def main() -> int:
             reply["delta_per_second"] = actual - args.expected_per_second
     if args.command == "blueprint-export" and reply.get("ok"):
         blueprint = reply.pop("blueprint")
-        try:
-            with args.file.open("x", encoding="ascii") as output:
-                output.write(blueprint + "\n")
-        except OSError as exc:
-            print(json.dumps({"ok": False, "error": str(exc)}, ensure_ascii=False))
-            return 1
+        with args.file.open("x", encoding="ascii") as output:
+            output.write(blueprint + "\n")
         reply["file"] = str(args.file.resolve())
+        try:
+            reply["pattern"] = record_blueprint(blueprint, state="captured",
+                                                  source="blueprint-export")
+        except (OSError, ValueError, KeyError, json.JSONDecodeError) as exc:
+            reply["catalog_error"] = str(exc)
+    if args.command == "blueprint-import" and reply.get("ok") and not args.ghosts:
+        try:
+            reply["pattern"] = record_blueprint(body["blueprint"], state="built",
+                                                  source="blueprint-import",
+                                                  materials=reply.get("spent"))
+        except (OSError, ValueError, KeyError, json.JSONDecodeError) as exc:
+            reply["catalog_error"] = str(exc)
+    if args.command in {"starter-status", "coal-status", "smelt-status"} \
+       and reply.get("ok") and reply.get("state") == "verified" \
+       and (reply.get("audit") or {}).get("status") == "passed" \
+       and reply.get("artifact"):
+        try:
+            reply["pattern"] = record_blueprint(
+                artifact_blueprint(reply["artifact"]), state="verified",
+                source=args.command, audit=reply["audit"])
+        except (OSError, ValueError, KeyError, json.JSONDecodeError) as exc:
+            reply["catalog_error"] = str(exc)
+    return reply
+
+
+def main() -> int:
+    args = parser().parse_args()
+    try:
+        reply = execute(args)
+    except (OSError, ValueError, TimeoutError, json.JSONDecodeError) as exc:
+        print(json.dumps({"ok": False, "error": str(exc)}, ensure_ascii=False))
+        return 1
     print(json.dumps(reply, ensure_ascii=False, indent=2, sort_keys=True))
     return 0 if reply.get("ok") else 2
 

@@ -51,5 +51,8 @@ Các quy tắc dưới đây được rút từ những lần xây và đo thự
 ## Lò nung và slot nguyên liệu
 
 29. Lò nung (furnace) không có `assembling_machine_input`; `insert` mặc định route lò vào slot fuel. Nạp quặng vào slot nguyên liệu phải dùng `insert <ore> <n> <x> <y> --source`, route qua `defines.inventory.furnace_source`. Đã kiểm chứng trên map thật (build `2026-09-17-furnace-source`): 5 iron-ore `--source` + 5 coal → 5 iron-plate collect về.
+30. Với burner drill không có consumer ở output, một item quặng/than có thể rơi xuống đất rồi máy chuyển sang `waiting_for_space_in_destination`. Thu item đó mới cho máy xuất tiếp; đừng giả định nó tự chất thành một chồng lớn trên đất.
+31. Burner drill và stone furnace đều 2×2. Đặt tâm lò cách tâm drill đúng 2 ô theo hướng nhả có thể nạp quặng trực tiếp, không cần belt/inserter. Phải cấp nhiên liệu thật riêng cho cả hai và đo plate trong output lò trước khi coi dây chuyền hoạt động.
+32. Trước khi quy hoạch cặp máy mới cho cùng mục tiêu, tìm cặp drill→furnace đã có trên đúng loại quặng. Cặp có sẵn mà thiếu fuel cần được nạp lại từ kho thật và đo tiếp; thiếu item xây trong túi không có nghĩa là phải xây thêm cặp mới.
 
 Những cơ chế chưa có receipt thực tế cần được kiểm chứng riêng trước khi dùng làm quy tắc.

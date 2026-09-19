@@ -1,0 +1,216 @@
+"""Goal-level MCP surface over the existing Factorio bridge actions."""
+
+from __future__ import annotations
+
+import json
+import os
+from typing import Annotated
+
+from mcp.server.fastmcp import FastMCP
+from mcp.types import CallToolResult, TextContent, ToolAnnotations
+from pydantic import Field, FiniteFloat
+
+from factorio_mcp import invoke
+from factorio_ai import DEFAULT_HOST, DEFAULT_PORT, request
+from blueprint_library import list_patterns, load_pattern, record_blueprint
+
+
+READ = ToolAnnotations(readOnlyHint=True, destructiveHint=False, openWorldHint=False)
+WRITE = ToolAnnotations(readOnlyHint=False, destructiveHint=False, openWorldHint=False)
+mcp = FastMCP(
+    "factorio-engineer",
+    instructions=(
+        "Choose a production goal and call achieve once. The bridge reuses existing "
+        "machines, checks real stock and geometry, builds a feasible pattern and "
+        "audits in game. Use observe(patterns) and achieve(reuse_blueprint) for saved "
+        "native blueprints. Use report(job_id) for the outcome and observe for blockers. "
+        "Detailed actions remain in the CLI for diagnosis. Never spawn free items."
+    ),
+    log_level="WARNING",
+)
+
+
+def _read(result: CallToolResult) -> dict:
+    return json.loads(result.content[0].text)
+
+
+def _result(data: dict, error: bool = False) -> CallToolResult:
+    return CallToolResult(
+        isError=error,
+        content=[TextContent(type="text", text=json.dumps(data, ensure_ascii=False, separators=(",", ":")))],
+    )
+
+
+def _fields(source: dict, *names: str) -> dict:
+    return {name: source[name] for name in names if name in source}
+
+
+@mcp.tool(annotations=READ)
+def observe(view: str = "situation",
+            surface: str = "nauvis", x: FiniteFloat | None = None,
+            y: FiniteFloat | None = None,
+            radius: Annotated[float, Field(ge=1, le=32, allow_inf_nan=False)] = 16,
+            resource: str | None = None) -> CallToolResult:
+    """Read situation, deposits, nearby objects, or saved blueprint patterns."""
+    if (x is None) != (y is None):
+        return _result({"ok": False, "error": "x-and-y-required-together"}, True)
+    if view not in {"situation", "deposits", "nearby", "patterns"}:
+        return _result({"ok": False, "error": "unknown-view"}, True)
+    if view == "patterns":
+        return _result({"ok": True, "view": view, "patterns": list_patterns()})
+    if view == "situation":
+        p = _read(invoke("brief", surface=surface, x=x, y=y, radius=radius))
+        return _result({"ok": p.get("ok", False), "view": view, **_fields(p,
+            "center", "counts", "issue_total", "issues", "enemy_total",
+            "nearest_enemies", "ore_total", "ore_patches", "treasury", "error")},
+            not p.get("ok", False))
+    if view == "deposits":
+        p = _read(invoke("ore-marks", surface=surface, name=resource, offset=0, limit=12))
+        return _result({"ok": p.get("ok", False), "view": view,
+                        **_fields(p, "total", "marks", "next_offset", "error")},
+                       not p.get("ok", False))
+    p = _read(invoke("snapshot", surface=surface, x=x, y=y, radius=radius,
+                     offset=0, limit=12, tiles=False, name=None, obstacles=True))
+    rows = p.get("entities") or []
+    entities = [_fields(e, "name", "type", "x", "y", "direction", "status_name",
+                        "fuel", "input", "output", "fluids", "lines")
+                for e in rows if isinstance(e, dict)]
+    return _result({"ok": p.get("ok", False), "view": view,
+                    **_fields(p, "center", "resources", "entities_total",
+                              "entities_next_offset", "obstacles_total", "obstacles",
+                              "ground_items", "error"), "entities": entities},
+                   not p.get("ok", False))
+
+
+@mcp.tool(annotations=WRITE)
+def achieve(goal: str,
+            target_per_minute: Annotated[float, Field(gt=0, allow_inf_nan=False)] | None = None,
+            x: FiniteFloat | None = None, y: FiniteFloat | None = None,
+            radius: Annotated[float, Field(ge=4, le=256, allow_inf_nan=False)] = 192,
+            input_x: FiniteFloat | None = None, input_y: FiniteFloat | None = None,
+            surface: str = "nauvis", force: str = "player",
+            dry_run: bool = False, pattern_id: str | None = None) -> CallToolResult:
+    """Choose first_iron_plates, first_copper_plates, coal_stockpile, iron_smelting_row, or reuse_blueprint."""
+    if (x is None) != (y is None) or (input_x is None) != (input_y is None):
+        return _result({"ok": False, "error": "coordinate-pairs-required"}, True)
+    if goal not in {"first_iron_plates", "first_copper_plates", "coal_stockpile",
+                    "iron_smelting_row", "reuse_blueprint"}:
+        return _result({"ok": False, "error": "unknown-goal"}, True)
+    if goal == "reuse_blueprint":
+        if not pattern_id or target_per_minute is not None or input_x is not None:
+            return _result({"ok": False, "error": "pattern-id-and-site-required"}, True)
+        try:
+            pattern = load_pattern(pattern_id)
+        except (OSError, ValueError, KeyError, json.JSONDecodeError) as exc:
+            return _result({"ok": False, "error": str(exc)}, True)
+        if pattern_id == "bp-f30d8a84af3098ee":
+            try:
+                body={"action":"blueprint_import","blueprint":pattern["blueprint_string"],
+                      "automate":True,"pattern_id":pattern_id,"surface":surface,
+                      "force":force,"radius":radius,"dry_run":dry_run}
+                if x is not None: body.update(x=x,y=y)
+                p=request(body,host=os.environ.get("FACTORIO_HOST",DEFAULT_HOST),
+                          port=int(os.environ.get("FACTORIO_PORT",DEFAULT_PORT)),timeout=15)
+                return _result({"ok":p.get("ok",False),"goal":goal,
+                    **_fields(p,"job_id","state","pattern_id","site","site_validated",
+                              "materials","missing","steps","error")},not p.get("ok",False))
+            except (OSError, ValueError, TimeoutError) as exc:
+                return _result({"ok":False,"error":str(exc)},True)
+        if x is None:
+            return _result({"ok":False,"error":"site-required-for-this-pattern"},True)
+        if dry_run:
+            return _result({"ok": True, "goal": goal, "state": "pattern-loaded",
+                            "site_validated": False, "pattern_id": pattern_id,
+                            "entities": pattern["entities"],
+                            "required_items": pattern.get("required_items")})
+        try:
+            p = request({"action": "blueprint_import", "blueprint": pattern["blueprint_string"],
+                         "x": x, "y": y, "surface": surface, "force": force,
+                         "mode": "direct"},
+                        host=os.environ.get("FACTORIO_HOST", DEFAULT_HOST),
+                        port=int(os.environ.get("FACTORIO_PORT", DEFAULT_PORT)), timeout=15)
+        except (OSError, ValueError, TimeoutError) as exc:
+            return _result({"ok": False, "error": str(exc), "pattern_id": pattern_id}, True)
+        if p.get("ok"):
+            try:
+                record_blueprint(pattern["blueprint_string"], state="built",
+                                 source="reuse-blueprint", materials=p.get("spent"))
+            except (OSError, ValueError, KeyError, json.JSONDecodeError):
+                pass  # The actual build receipt remains authoritative.
+        return _result({"ok": p.get("ok", False), "goal": goal,
+                        "state": "built" if p.get("ok") else "blocked",
+                        "pattern_id": pattern_id,
+                        **_fields(p, "placed", "expected", "spent", "error")},
+                       not p.get("ok", False))
+    if pattern_id is not None:
+        return _result({"ok": False, "error": "pattern-id-only-for-reuse"}, True)
+    if goal == "coal_stockpile":
+        if target_per_minute is not None or input_x is not None:
+            return _result({"ok": False, "error": "coal-goal-does-not-use-rate-or-input"}, True)
+        p = _read(invoke("coal-stockpile", x=x, y=y, radius=radius,
+                         surface=surface, force=force, dry_run=dry_run))
+        return _result({"ok": p.get("ok", False), "goal": goal,
+                        **_fields(p, "state", "job_id", "site", "existing", "fuel",
+                                  "coal", "refuels", "missing", "audit", "artifact", "error")},
+                       not p.get("ok", False))
+    if goal != "iron_smelting_row":
+        if target_per_minute is not None or input_x is not None:
+            return _result({"ok": False, "error": "starter-goal-does-not-use-rate-or-input"}, True)
+        product = "iron-plate" if goal == "first_iron_plates" else "copper-plate"
+        p = _read(invoke("starter-smelt", product=product, x=x, y=y,
+                         radius=radius, surface=surface, force=force, dry_run=dry_run))
+        return _result({"ok": p.get("ok", False), "goal": goal,
+                        **_fields(p, "state", "job_id", "product", "existing", "output",
+                                  "iron_or_copper_site", "coal_site", "materials", "missing",
+                                  "fuel_needed", "audit", "artifact", "error")},
+                       not p.get("ok", False))
+    if target_per_minute is None:
+        return _result({"ok": False, "error": "target-per-minute-required"}, True)
+    p = _read(invoke("smelt-plan", rate=target_per_minute, x=x, y=y,
+                     input_x=input_x, input_y=input_y, surface=surface, force=force))
+    if not p.get("ok", False):
+        return _result({"ok": False, "goal": goal, **_fields(p, "error", "candidates")}, True)
+    connections = p.get("connections") or {}
+    blockers = []
+    if p.get("missing"):
+        blockers.append("materials")
+    if p.get("locked"):
+        blockers.append("technology")
+    if connections.get("input") != "planned-connection" or not connections.get("supply_observed"):
+        blockers.append("ore-coal-feed")
+    if connections.get("electricity") != "pole-in-reach":
+        blockers.append("power")
+    if dry_run or blockers:
+        return _result({"ok": True, "goal": goal,
+                        "state": "blocked" if blockers else "planned",
+                        "job_id": p.get("plan_id"), "blockers": blockers,
+                        **_fields(p, "origin", "furnaces", "target_per_minute", "materials",
+                                  "missing", "locked", "connections")})
+    built = _read(invoke("smelt-build", plan_id=p["plan_id"]))
+    return _result({"ok": built.get("ok", False), "goal": goal,
+                    "job_id": p["plan_id"], **_fields(built, "state", "placed", "furnaces",
+                                                       "connections", "missing", "locked", "audit",
+                                                       "artifact", "error")},
+                   not built.get("ok", False))
+
+
+@mcp.tool(annotations=READ)
+def report(job_id: str) -> CallToolResult:
+    """Read one saved goal's audit, progress, blocker and blueprint/receipt artifact path."""
+    if job_id.startswith("starter-"):
+        p = _read(invoke("starter-status", job_id=job_id))
+    elif job_id.startswith(("coal-", "replica-")):
+        p = _read(invoke("coal-status", job_id=job_id))
+    elif job_id.startswith("smelt-"):
+        p = _read(invoke("smelt-status", plan_id=job_id))
+    else:
+        return _result({"ok": False, "error": "unknown-job-id"}, True)
+    return _result({"ok": p.get("ok", False), "job_id": job_id,
+                    "pattern_id": (p.get("pattern") or {}).get("pattern_id"),
+                    **_fields(p, "state", "product", "existing", "output", "coal", "refuels", "site", "placed",
+                              "missing", "locked", "connections", "audit", "error", "artifact")},
+                   not p.get("ok", False))
+
+
+if __name__ == "__main__":
+    mcp.run(transport="stdio")

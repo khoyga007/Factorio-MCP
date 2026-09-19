@@ -1,5 +1,5 @@
 local BRIDGE_VERSION = 1
-local BRIDGE_BUILD = "2026-09-17-furnace-source"
+local BRIDGE_BUILD = "2026-09-18-autonomous-replica"
 local MAX_PACKET_BYTES = 32768
 local MAX_RADIUS = 32
 local MAX_ENTITIES = 64
@@ -211,6 +211,22 @@ local function entity_data(entity)
     data.pickup_position = entity.pickup_position
     data.drop_position = entity.drop_position
   end
+  if entity.type == "underground-belt" then
+    data.belt_to_ground_type = entity.belt_to_ground_type
+  end
+  local fluidbox = entity.fluidbox
+  if fluidbox and #fluidbox > 0 then
+    data.fluids = {}
+    for index = 1, #fluidbox do
+      local fluid = fluidbox[index]
+      if fluid then
+        data.fluids[#data.fluids + 1] = {
+          index = index, name = fluid.name, amount = fluid.amount,
+          temperature = fluid.temperature,
+        }
+      end
+    end
+  end
   if entity.type == "transport-belt" then
     data.lines = {}
     for index = 1, entity.get_max_transport_line_index() do
@@ -307,8 +323,17 @@ local function handle_craft(nonce, request)
   if not recipe.enabled then
     return response(nonce, false, {error = "technology-locked", recipe = request.recipe})
   end
-  local craftable = player.get_craftable_count(request.recipe)
+  -- Sandbox cheat mode makes hand crafting free and instant. Force normal
+  -- crafting for this one action so a successful receipt always debits inputs.
+  local cheat_mode = player.cheat_mode
+  if cheat_mode then player.cheat_mode = false end
+  local checked, craftable = pcall(player.get_craftable_count, request.recipe)
+  if not checked then
+    if cheat_mode then player.cheat_mode = true end
+    return response(nonce, false, {error = "craft-check-failed", detail = tostring(craftable)})
+  end
   if craftable < count then
+    if cheat_mode then player.cheat_mode = true end
     return response(nonce, false, {
       error = "insufficient-ingredients",
       recipe = request.recipe,
@@ -316,11 +341,13 @@ local function handle_craft(nonce, request)
       craftable = craftable,
     })
   end
-  local started = player.begin_crafting {
-    count = count,
-    recipe = request.recipe,
-    silent = true,
-  }
+  local crafted, started = pcall(player.begin_crafting, {
+    count = count, recipe = request.recipe, silent = true,
+  })
+  if cheat_mode then player.cheat_mode = true end
+  if not crafted then
+    return response(nonce, false, {error = "craft-runtime-error", detail = tostring(started)})
+  end
   if started ~= count then
     return response(nonce, false, {
       error = "craft-start-failed",
@@ -334,6 +361,42 @@ local function handle_craft(nonce, request)
     count = started,
     treasury = treasury_data(inventory, owner, kind),
   })
+end
+
+-- One-time correction for the 2026-09-18 Sandbox coal demo, where cheat-mode
+-- hand crafting produced a drill/chest without consuming their recipe inputs.
+local function handle_repair_demo_economy(nonce, request)
+  if request.key ~= "coal-demo-2026-09-18" then
+    return response(nonce, false, {error = "invalid-repair-key"})
+  end
+  local state = bridge_state()
+  if state.coal_demo_repair then
+    return response(nonce, true, {action = "repair_demo_economy", already_done = true,
+      debited = state.coal_demo_repair})
+  end
+  local inventory, owner, kind = treasury_inventory()
+  if kind ~= "player" or not owner or owner.index ~= 1 or not inventory then
+    return response(nonce, false, {error = "player-treasury-required"})
+  end
+  local debit = { ["iron-plate"] = 9, stone = 5, wood = 2,
+    ["iron-gear-wheel"] = 3, ["stone-furnace"] = 1 }
+  for name, count in pairs(debit) do
+    if inventory.get_item_count(name) < count then
+      return response(nonce, false, {error = "repair-stock-changed", item = name,
+        need = count, have = inventory.get_item_count(name)})
+    end
+  end
+  for name, count in pairs(debit) do
+    if inventory.remove {name = name, count = count} ~= count then
+      return response(nonce, false, {error = "repair-remove-failed", item = name})
+    end
+  end
+  state.coal_demo_repair = debit
+  helpers.write_file("coal/coal-demo-economy-repair.json",
+    helpers.table_to_json {tick = game.tick, player_index = 1,
+      debited = debit, reason = "cheat-mode-craft-did-not-consume-ingredients"}, false)
+  return response(nonce, true, {action = "repair_demo_economy", debited = debit,
+    treasury = treasury_data(inventory, owner, kind)})
 end
 
 local function handle_autofuel(nonce, request)
@@ -369,8 +432,43 @@ local function handle_collect(nonce, request)
     type = {"container", "logistic-container", "linked-container", "furnace", "assembling-machine"},
     force = player.force,
   }
-  local entity = candidates[1]
-  if not entity then return response(nonce, false, {error = "source-not-found"}) end
+  local entity = not request.ground and candidates[1] or nil
+  if not entity then
+    -- Ground items are usually neutral. Copy the real stack to preserve quality,
+    -- ammo, durability and tags, and remove only the amount actually transferred.
+    for _, drop in pairs(surface.find_entities_filtered {
+      position = pos, radius = 0.1, type = "item-entity",
+      force = {player.force, game.forces.neutral},
+    }) do
+      if drop.stack.valid_for_read and drop.stack.name == request.item then
+        entity = drop
+        break
+      end
+    end
+    if not entity then return response(nonce, false, {error = "source-not-found"}) end
+    local stack = entity.stack
+    local available, quality = stack.count, stack.quality.name
+    if available < count then
+      return response(nonce, false, {error = "insufficient-items", have = available, need = count})
+    end
+    if destination.get_insertable_count {name = stack.name, quality = quality} < count then
+      return response(nonce, false, {error = "player-inventory-full"})
+    end
+    local transfer = game.create_inventory(1)
+    transfer[1].set_stack(stack)
+    transfer[1].count = count
+    local inserted = destination.insert(transfer[1])
+    transfer.destroy()
+    if inserted == available then entity.destroy()
+    elseif inserted > 0 then stack.count = available - inserted end
+    return response(nonce, inserted == count, {
+      action = "collected", error = inserted ~= count and "partial-transfer" or nil,
+      item = request.item, quality = quality, count = inserted, requested = count,
+      source_remaining = available - inserted, source_name = "item-on-ground",
+      source = {type = "item-entity", surface = surface.name, x = pos.x, y = pos.y},
+      target = {player_index = player.index},
+    })
+  end
   local is_chest = entity.type == "container" or entity.type == "logistic-container"
     or entity.type == "linked-container"
   local source = is_chest and entity.get_inventory(defines.inventory.chest)
@@ -516,6 +614,27 @@ local function handle_snapshot(nonce, request)
 
   local inventory, owner, kind = treasury_inventory()
 
+  local obstacles, obstacles_total, obstacles_next_offset
+  if request.obstacles then
+    local natural = surface.find_entities_filtered {
+      area = area, type = {"tree", "simple-entity", "cliff"},
+    }
+    table.sort(natural, function(a, b)
+      if a.position.x ~= b.position.x then return a.position.x < b.position.x end
+      if a.position.y ~= b.position.y then return a.position.y < b.position.y end
+      return a.name < b.name
+    end)
+    obstacles, obstacles_total = {}, #natural
+    for i = offset + 1, math.min(#natural, offset + limit) do
+      local e = natural[i]
+      obstacles[#obstacles + 1] = {
+        name = e.name, type = e.type, x = e.position.x, y = e.position.y,
+        bounding_box = e.bounding_box,
+      }
+    end
+    obstacles_next_offset = offset + #obstacles < #natural and offset + #obstacles or nil
+  end
+
   local tiles
   if request.tiles then
     tiles = scan_tiles(surface, center, radius, request.name)
@@ -533,6 +652,9 @@ local function handle_snapshot(nonce, request)
     entities_offset = offset,
     entities_next_offset = offset + #entities < #found and offset + #entities or nil,
     ground_items = ground_items,
+    obstacles = obstacles,
+    obstacles_total = obstacles_total,
+    obstacles_next_offset = obstacles_next_offset,
     entities_truncated = offset + #entities < #found,
     autofuel = {
       enabled = bridge_state().autofuel_enabled,
@@ -812,6 +934,14 @@ local function handle_spec(nonce, request)
         }
       end
     end
+    local fluidboxes = {}
+    for _, box in pairs(proto.fluidbox_prototypes or {}) do
+      fluidboxes[#fluidboxes + 1] = {
+        index = box.index, production_type = box.production_type,
+        filter = box.filter and box.filter.name or nil,
+        pipe_connections = box.pipe_connections,
+      }
+    end
     return response(nonce, true, {
       action = "spec", kind = kind, name = name, entity_type = proto.type,
       mining_speed = proto.mining_speed,
@@ -824,6 +954,7 @@ local function handle_spec(nonce, request)
       tile_width = proto.tile_width, tile_height = proto.tile_height,
       mining_time = mine and mine.mining_time or nil,
       mining_products = products,
+      fluidbox_prototypes = #fluidboxes > 0 and fluidboxes or nil,
     })
   elseif kind == "item" then
     local proto = prototypes.item[name]
@@ -1068,6 +1199,9 @@ local function handle_insert(nonce, request)
     index, slot = defines.inventory.turret_ammo, "input"
   elseif entity.type == "furnace" and request.source then
     index, slot = defines.inventory.furnace_source, "source"
+  elseif entity.type == "container" or entity.type == "logistic-container"
+    or entity.type == "linked-container" then
+    index, slot = defines.inventory.chest, "chest"
   else
     slot = "fuel"
   end
@@ -1131,6 +1265,10 @@ local function handle_place(nonce, request)
   if type(direction) == "string" then direction = DIRECTIONS[direction] end
   if type(direction) ~= "number" then
     return response(nonce, false, {error = "invalid-direction"})
+  end
+  if request.type ~= nil and (prototype.type ~= "underground-belt"
+    or (request.type ~= "input" and request.type ~= "output")) then
+    return response(nonce, false, {error = "invalid-belt-type"})
   end
 
   -- Dry run: report every blocker, build nothing, spend nothing.
@@ -1200,6 +1338,7 @@ local function handle_place(nonce, request)
 
   build.raise_built = true
   build.create_build_effect_smoke = true
+  if prototype.type == "underground-belt" then build.type = request.type or "input" end
   local entity = surface.create_entity(build)
   if not entity then
     inventory.insert {name = item.name, count = item.count}
@@ -1215,6 +1354,7 @@ local function handle_place(nonce, request)
       x = entity.position.x,
       y = entity.position.y,
       direction = entity.direction,
+      belt_to_ground_type = entity.type == "underground-belt" and entity.belt_to_ground_type or nil,
     },
     spent = {name = item.name, count = item.count},
     remaining = inventory.get_item_count(item.name),
@@ -1589,18 +1729,45 @@ local smelting = require("smelting").attach {
   state = bridge_state, response = response, inventory = treasury_inventory,
   place = handle_place, export = handle_blueprint_export, status_name = entity_status_name,
 }
+local starter = require("starter").attach {
+  state = bridge_state, response = response, inventory = treasury_inventory,
+  place = handle_place, insert = handle_insert, mine = handle_mine, export = handle_blueprint_export,
+}
+local coal = require("coal").attach {
+  state = bridge_state, response = response, inventory = treasury_inventory,
+  place = handle_place, insert = handle_insert, export = handle_blueprint_export,
+}
+local replica = require("replica").attach {
+  state=bridge_state,response=response,inventory=treasury_inventory,
+  import=handle_blueprint_import,craft=handle_craft,collect=handle_collect,
+  mine=handle_mine,insert=handle_insert,
+}
+local function handle_blueprint_request(nonce, request)
+  if request.automate then return replica.start(nonce, request) end
+  return handle_blueprint_import(nonce, request)
+end
 local function handle_smelt_plan(nonce, request) return smelting.plan(nonce, request) end
 local function handle_smelt_build(nonce, request) return smelting.build(nonce, request) end
 local function handle_smelt_status(nonce, request) return smelting.status(nonce, request) end
+local function handle_starter_smelt(nonce, request) return starter.start(nonce, request) end
+local function handle_starter_status(nonce, request) return starter.status(nonce, request) end
+local function handle_coal_stockpile(nonce, request) return coal.start(nonce, request) end
+local function handle_coal_status(nonce, request)
+  if type(request.job_id)=="string" and request.job_id:sub(1,8)=="replica-" then
+    return replica.status(nonce,request)
+  end
+  return coal.status(nonce, request)
+end
 
 HANDLERS = {
   audit = handle_audit,
   autofuel = handle_autofuel,
   brief = handle_brief,
   blueprint_export = handle_blueprint_export,
-  blueprint_import = handle_blueprint_import,
+  blueprint_import = handle_blueprint_request,
   collect = handle_collect,
   craft = handle_craft,
+  repair_demo_economy = handle_repair_demo_economy,
   index = handle_index,
   insert = handle_insert,
   mine = handle_mine,
@@ -1614,6 +1781,10 @@ HANDLERS = {
   smelt_plan = handle_smelt_plan,
   smelt_build = handle_smelt_build,
   smelt_status = handle_smelt_status,
+  starter_smelt = handle_starter_smelt,
+  starter_status = handle_starter_status,
+  coal_stockpile = handle_coal_stockpile,
+  coal_status = handle_coal_status,
   place = handle_place,
 }
 
@@ -1666,7 +1837,12 @@ script.on_init(bridge_state)
 script.on_configuration_changed(bridge_state)
 script.on_event(defines.events.on_udp_packet_received, on_packet)
 script.on_nth_tick(1, function() helpers.recv_udp() end)
-script.on_nth_tick(60, smelting.tick)
+script.on_nth_tick(60, function()
+  smelting.tick()
+  starter.tick()
+  coal.tick()
+  replica.tick()
+end)
 script.on_nth_tick(300, function()
   for _, surface in pairs(game.surfaces) do
     autofuel_surface(surface, game.forces.player)

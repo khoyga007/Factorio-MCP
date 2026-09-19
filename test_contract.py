@@ -13,14 +13,14 @@ class ContractTest(unittest.TestCase):
     def test_three_sources_agree(self):
         self.assertEqual([], check())
 
-    def test_known_action_count_is_twenty_one(self):
-        self.assertEqual(21, len(load_actions()))
+    def test_known_action_count_is_twenty_six(self):
+        self.assertEqual(26, len(load_actions()))
 
-    def test_lua_handlers_count_is_twenty_one(self):
-        self.assertEqual(21, len(handlers_in_lua()))
+    def test_lua_handlers_count_is_twenty_six(self):
+        self.assertEqual(26, len(handlers_in_lua()))
 
-    def test_client_action_count_is_twenty_one(self):
-        self.assertEqual(21, len(client_actions()))
+    def test_client_action_count_is_twenty_six(self):
+        self.assertEqual(26, len(client_actions()))
 
     def test_client_commands_match_declared_clients(self):
         actions = load_actions()

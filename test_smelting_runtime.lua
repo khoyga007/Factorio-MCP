@@ -1,5 +1,5 @@
 -- Injected only into the isolated benchmark mod, never installed in the live game.
-return function(handlers, bridge_state)
+return function(handlers, bridge_state, test_bridge_runtime)
   local surface, stock, feeds, plans, started
   local report = {ok = false, checks = {}, calls = {}, response_bytes = {}}
   local function save()
@@ -33,6 +33,7 @@ return function(handlers, bridge_state)
   end
   local function setup()
     started = game.tick
+    if test_bridge_runtime then test_bridge_runtime(handlers, bridge_state) end
     surface = game.create_surface("ai-smelting-test", {
       autoplace_settings = {entity = {treat_missing_as_default = false, settings = {}},
         decorative = {treat_missing_as_default = false, settings = {}}},

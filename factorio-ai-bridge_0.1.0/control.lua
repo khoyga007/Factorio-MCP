@@ -1,5 +1,5 @@
 local BRIDGE_VERSION = 1
-local BRIDGE_BUILD = "2026-09-19-research-metrics"
+local BRIDGE_BUILD = "2026-09-19-pole-wiring"
 local MAX_PACKET_BYTES = 32768
 local MAX_RADIUS = 32
 local MAX_ENTITIES = 64
@@ -1424,6 +1424,36 @@ local function handle_blueprint_export(nonce, request)
   })
 end
 
+-- Revived blueprint ghosts do not auto-wire like hand placement: copper-wire a new pole to
+-- every own pole in reach (both poles' max wire distance), nearest first, up to 5.
+local function wire_pole(entity)
+  if not (entity and entity.valid and entity.type == "electric-pole") then return 0 end
+  local copper = defines.wire_connector_id.pole_copper
+  local function reach(e)
+    local ok, d = pcall(function() return e.prototype.get_max_wire_distance(e.quality) end)
+    if ok and d then return d end
+    return e.prototype.max_wire_distance or 0
+  end
+  local mine = entity.get_wire_connector(copper, true)
+  local r = reach(entity)
+  local near = entity.surface.find_entities_filtered {
+    position = entity.position, radius = r + 0.01, type = "electric-pole", force = entity.force,
+  }
+  local function d(e) local dx, dy = e.position.x - entity.position.x, e.position.y - entity.position.y return math.sqrt(dx * dx + dy * dy) end
+  table.sort(near, function(a, b) return d(a) < d(b) end)
+  local wired = 0
+  for _, other in ipairs(near) do
+    if wired >= 5 then break end
+    if other ~= entity and d(other) <= math.min(r, reach(other)) + 0.01 then
+      local theirs = other.get_wire_connector(copper, true)
+      if mine.is_connected_to(theirs) or mine.connect_to(theirs, false, defines.wire_origin.player) then
+        wired = wired + 1
+      end
+    end
+  end
+  return wired
+end
+
 local function handle_blueprint_import(nonce, request)
   local surface, force, pos = surface_for(request), force_for(request), position(request)
   if not surface then return response(nonce, false, {error = "surface-not-found"}) end
@@ -1550,6 +1580,7 @@ local function handle_blueprint_import(nonce, request)
     placed = placed + 1
     receipts[#receipts + 1] = {
       name = name, x = x, y = y, item = item.name, count = item.count,
+      wires = entity.type == "electric-pole" and wire_pole(entity) or nil,
     }
   end
   if failure then

@@ -58,6 +58,13 @@ Cost = place items of every entity + primer item × matching entity count. Plan 
 
 Re-check site + stock right before build. Exact landing of native `build_blueprint` found by a ghost probe (ghosts built then destroyed, zero items), then `blueprint_import` direct mode at the corrected position with rotation. Every entity must then sit at its planned position/direction or `import-geometry-mismatch`. Primer inserted from treasury (receipt per insert). Primer is the LAST executor mutation.
 
+## Poles and power
+
+- Blueprint import = ghost `revive`: no hand-style auto-wire (live 19/09 exec-15/16: 4 poles isolated, 5 inserters `no_power`). Fix build `2026-09-19-pole-wiring`: each revived pole copper-wired to every own pole within min(both max_wire_distance), nearest first, ≤5. Receipt row `wires`=count. Poles built before this build stay isolated: recall + rebuild.
+- Pre-build `connect power`: a pole of the same layout covering the entity counts (no longer only existing poles).
+- Post-build `connect power`: entity network must hold a source (generator, burner-generator, solar, EEI, fusion, charged accumulator) — island of poles → `infra-missing:power:<entity>@x,y`.
+- Engine PASS tests/verify_metrics_runtime.py: 2 layout poles chain to pre-placed pole+EEI, same network, lab verified; same layout far away → infra-missing.
+
 ## Research (`control.lua` handle_research)
 
 - `observe(view="research")` → current, progress, `queue`, `labs` {status→count on surface}, `available` (enabled, unresearched, prerequisites met).

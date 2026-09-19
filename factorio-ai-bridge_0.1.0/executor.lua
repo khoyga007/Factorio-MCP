@@ -70,7 +70,16 @@ local function tile_area(cx,cy,r)
 end
 
 -- Supply area of an own-force pole covers the planned entity (pre-build power check).
-local function pole_covers(surface,force,e)
+local function pole_covers(surface,force,e,planned)
+  -- A pole in the same layout counts; the post-build connect check proves it reaches a source.
+  for _,p in ipairs(planned or {}) do
+    local proto=prototypes.entity[p.name]
+    if proto.type=="electric-pole" then
+      local ok,d=pcall(function() return proto.get_supply_area_distance() end)
+      if not ok then d=proto.supply_area_distance end
+      if d and math.abs(p.x-e.x)<d+e.w/2 and math.abs(p.y-e.y)<d+e.h/2 then return true end
+    end
+  end
   for _,p in pairs(surface.find_entities_filtered{position={e.x,e.y},radius=math.max(e.w,e.h)/2+32,
     type="electric-pole",force=force}) do
     local ok,d=pcall(function() return p.prototype.get_supply_area_distance() end)
@@ -129,7 +138,7 @@ local function check_site(surface,force,c,placed,rejects)
       end
     end
     for _,rule in ipairs(c.connect) do
-      if rule.entity==e.name and rule.power and not pole_covers(surface,force,e) then return no("no-power") end
+      if rule.entity==e.name and rule.power and not pole_covers(surface,force,e,placed) then return no("no-power") end
     end
   end
   return true
@@ -373,7 +382,16 @@ function M.attach(ctx)
 
   -- power: entity sits on an electric network. fluid: a box for that fluid links to an entity outside the job.
   local function connected(es,e,rule)
-    if rule.power then return e.electric_network_id~=nil end
+    if rule.power then
+      -- A network id alone can be an island of poles: require a live source on the same network.
+      local id=e.electric_network_id
+      if not id then return false end
+      for _,g in pairs(e.surface.find_entities_filtered{force=e.force,
+        type={"generator","burner-generator","solar-panel","electric-energy-interface","fusion-generator","accumulator"}}) do
+        if g.electric_network_id==id and (g.type~="accumulator" or g.energy>0) then return true end
+      end
+      return false
+    end
     local own={}
     for _,x in ipairs(es) do if x.unit_number then own[x.unit_number]=true end end
     for k=1,#e.fluidbox do

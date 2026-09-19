@@ -18,7 +18,7 @@ return function(handlers,state,furnace_bp,furnace_c,lab_bp,lab_c)
         player.teleport({30,30},surface)
         state().treasury_entity=nil state().treasury_unit_number=nil state().autofuel_enabled=false
         bag.clear()
-        for name,n in pairs{["burner-mining-drill"]=1,["stone-furnace"]=1,coal=8,lab=1,["small-electric-pole"]=1,["automation-science-pack"]=40} do bag.insert{name=name,count=n} end
+        for name,n in pairs{["burner-mining-drill"]=1,["stone-furnace"]=1,coal=8,lab=2,["small-electric-pole"]=4,["automation-science-pack"]=80} do bag.insert{name=name,count=n} end
         -- Test-only power source west of the lab site.
         local eei=surface.create_entity{name="electric-energy-interface",position={-24,-20},force="player"}
         eei.power_production=10000000 eei.electric_buffer_size=10000000
@@ -51,17 +51,28 @@ return function(handlers,state,furnace_bp,furnace_c,lab_bp,lab_c)
         local last=status.audit and status.audit.last
         check(status.state=="verified" and last.values.plates>=3,"products-finished-passed:"..helpers.table_to_json(status))
         phase="lab"
-        job=call("blueprint_run",{blueprint=lab_bp,pattern_id="t-lab",surface=surface.name,x=-20,y=-22,
+        job=call("blueprint_run",{blueprint=lab_bp,pattern_id="t-lab",surface=surface.name,x=-15,y=-22,
           contract=helpers.json_to_table(lab_c)})
         check(job.ok and job.job_id,"lab-job:"..helpers.table_to_json(job))
         return
       end
+      if phase=="island" then
+        result.island=status
+        check(status.state~="verified" and tostring(status.error):find("infra%-missing:power:lab"),"island-lab-refused:"..helpers.table_to_json(status))
+        result.ok,done=true,true
+        return
+      end
       result.lab=status
+      local poles=surface.find_entities_filtered{name="small-electric-pole",area={{-16,-22},{-7,-19}}}
+      check(#poles==2 and poles[1].electric_network_id==poles[2].electric_network_id,"layout-poles-wired")
       local last=status.audit and status.audit.last
       local cap=1800*(1+game.forces.player.laboratory_speed_modifier)/600*1.05
       result.cap=cap
       check(status.state=="verified" and last.values.units>=1.5 and last.values.units<=cap,"research-units-passed-own-labs-only:"..helpers.table_to_json(status))
-      result.ok,done=true,true
+      phase="island"
+      job=call("blueprint_run",{blueprint=lab_bp,pattern_id="t-island",surface=surface.name,x=20,y=20,
+        contract=helpers.json_to_table(lab_c)})
+      check(job.ok and job.job_id,"island-job:"..helpers.table_to_json(job))
     end)
     if not ok then result.error,done=tostring(err),true end
     if done then helpers.write_file("metrics-check.json",helpers.table_to_json(result),false) end

@@ -1,5 +1,5 @@
 {
- "source": "engine test only: products_finished (drill->furnace) + research_units (powered lab); lab site exact x=-20,y=-22, test pre-places EEI+pole west of it",
+ "source": "engine test only: products_finished (drill->furnace); research_units on a lab powered through 2 layout poles that must auto-wire to a pre-placed pole+EEI (site exact x=-15,y=-22); same layout far away = island, must fail infra-missing",
  "furnace": {
   "design": [
    {
@@ -58,8 +58,18 @@
  "lab": {
   "design": [
    {
+    "name": "small-electric-pole",
+    "x": 0.5,
+    "y": 1.5
+   },
+   {
+    "name": "small-electric-pole",
+    "x": 6.5,
+    "y": 1.5
+   },
+   {
     "name": "lab",
-    "x": 1.5,
+    "x": 9.5,
     "y": 1.5
    }
   ],

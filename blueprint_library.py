@@ -223,13 +223,17 @@ def list_patterns(reference: bool = False, query: str | None = None,
             continue
         if reference:
             where = " / ".join(origin.get("path") or [])
-            text = f"{origin.get('label') or ''} {where}".lower()
+            note = (origin.get("description") or "").replace(chr(10), " ").strip()
+            # The book's folder, label and the author's own note ARE the index. Search all
+            # three: "what feeds this" is in the note, never in the label.
+            text = f"{origin.get('label') or ''} {where} {note}".lower()
             if query and query.lower() not in text:
                 continue
             total += 1
             if offset <= total - 1 < offset + limit:
                 rows.append({"pattern_id": data["pattern_id"], "label": origin.get("label"),
-                             "book": where or None, "entity_count": data.get("entity_count")})
+                             "book": where or None, "entity_count": data.get("entity_count"),
+                             "note": (note[:157] + "...") if len(note) > 160 else (note or None)})
             continue
         total += 1
         row = {key: data.get(key) for key in (
@@ -307,8 +311,12 @@ def import_reference(value: str, *, url: str | None = None, note: str | None = N
         raise ValueError("space-age-entities:" + ",".join(screen["space_age"]))
     if unknown:
         raise ValueError("entities-not-in-this-game:" + ",".join(sorted(unknown)))
+    # The book's own index is the best description there is: author folder path, label,
+    # and the description the author wrote for each entry. Keep all three -- deriving a
+    # blueprint's purpose from its entities costs tokens and is worse.
     origin = {"kind": "community", "url": url, "note": note,
-              "label": screen["label"], "game_version": screen["game_version"],
+              "label": screen["label"], "description": screen["description"],
+              "game_version": screen["game_version"],
               "checked_against": checked_against, "path": path or None}
     record = record_blueprint(value, state="reference", source="import",
                               origin={k: v for k, v in origin.items() if v is not None},

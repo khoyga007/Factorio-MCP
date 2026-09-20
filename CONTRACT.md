@@ -101,6 +101,7 @@ Engine PASS 2026-09-19 (tests/verify_design_runtime.py, tests/designs/coal-drill
 {
   "site": {"mode": "search|exact", "rotations": [0,4,8,12], "clearance": 1,
            "enemy_radius": 16, "max_checks": 20000},
+  "build": {"mode": "ghost|direct"},
   "resources": [{"entity": "burner-mining-drill", "resource": "coal",
                  "min_per_tile": 100, "min_total": 800, "full_cover": true, "exclusive": true}],
   "primer": [{"entity": "burner-mining-drill", "item": "coal", "count": 5}],
@@ -113,7 +114,7 @@ Engine PASS 2026-09-19 (tests/verify_design_runtime.py, tests/designs/coal-drill
 }
 ```
 
-Unknown keys ignored (notes: `source`). Contract errors (refused, nothing built): `invalid-site`, `invalid-rotation`, `exact-site-needs-one-rotation`, `invalid-connect`, `invalid-declared-load`, `invalid-metric[-item|-fluid|-fraction|-load-fraction|-min]:<metric key>`, `declared-load-required:<metric key>`.
+Unknown keys ignored (notes: `source`). Contract errors (refused, nothing built): `invalid-build-mode`, `invalid-site`, `invalid-rotation`, `exact-site-needs-one-rotation`, `invalid-connect`, `invalid-declared-load`, `invalid-metric[-item|-fluid|-fraction|-load-fraction|-min]:<metric key>`, `declared-load-required:<metric key>`.
 
 ## Site
 
@@ -122,7 +123,8 @@ Unknown keys ignored (notes: `source`). Contract errors (refused, nothing built)
 - Candidates, nearest first: with a resource rule → every anchor putting the rule's first matching entity's top-left tile on an ore tile; else square scan ≤64 tiles. Budget `max_checks` (≤20000) → `search-budget-exhausted`.
 - Per candidate, reject reason counted: `out-of-area`, `occupied` (own-force entity inside SOME entity's own tiles + `clearance` — NOT the design bounding box: a layout whose pole run reaches 10 tiles away does not claim the base in between; the bbox is only a fast path, one count query, and only a non-zero count triggers the per-entity pass), `character` (only own characters there: player in the way), `enemies` (within `enemy_radius`), `collision` (`can_place_entity` manual check, every entity; a failure whose footprint holds only trees/rocks passes if a `forced` blueprint_ghost check passes → clearable), `cliff` (cliff inside footprint: never cleared, needs explosives), `foreign-resource`, `resource-cover`, `resource-reserve`.
 - Resource rule area = `mining_drill_radius` of that entity (burner drill: its 2x2). `full_cover` (default): every tile in area holds `resource` ≥ `min_per_tile`. `exclusive` (default): other resource in area rejects. Sum ≥ `min_total`.
-- None fits → `state=blocked, error=no-site, rejects={reason: n}, checks`. Agent picks a new area / relaxes contract.
+- None fits → `state=blocked, error=no-site, rejects={reason: n}, checks`. `rejects.at` carries up to 8 `[name,x,y]` of what actually stood in the way (added 20/09: `occupied: 1` with no tile is a treasure hunt). Agent picks a new area / relaxes contract.
+- `build.mode="ghost"` + `site.mode="exact"`: `occupied` and `collision` stop counting as rejects. The agent named the tiles; the engine gets to decide per entity, and drain() reports the ones it refuses. Every other reject (`character`, `enemies`, `cliff`, resources, `no-power`) still stands.
 - Inserter ends (after site found, before any debit, dry_run too): every inserter's pickup AND drop tile (prototype `inserter_pickup_position`/`inserter_drop_position`, dir 0 = pickup north, rotated by dir) must hold a receiver: planned entity of a receiver type (belt/underground/splitter/loader, chest, furnace, assembler, lab, drill, boiler, turret, wagon, silo...) or an existing own-force one. Else `state=blocked, error=inserter-unconnected, unconnected=[{inserter:[x,y], side:pickup|drop, tile:[x,y], hint?}]`. `hint={entity, from, to, design_shift:[dx,dy]}` only when exactly one planned receiver one tile away covers the tile, the move clashes with no planned entity AND lowers total gaps; `design_shift` is in the agent's design frame (rotation undone). Never auto-moved: agent edits design and resubmits (maintainer 19/09: pre-build check + hint over post-build snap — no wasted build, catalog blueprint = what was built, no guessing when a machine serves several inserters). Engine PASS tests/verify_inserter_runtime.py: lab 1 tile off → drop gap + shift [-1,0] (also under rotation 4), fixed → planned, pickup from existing belt counts, engine pickup/drop positions match.
 - Underground pipes (after the inserter check, before any debit, dry_run too), build `2026-09-20-pipe-pairs`: every `pipe-to-ground` in the layout must have a partner. MEASURED in the engine, not assumed: the prototype carries a `normal` connection facing the entity's own direction and an `underground` connection 8 (180 degrees) away, `max_underground_distance` 10 — centres exactly 10 apart link, 11 do not. So a pair needs `dirB == (dirA+8)%16`, same row/column, distance ≤ 10. Partners may be planned in this layout OR already built (own force). Else `state=blocked, error=pipe-unconnected, unconnected=[{pipe:[x,y], dir, reason}]`, nothing built.
   - `no-partner` (+`within`): nothing of that name down its tunnel inside range — run one tile too long, or the other end missing.
@@ -161,6 +163,35 @@ Re-check site + stock right before build. Then trees/rocks inside any entity foo
   - `design` rows carry `recipe`; no top-level recipe arg (schema byte budget). No `dry_run`: the handler has none.
 - `achieve(goal="capture", area=[x1,y1,x2,y2], contract?)` → blueprint_export of a built area → catalog `captured` + `layout` (design rows). Resubmit via build_design/reuse_blueprint to verify.
 - Engine PASS 2026-09-19 tests/verify_metrics_runtime.py: queue automation→logistics, unknown refused; drill→furnace products_finished 7/window verified; 1 powered lab 40 packs research_units 9.8/window ≤ speed cap, verified.
+
+## Ghost build (`build.mode="ghost"`, build `2026-09-20-ghost-build`)
+
+The plan goes on the ground first and pays for itself as stock arrives, instead of being
+refused for what is missing at the moment it is submitted.
+
+- No native paste. MEASURED `tests/verify_ghost_runtime.py`: `build_blueprint` over a FOREIGN
+  entity overlapping one planned tile returns ZERO ghosts — the engine refuses the whole
+  paste (`paste_foreign_entity_overlaps` 0 vs `paste_clean` 3). It skips quietly only when an
+  IDENTICAL entity already sits there (`paste_same_entity_present` 2). So ghost mode sets one
+  `entity-ghost` per layout row itself; `aim()` is unused (the layout is already absolute).
+- Per executor tick, ≤12 entities: tile already holds the right entity → done; ghost missing →
+  re-placed (no ghost-expiry field exists in this API build, so lifetime is not trusted,
+  `replaced` counts it); tile unbuildable (`can_place_entity` manual false) → `blocked`;
+  stock short → `waiting`; otherwise **debit `stock.remove` FIRST, then `revive`**. `revive()`
+  builds for free (measured), so that order IS the no-free-items rule. Refund on any failure.
+- Job stays in `building` while anything is pending — no new state, so every guard, ledger row
+  and report path that knows `building` keeps working. `report` gains `pending`, `waiting`
+  {item: count}, `blocked` [{name,x,y}], `replaced`.
+- Nothing pending but something blocked → `needs-attention`, `error=blueprint-blocked:<n>`, the
+  tiles named. Free the tile, `report(resume=true)` continues from there.
+- A blueprint entity's `recipe` rides through decode → orient → place_list → ghost, and is set
+  again after revive if the ghost lost it (receipt `recipe_lost` when even that fails).
+- Missing materials do NOT block the run (locked technology still does). Entity cap for the
+  whole blueprint is now 500 (`control.lua`), not the old 64 in `executor.lua`.
+- Engine PASS `tests/verify_ghostbuild_runtime.py` (18 checks): 70-entity blueprint planned;
+  1-of-2 affordable chests built, rest ghosted with `waiting` naming the item; stock inserted
+  → finishes with no new call; blocked assembler named with coords and NOT charged; blocker
+  removed + resume → built, recipe intact, charged exactly once.
 
 ## Holdout audit (PORTING §5, stricter than FLE)
 

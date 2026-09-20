@@ -103,6 +103,8 @@ python tests/verify_steam_runtime.py --player-save .runtime-test/saves/replica-p
 python tests/verify_holdout_fail_runtime.py --player-save .runtime-test/saves/replica-player.zip
 python tests/verify_power_runtime.py --player-save .runtime-test/saves/replica-player.zip
 python tests/verify_pipe_runtime.py --player-save .runtime-test/saves/replica-player.zip
+python tests/verify_ghost_runtime.py --player-save .runtime-test/saves/replica-player.zip
+python tests/verify_ghostbuild_runtime.py --player-save .runtime-test/saves/replica-player.zip
 ```
 
 Lệnh cuối sao chép save vào `.runtime-test` để kiểm tra chuyển đồ với một player

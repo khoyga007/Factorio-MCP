@@ -26,14 +26,18 @@ local function decode(value)
     return stack.get_blueprint_entities()
   end)
   inv.destroy()
-  if not ok or not es or #es==0 or #es>64 then return nil,"unsupported-blueprint" end
+  -- The 64 was this module's own limit, not the engine's: control.lua already guards the
+  -- import at 500. Ghost mode pastes the whole thing in one call, so chunking by hand is
+  -- no longer the price of a big blueprint.
+  if not ok or not es or #es==0 or #es>500 then return nil,"unsupported-blueprint" end
   local out={}
   for _,e in ipairs(es) do
     local p=prototypes.entity[e.name]
     local item=p and p.items_to_place_this and p.items_to_place_this[1]
     if not item then return nil,"entity-has-no-place-item:"..tostring(e.name) end
     out[#out+1]={name=e.name,x=e.position.x,y=e.position.y,dir=e.direction or 0,
-      w=p.tile_width,h=p.tile_height,item=item.name,count=item.count}
+      w=p.tile_width,h=p.tile_height,item=item.name,count=item.count,
+      recipe=type(e.recipe)=="string" and e.recipe or nil}
   end
   return out
 end
@@ -48,7 +52,7 @@ local function orient(es,r)
     local dir=(e.dir+r)%16
     local w,h=e.w,e.h
     if dir%8~=0 then w,h=h,w end
-    out[i]={name=e.name,x=x,y=y,dir=dir,w=w,h=h,item=e.item,count=e.count}
+    out[i]={name=e.name,x=x,y=y,dir=dir,w=w,h=h,item=e.item,count=e.count,recipe=e.recipe}
     min_x=math.min(min_x,x-w/2) min_y=math.min(min_y,y-h/2)
   end
   local max_x,max_y=0,0
@@ -61,7 +65,7 @@ end
 
 local function place_list(shape,ax,ay)
   local out={}
-  for i,e in ipairs(shape) do out[i]={name=e.name,x=ax+e.x,y=ay+e.y,dir=e.dir,w=e.w,h=e.h} end
+  for i,e in ipairs(shape) do out[i]={name=e.name,x=ax+e.x,y=ay+e.y,dir=e.dir,w=e.w,h=e.h,recipe=e.recipe} end
   return out
 end
 
@@ -353,11 +357,18 @@ local function check_site(surface,force,c,placed,rejects)
     for _,e in ipairs(placed) do
       for _,o in pairs(surface.find_entities_filtered{force=force,
         area={{e.x-e.w/2-gap+d,e.y-e.h/2-gap+d},{e.x+e.w/2+gap-d,e.y+e.h/2+gap-d}}}) do
-        if o.type=="character" then chars=chars+1 else blocked=true end
+        if o.type=="character" then chars=chars+1 else
+          blocked=true
+          -- "occupied: 1" without a tile is a treasure hunt; name what is in the way.
+          rejects.at=rejects.at or {}
+          if #rejects.at<8 then rejects.at[#rejects.at+1]={o.name,o.position.x,o.position.y} end
+        end
       end
     end
     -- A player standing in the way blocks too; name it so the agent moves, not the site.
-    if blocked then return no("occupied") end
+    -- Ghost mode on an agent-chosen site keeps going: the engine drops the entities whose
+    -- tiles are taken, drain() lists them, and the rest of the plan still lands.
+    if blocked and not (c.ghost and c.exact) then return no("occupied") end
     if chars>0 then return no("character") end
   end
   if surface.count_entities_filtered{position={(x1+x2)/2,(y1+y2)/2},radius=c.enemy_radius or 16,
@@ -369,7 +380,7 @@ local function check_site(surface,force,c,placed,rejects)
       -- Blocked only by clearable nature: a forced ghost check ignores deconstructible trees/rocks.
       if #in_footprint(surface,e,NATURAL)==0 or not surface.can_place_entity{name=e.name,position={e.x,e.y},
         direction=e.dir,force=force,build_check_type=defines.build_check_type.blueprint_ghost,forced=true} then
-        return no("collision")
+        if not (c.ghost and c.exact) then return no("collision") end
       end
     end
     for _,rule in ipairs(c.resources) do
@@ -462,6 +473,9 @@ local function parse_contract(raw,r)
   local c={resources={},primer={},feeds={},rotations={},connect={}}
   local site=type(raw.site)=="table" and raw.site or {}
   c.exact=site.mode=="exact"
+  local build=type(raw.build)=="table" and raw.build or {}
+  if build.mode~=nil and build.mode~="ghost" and build.mode~="direct" then return nil,"invalid-build-mode" end
+  c.ghost=build.mode=="ghost"
   c.clearance=tonumber(site.clearance) or 0
   c.enemy_radius=tonumber(site.enemy_radius) or 16
   c.max_checks=math.min(tonumber(site.max_checks) or MAX_CHECKS,MAX_CHECKS)
@@ -550,6 +564,7 @@ function M.attach(ctx)
     return {job_id=j.id,state=j.state,pattern_id=j.pattern_id,site=j.site,
       step=j.step,steps=#(j.steps or {}),placed=j.placed,materials=j.materials,
       missing=j.missing,audit=j.audit,feed=j.feed,error=j.error,artifact=j.artifact,cleared=j.cleared,block=j.block,
+      pending=j.pending,waiting=j.waiting,blocked=j.blocked,replaced=j.replaced,
       placed_at=j.layout and placed_at(j.layout)}
   end
   local function save(j)
@@ -871,8 +886,12 @@ function M.attach(ctx)
         site=site_out,placed_at=placed_at(placed),materials=cost})
     end
     if #locked>0 then table.sort(locked) end
-    if r.dry_run or next(missing) or #locked>0 then
-      return ctx.response(nonce,true,{state=(next(missing) or #locked>0) and "blocked" or "planned",
+    -- A short bag stops a direct build, but it is the normal opening state of a ghost
+    -- build: the plan goes down and waits. Locked technology still stops both - no amount
+    -- of waiting researches it.
+    local short=next(missing)~=nil and not c.ghost
+    if r.dry_run or short or #locked>0 then
+      return ctx.response(nonce,true,{state=(short or #locked>0) and "blocked" or "planned",
         site=site_out,site_validated=true,materials=cost,missing=missing,placed_at=placed_at(placed),
         locked=#locked>0 and locked or nil,steps=#steps,rejects=rejects})
     end
@@ -888,6 +907,83 @@ function M.attach(ctx)
   end
 
   -- Ghosts show where build_blueprint really lands; return the corrected position.
+  local GHOST_PER_TICK=12
+
+  -- Ghost mode's engine room. Walks the job's own layout, not a stored ghost list, so a
+  -- ghost that vanished unbuilt is noticed and re-placed: this API build exposes no
+  -- ghost-expiry field, so its lifetime is not something to rely on.
+  -- Returns true while work is left (job stays in `building`).
+  local function drain(j,surface,force,stock)
+    local waiting,blocked,done,pending={},{},0,0
+    local budget=GHOST_PER_TICK
+    local function one(e)
+      local live=surface.find_entity(e.name,{e.x,e.y})
+      if live and live.valid then return "done" end
+      local g=surface.find_entity("entity-ghost",{e.x,e.y})
+      if not (g and g.valid and g.ghost_name==e.name) then
+        local function ghost_at(recipe)
+          local okg,made=pcall(function()
+            return surface.create_entity{name="entity-ghost",inner_name=e.name,
+              position={e.x,e.y},direction=e.dir,force=force,recipe=recipe}
+          end)
+          return okg and made or nil
+        end
+        -- `recipe` on a ghost is not accepted for every prototype; losing the recipe is
+        -- better than losing the entity, and drain() sets it again after revive.
+        local made=ghost_at(e.recipe) or (e.recipe and ghost_at(nil))
+        if not made then return "blocked" end
+        j.replaced=(j.replaced or 0)+1
+        return "pending"
+      end
+      -- A ghost may be SET over an occupied tile - ghosts do not collide - but it can
+      -- never be revived there. Without this the job would wait on that tile forever and
+      -- call it "pending": a silent stall instead of a named blocker.
+      if not surface.can_place_entity{name=e.name,position={e.x,e.y},direction=e.dir,
+        force=force,build_check_type=defines.build_check_type.manual} then
+        return "blocked"
+      end
+      if budget<=0 then return "pending" end
+      local item=prototypes.entity[e.name].items_to_place_this[1]
+      if stock.get_item_count{name=item.name,quality="normal"}<item.count then
+        waiting[item.name]=(waiting[item.name] or 0)+item.count
+        return "pending"
+      end
+      budget=budget-1
+      -- Debit first. revive() builds for free, so the order here IS the no-free-items rule.
+      local removed=stock.remove{name=item.name,count=item.count}
+      if removed~=item.count then
+        if removed>0 then stock.insert{name=item.name,count=removed} end
+        return "pending"
+      end
+      local okr,_,built=pcall(function() return g.revive{raise_revive=true} end)
+      if not (okr and built) then
+        stock.insert{name=item.name,count=item.count}
+        return "pending"
+      end
+      local recipe_lost
+      if e.recipe and built.type=="assembling-machine" and not built.get_recipe() then
+        -- A re-placed ghost can lose the recipe the blueprint carried; put it back, and
+        -- say so on the receipt when it cannot go back (locked technology).
+        local okr2=pcall(function() built.set_recipe(e.recipe) end)
+        recipe_lost=(not okr2) and e.recipe or nil
+      end
+      j.receipts[#j.receipts+1]={ok=true,action="revive",name=e.name,x=e.x,y=e.y,
+        item=item.name,count=item.count,recipe_lost=recipe_lost,
+        wires=built.type=="electric-pole" and ctx.wire and ctx.wire(built) or nil}
+      return "done"
+    end
+    for _,e in ipairs(j.layout) do
+      local verdict=one(e)
+      if verdict=="done" then done=done+1
+      elseif verdict=="pending" then pending=pending+1
+      else blocked[#blocked+1]={name=e.name,x=e.x,y=e.y} end
+    end
+    j.placed,j.pending=done,pending
+    j.waiting=next(waiting) and waiting or nil
+    j.blocked=#blocked>0 and blocked or nil
+    return pending>0
+  end
+
   local function aim(j,surface,force)
     local inv=game.create_inventory(1)
     local stack=inv[1] stack.import_stack(j.blueprint)
@@ -896,28 +992,49 @@ function M.attach(ctx)
       W=math.max(W,e.x+e.w/2-j.site.x) H=math.max(H,e.y+e.h/2-j.site.y)
     end
     local guess={x=j.site.x+W/2,y=j.site.y+H/2}
-    local ghosts=stack.build_blueprint{surface=surface,force=force,position=guess,
-      direction=j.site.rotation,build_mode=defines.build_mode.normal,raise_built=false}
+    -- The probe position must be on the alignment the entities want (odd sizes sit on
+    -- half tiles, even sizes on whole ones). A guess that is half a tile out places
+    -- NOTHING and reads exactly like a fully blocked site, so try the four offsets.
+    -- The probe position must match the alignment the entities want (odd sizes sit on
+    -- half tiles, even ones on whole tiles). Half a tile out places NOTHING and reads
+    -- exactly like a blocked site, so try the four offsets before believing that.
+    local ghosts={}
+    for _,off in ipairs{{0,0},{0.5,0},{0,0.5},{0.5,0.5}} do
+      if #ghosts==0 then
+        local try={x=guess.x+off[1],y=guess.y+off[2]}
+        local okbp,out=pcall(function() return stack.build_blueprint{surface=surface,force=force,
+          position=try,direction=j.site.rotation,build_mode=defines.build_mode.normal,raise_built=false} end)
+        if okbp and out and #out>0 then ghosts=out guess=try end
+      end
+    end
     inv.destroy()
+    -- The probe itself can come back short over a live base (the engine drops the entities
+    -- whose tiles are taken), so the offset is read from whatever DID land: any delta that
+    -- explains every returned ghost is the right one. Requiring a full probe would refuse
+    -- the paste for the very reason ghost mode exists.
     local delta
-    local e1=j.layout[1]
     for _,g in ipairs(ghosts) do
-      if g.valid and g.ghost_name==e1.name and not delta then
-        local dx,dy=e1.x-g.position.x,e1.y-g.position.y
-        local all=true
-        for _,h in ipairs(ghosts) do
-          local hit=false
-          for _,e in ipairs(j.layout) do
-            if e.name==h.ghost_name and math.abs(e.x-h.position.x-dx)<0.01 and math.abs(e.y-h.position.y-dy)<0.01 then hit=true break end
+      if g.valid and not delta then
+        for _,e in ipairs(j.layout) do
+          if e.name==g.ghost_name and not delta then
+            local dx,dy=e.x-g.position.x,e.y-g.position.y
+            local all=true
+            for _,h in ipairs(ghosts) do
+              local hit=false
+              for _,f in ipairs(j.layout) do
+                if f.name==h.ghost_name and math.abs(f.x-h.position.x-dx)<0.01 and math.abs(f.y-h.position.y-dy)<0.01 then hit=true break end
+              end
+              if not hit then all=false break end
+            end
+            if all then delta={dx,dy} end
           end
-          if not hit then all=false break end
         end
-        if all then delta={dx,dy} end
       end
     end
     local n=#ghosts
     for _,g in ipairs(ghosts) do if g.valid then g.destroy() end end
-    if n~=#j.layout or not delta then error("blueprint-aim-failed") end
+    -- Direct mode still demands a complete probe: it spends the whole bill in one call.
+    if not delta or n==0 or (not j.contract.ghost and n~=#j.layout) then error("blueprint-aim-failed:"..n.."/"..#j.layout) end
     return guess.x+delta[1],guess.y+delta[2]
   end
 
@@ -964,14 +1081,36 @@ function M.attach(ctx)
               end
               j.cleared=n
             end
-            for name,n in pairs(j.materials) do
-              if stock.get_item_count{name=name,quality="normal"}<n then error("materials-changed:"..name) end
+            if j.contract.ghost then
+              -- No native paste here. MEASURED (tests/verify_ghost_runtime.py): a
+              -- build_blueprint whose entities overlap a FOREIGN entity on even one tile
+              -- returns ZERO ghosts - the engine refuses the whole paste, it does not drop
+              -- the offending entity (`paste_foreign_entity_overlaps` = 0 against
+              -- `paste_clean` = 3; an IDENTICAL entity already there is the one case it
+              -- skips quietly, `paste_same_entity_present` = 2). So ghost mode sets one
+              -- ghost per entity in drain(): a taken tile costs that tile, not the plan,
+              -- and aim() is not needed because the layout is already absolute.
+              j.placed=0
+            else
+              -- Direct mode still pays the whole bill up front, in one call.
+              for name,n in pairs(j.materials) do
+                if stock.get_item_count{name=name,quality="normal"}<n then error("materials-changed:"..name) end
+              end
+              local x,y=aim(j,surface,force)
+              local result=perform(j,"import",{blueprint=j.blueprint,x=x,y=y,mode="direct",
+                direction=j.site.rotation})
+              j.placed=result.placed or 0
+              if not result.ok then save(j) return end
             end
-            local x,y=aim(j,surface,force)
-            local result=perform(j,"import",{blueprint=j.blueprint,x=x,y=y,mode="direct",direction=j.site.rotation})
-            j.placed=result.placed
-            if not result.ok then save(j) return end
             j.imported=true
+            end
+            -- Stays in `building` while ghosts remain: no new state, so every guard,
+            -- ledger row and report path that already knows `building` keeps working.
+            if j.contract.ghost then
+              if drain(j,surface,force,stock) then save(j) return end
+              -- Nothing left waiting, but tiles the engine refused are still refused: name
+              -- them and stop. Free the tile, then report(resume=true) picks up from here.
+              if j.blocked then error("blueprint-blocked:"..#j.blocked) end
             end
             local es,bad=built_entities(j)
             if not es then error("import-geometry-mismatch:"..bad) end

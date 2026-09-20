@@ -1,5 +1,5 @@
 local BRIDGE_VERSION = 1
-local BRIDGE_BUILD = "2026-09-20-pipe-pairs"
+local BRIDGE_BUILD = "2026-09-20-ghost-build"
 local MAX_PACKET_BYTES = 32768
 local MAX_RADIUS = 32
 local MAX_ENTITIES = 64
@@ -1561,13 +1561,17 @@ local function handle_blueprint_import(nonce, request)
   end)
   inventory.destroy()
   if not built then return response(nonce, false, {error = "blueprint-build-failed", detail = tostring(ghosts)}) end
-  if #ghosts ~= count then
+  if #ghosts ~= count and mode == "direct" then
     for _, ghost in pairs(ghosts) do if ghost.valid then ghost.destroy() end end
     return response(nonce, false, {error = "blueprint-blocked", expected = count, ghosts = #ghosts})
   end
   if mode == "ghosts" then
+    -- Measured 20/09 (tests/verify_ghost_runtime.py): the engine drops ONLY the entity
+    -- whose tiles are taken and keeps the rest. A partial paste is the normal case over a
+    -- live base, so it is reported, not destroyed.
     return response(nonce, true, {
-      action = "blueprint_import", mode = mode, ghosts = count,
+      action = "blueprint_import", mode = mode, ghosts = #ghosts, planned = count,
+      blocked = count - #ghosts,
       x = pos.x, y = pos.y, surface = surface.name,
     })
   end
@@ -1807,7 +1811,7 @@ end
 local executor = require("executor").attach {
   state = bridge_state, response = response, inventory = treasury_inventory,
   import = handle_blueprint_import, craft = handle_craft, collect = handle_collect,
-  mine = handle_mine, insert = handle_insert,
+  mine = handle_mine, insert = handle_insert, wire = wire_pole,
 }
 local field = require("field").attach {
   state = bridge_state, response = response, inventory = treasury_inventory,

@@ -34,8 +34,27 @@ return function(handlers,state,bp)
           result.facts[probe[1]]=okp and tostring(v) or "no-such-field"
         end
 
-        -- FACT 2: one tile of the layout is taken by something already on the ground.
-        -- A human blueprint dropped over a live base hits this every time.
+        -- FACT 2, three readings at the SAME position, because "partial paste" can mean
+        -- two different things and the first version of this test confused them:
+        --   clean    - nothing in the way
+        --   same     - an identical entity already sits on one planned tile
+        --   foreign  - a DIFFERENT entity overlaps one planned tile
+        local function paste(tag)
+          local inv2=game.create_inventory(1) local st=inv2[1] st.import_stack(bp.trio)
+          local g=st.build_blueprint{surface=surface,force=force,position={20,20},
+            direction=defines.direction.north,build_mode=defines.build_mode.normal,raise_built=false}
+          result.facts["paste_"..tag]=#g
+          for _,x in pairs(g) do if x.valid then x.destroy() end end
+          inv2.destroy()
+        end
+        paste("clean")
+        local same=surface.create_entity{name="wooden-chest",position={23.5,20.5},force=force}
+        paste("same_entity_present")
+        same.destroy()
+        local foreign=surface.create_entity{name="stone-furnace",position={23.5,20.5},force=force}
+        paste("foreign_entity_overlaps")
+        foreign.destroy()
+
         surface.create_entity{name="wooden-chest",position={3.5,0.5},force=force}
         local inv=game.create_inventory(1) local stack=inv[1]
         stack.import_stack(bp.trio)

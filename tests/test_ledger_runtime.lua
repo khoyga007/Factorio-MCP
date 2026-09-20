@@ -4,7 +4,7 @@ return function(handlers,state,bp)
   local function check(v,name) assert(v,name) result.checks[#result.checks+1]=name end
   local function call(action,body) return handlers[action]("ledger-"..game.tick..":"..#result.checks,body) end
   local function find(led,id) for _,b in ipairs(led.blocks) do if b.id==id then return b end end end
-  local surface,a,b,phase,started,done,player,flow_started
+  local surface,a,b,phase,started,done,player,flow_started,hand,pair
   local function run(x,block) return call("blueprint_run",{blueprint=bp,surface=surface.name,x=x,y=0,
     contract={site={mode="exact"},block=block}}) end
   local function busy(job)
@@ -66,6 +66,23 @@ return function(handlers,state,bp)
         end
         check(edge2 and edge2.declared==30 and (edge2.measured or 0)>0,
           "edge-measured:"..helpers.table_to_json(edge2))
+        check((f.counted or 0)>0,"flow-counted:"..helpers.table_to_json(f))
+        phase="hands"
+        return
+      end
+      if phase=="hands" then
+        -- Hand blocks start their first window later than the job blocks, so wait for it.
+        local led2=call("ledger",{})
+        local lh,lp=find(led2,hand),find(led2,pair)
+        if not (lh and lh.flow and lp and lp.flow) then return end
+        -- A chest-only block cannot measure anything: products_finished exists on no
+        -- entity in it. `measured 0` there reads as a producer that made nothing.
+        local he
+        for _,e in ipairs(led2.edges) do if e.from==hand then he=e end end
+        check(he and he.uncounted and he.measured==nil,"chest-block-uncounted:"..helpers.table_to_json(he))
+        check(lh.flow.counted==0,"chest-block-counted-zero:"..helpers.table_to_json(lh.flow))
+        local pa=lp.flow.active and lp.flow.active["stone-furnace"]
+        check(pa and pa>0 and pa<=100,"active-mean-per-machine:"..helpers.table_to_json(lp.flow))
         -- Block a wiped off the ground (as `recall` does). It must leave the ledger, and
         -- b's declared link to it must read as a missing block, not as a starved producer.
         for _,e in pairs(surface.find_entities_filtered{area={{-2,-2},{9,9}}}) do
@@ -107,6 +124,17 @@ return function(handlers,state,bp)
       surface.create_entity{name="wooden-chest",position={20.5,0.5},force="player"}
       local h=call("ledger_note",{block={name="hand-chest",feeds={{block=b.job_id,item="coal"}}},surface=surface.name,force="player",x1=19,y1=-1,x2=22,y2=2})
       check(h.ok and h.id and h.id:sub(1,5)=="hand-","hand-registered:"..helpers.table_to_json(h))
+      hand=h.id
+      -- A second hand block of TWO working furnaces: `active` must read as a mean per
+      -- machine, not a sum. The old code added 1 per working entity per sample and
+      -- divided by samples alone, so two furnaces read back as 200.
+      for _,x in ipairs{24.5,26.5} do
+        local fz=surface.create_entity{name="stone-furnace",position={x,0.5},force="player"}
+        fz.insert{name="coal",count=5} fz.insert{name="iron-ore",count=25}
+      end
+      local hp=call("ledger_note",{block={name="hand-furnaces"},surface=surface.name,force="player",x1=23,y1=-1,x2=28,y2=2})
+      check(hp.ok and hp.id,"hand-pair-registered:"..helpers.table_to_json(hp))
+      pair=hp.id
       led=call("ledger",{})
       local lh=find(led,h.id)
       check(lh.status=="declared" and lh.n["wooden-chest"]==1,"hand-live:"..helpers.table_to_json(lh))

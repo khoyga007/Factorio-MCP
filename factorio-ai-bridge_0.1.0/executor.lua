@@ -1074,13 +1074,21 @@ function M.attach(ctx)
   local function flow_step(site,es)
     local fl,now=flow(),made_totals(es)
     local f=fl[site.id]
-    if not f then f={start=game.tick,base=now,samples=0,active={}} fl[site.id]=f end
-    f.samples=f.samples+1
+    if not f then f={start=game.tick,base=now,samples=0,active={},present={}} fl[site.id]=f end
+    f.samples,f.present=f.samples+1,f.present or {}
+    local counters=0
     for _,e in pairs(es) do
-      if e.valid and e.status==defines.entity_status.working then
-        f.active[e.name]=(f.active[e.name] or 0)+1
+      if e.valid then
+        -- Denominator per name, not per sample: 8 furnaces each working in every sample
+        -- used to add 8 per sample and read back as active 800.
+        f.present[e.name]=(f.present[e.name] or 0)+1
+        if CRAFTERS[e.type] then counters=counters+1 end
+        if e.status==defines.entity_status.working then
+          f.active[e.name]=(f.active[e.name] or 0)+1
+        end
       end
     end
+    f.counters=counters
     local ticks=game.tick-f.start
     if ticks>=flow_window() then
       local made,active={}, {}
@@ -1090,9 +1098,14 @@ function M.attach(ctx)
       end
       -- Whole percent, not a fraction: a double like 0.83 serialises to 17 digits and
       -- every one of them costs the agent context for no extra truth.
-      for name,n in pairs(f.active) do active[name]=math.floor(n*100/math.max(f.samples,1)+0.5) end
-      f.last={ticks=ticks,samples=f.samples,made=made,active=active}
-      f.start,f.base,f.samples,f.active=game.tick,now,0,{}
+      for name,n in pairs(f.active) do
+        active[name]=math.floor(n*100/math.max(f.present[name] or f.samples,1)+0.5)
+      end
+      -- `counted` = machines in this block whose output products_finished can count.
+      -- Zero means `made` is empty because NOTHING here counts (drills, belts, chests),
+      -- not because the block produced nothing.
+      f.last={ticks=ticks,samples=f.samples,made=made,active=active,counted=counters}
+      f.start,f.base,f.samples,f.active,f.present=game.tick,now,0,{},{}
     end
   end
 
@@ -1176,7 +1189,13 @@ function M.attach(ctx)
     for _,e in ipairs(edges) do
       if not (live[e.from] and live[e.to]) then e.missing_block=true end
       local f=flow_of(e.from)
-      if f and e.item then e.measured=f.made[e.item] or 0 end
+      if f and e.item then
+        -- Only a block that HAS a counting machine can measure 0. A drill or belt block
+        -- carries no products_finished, so 0 there is "not measurable", and printing it
+        -- next to `declared` reads exactly like a producer that made nothing.
+        if (f.counted or 0)>0 then e.measured=f.made[e.item] or 0
+        else e.uncounted=true end
+      end
     end
     return ctx.response(nonce,true,{blocks=out,edges=edges})
   end

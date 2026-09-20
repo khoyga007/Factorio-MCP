@@ -103,7 +103,7 @@ python tests/verify_power_runtime.py --player-save .runtime-test/saves/replica-p
 Lệnh cuối sao chép save vào `.runtime-test` để kiểm tra chuyển đồ với một player
 có inventory; không ghi vào save gốc. Fixture chỉ được chèn vào mod thử nghiệm.
 72 test Python (gồm 3 tool MCP và lớp chi tiết 25 action) + `contract_check.py` xanh.
-Engine 20/09: 11/12 bài verify_*_runtime.py PASS (thêm `verify_power_runtime.py`); `verify_economy_runtime.py` FAIL vì
+Engine 20/09: 11/12 bài verify_*_runtime.py PASS (thêm `verify_power_runtime.py`; ledger 33 check); `verify_economy_runtime.py` FAIL vì
 save nguồn đã ăn bản sửa một-lần coal-demo 18/09, hỏng y hệt trước khi refactor.
 Không cài `test_*runtime.lua` vào mod thật.
 

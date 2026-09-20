@@ -9,8 +9,9 @@ import unittest
 from unittest.mock import patch
 import zlib
 
-from blueprint_library import (encode_blueprint, list_patterns, load_pattern, pattern_entities,
-                               pattern_id_for, record_blueprint)
+from blueprint_library import (BUILD_ENTITY_LIMIT, encode_blueprint, import_reference,
+                               list_patterns, load_pattern, pattern_entities,
+                               pattern_id_for, record_blueprint, screen_reference)
 from factorio_ai import execute
 
 
@@ -140,6 +141,71 @@ class BlueprintLibraryTest(unittest.TestCase):
             reply = execute(argparse.Namespace(command="blueprint-job", job_id="exec-2",
                                                host="127.0.0.1", port=34198))
             self.assertEqual("built", reply["pattern"]["state"])
+
+
+
+class ReferenceImportTest(unittest.TestCase):
+    """Community material is stored to be read, and ranks below anything the agent made."""
+
+    def _string(self, count=3, version=562949956239363, name="stone-furnace"):
+        entities = [{"entity_number": i + 1, "name": name,
+                     "position": {"x": float(i), "y": 0.0}} for i in range(count)]
+        raw = json.dumps({"blueprint": {"item": "blueprint", "version": version,
+                                        "label": "community row", "entities": entities}})
+        return "0" + base64.b64encode(zlib.compress(raw.encode())).decode()
+
+    def test_import_stores_origin_and_never_a_contract(self):
+        with tempfile.TemporaryDirectory() as directory, patch.dict(
+            os.environ, {"FACTORIO_BLUEPRINT_CATALOG": directory}
+        ):
+            record = import_reference(self._string(), url="https://example.invalid/bp",
+                                      note="early smelting")
+            self.assertEqual("reference", record["state"])
+            saved = load_pattern(record["pattern_id"])
+            self.assertIsNone(saved["contract"])
+            self.assertEqual("community", saved["origin"]["kind"])
+            self.assertEqual("2.0.43.3", saved["origin"]["game_version"])
+            self.assertEqual("community", list_patterns()[0]["origin"])
+
+    def test_agent_work_outranks_reference_and_reference_never_demotes(self):
+        with tempfile.TemporaryDirectory() as directory, patch.dict(
+            os.environ, {"FACTORIO_BLUEPRINT_CATALOG": directory}
+        ):
+            value = self._string()
+            reference = import_reference(value)
+            self.assertEqual("verified", record_blueprint(
+                value, state="verified", source="audit")["state"])
+            self.assertEqual("verified", import_reference(value)["state"])
+            self.assertEqual("verified", load_pattern(reference["pattern_id"])["state"])
+
+    def test_refuses_pre_2_0_and_space_age(self):
+        with tempfile.TemporaryDirectory() as directory, patch.dict(
+            os.environ, {"FACTORIO_BLUEPRINT_CATALOG": directory}
+        ):
+            with self.assertRaises(ValueError) as old:
+                import_reference(self._string(version=281479273775104))
+            self.assertIn("not-a-2.0-blueprint", str(old.exception))
+            with self.assertRaises(ValueError) as dlc:
+                import_reference(self._string(name="foundry"))
+            self.assertIn("space-age-entities:foundry", str(dlc.exception))
+            with self.assertRaises(ValueError) as gone:
+                import_reference(self._string(), unknown=["stone-furnace"])
+            self.assertIn("entities-not-in-this-game", str(gone.exception))
+            self.assertEqual([], list_patterns())
+
+    def test_reference_may_exceed_the_build_limit(self):
+        with tempfile.TemporaryDirectory() as directory, patch.dict(
+            os.environ, {"FACTORIO_BLUEPRINT_CATALOG": directory}
+        ):
+            big = self._string(count=BUILD_ENTITY_LIMIT + 33)
+            self.assertTrue(screen_reference(big)["over_build_limit"])
+            record = import_reference(big)
+            self.assertEqual(BUILD_ENTITY_LIMIT + 33, record["entity_count"])
+            self.assertEqual(BUILD_ENTITY_LIMIT + 33,
+                             len(load_pattern(record["pattern_id"])["entities"]) and
+                             load_pattern(record["pattern_id"])["entity_count"])
+            with self.assertRaises(ValueError):
+                record_blueprint(big, state="designed", source="t")
 
 
 if __name__ == "__main__":

@@ -12,7 +12,7 @@ from unittest.mock import patch
 
 from mcp import ClientSession, StdioServerParameters
 from mcp.client.stdio import stdio_client
-from blueprint_library import record_blueprint
+from blueprint_library import encode_blueprint, import_reference, record_blueprint
 
 
 class GoalMCPTest(unittest.IsolatedAsyncioTestCase):
@@ -100,6 +100,25 @@ class GoalMCPTest(unittest.IsolatedAsyncioTestCase):
                             p = await call("observe", {"view": "patterns"}, [])
                             self.assertEqual(pattern_id, p["patterns"][0]["pattern_id"])
                             self.assertNotIn("blueprint_string", p["patterns"][0])
+                            # Imported human material is readable, but the executor will not
+                            # touch it until the agent says what it expects of it.
+                            with patch.dict(os.environ,
+                                            {"FACTORIO_BLUEPRINT_CATALOG": catalog_dir}):
+                                reference = import_reference(encode_blueprint(
+                                    [{"name": "stone-furnace", "x": 1, "y": 1}]),
+                                    url="https://example.invalid/bp")
+                            refused = await session.call_tool(
+                                "achieve", {"goal": "reuse_blueprint",
+                                            "pattern_id": reference["pattern_id"]})
+                            self.assertTrue(refused.isError)
+                            p = json.loads(refused.content[0].text)
+                            self.assertEqual("reference-pattern-needs-contract", p["error"])
+                            self.assertEqual("community", p["origin"]["kind"])
+                            p = await call("achieve", {"goal": "reuse_blueprint",
+                                                       "pattern_id": reference["pattern_id"],
+                                                       "contract": {"site": {"mode": "exact"}},
+                                                       "dry_run": True}, ["blueprint_run"])
+                            self.assertEqual(reference["pattern_id"], seen[-1]["pattern_id"])
                             own = {"site": {"mode": "exact"}, "primer": []}
                             p = await call("achieve", {"goal": "reuse_blueprint",
                                                        "pattern_id": pattern_id, "contract": own,
@@ -123,7 +142,8 @@ class GoalMCPTest(unittest.IsolatedAsyncioTestCase):
                             p = await call("achieve", {"goal": "build_design", "design": design,
                                                        "contract": own, "dry_run": True}, ["blueprint_run"])
                             self.assertEqual(pattern_id, p["pattern_id"])
-                            self.assertEqual(1, len(os.listdir(catalog_dir)))
+                            # the built pattern + the imported reference, no duplicate
+                            self.assertEqual(2, len(os.listdir(catalog_dir)))
                             moved = [dict(e, y=e["y"] + 3) if e["name"] == "wooden-chest" else e
                                      for e in design]
                             p = await call("achieve", {"goal": "build_design", "design": moved,

@@ -17,7 +17,25 @@ import zlib
 
 ROOT = Path(__file__).resolve().parent
 ID = re.compile(r"bp-[0-9a-f]{16}\Z")
-RANK = {"designed": 0, "captured": 0, "built": 1, "verified": 2}
+# `reference` ranks below everything: imported human material never overrides what the
+# agent designed, built or verified, and any of those promote a reference record.
+RANK = {"reference": 0, "designed": 1, "captured": 1, "built": 2, "verified": 3}
+# The executor builds at most 500 entities; reference material is only ever read, so it
+# gets a looser cap (a community smelting array is routinely 500+ entities).
+BUILD_ENTITY_LIMIT = 500
+REFERENCE_ENTITY_LIMIT = 2000
+# Space Age entities, screened statically because the base game cannot be enumerated
+# offline. INCOMPLETE by construction: the authoritative check is `verify_against_game`,
+# which asks the running map whether every name exists.
+SPACE_AGE = {
+    "agricultural-tower", "asteroid-collector", "biochamber", "big-mining-drill",
+    "captive-biter-spawner", "cargo-bay", "cargo-landing-pad", "crusher",
+    "cryogenic-plant", "electromagnetic-plant", "foundry", "fusion-generator",
+    "fusion-reactor", "heating-tower", "lightning-collector", "lightning-rod",
+    "railgun-turret", "recycler", "rocket-turret", "space-platform-hub",
+    "stack-inserter", "tesla-turret", "thruster", "turbo-splitter",
+    "turbo-transport-belt", "turbo-underground-belt",
+}
 # Native 2.0 blueprint version stamp (from in-game exports).
 VERSION = 562949954732032
 DESIGN_KEYS = {"recipe", "type"}
@@ -33,7 +51,7 @@ def script_output_dir() -> Path:
     return Path(os.environ["APPDATA"]) / "Factorio" / "script-output"
 
 
-def _decode_blueprint(value: str) -> dict:
+def _decode_blueprint(value: str, limit: int = BUILD_ENTITY_LIMIT) -> dict:
     if not value.startswith("0") or len(value) > 24000:
         raise ValueError("invalid-native-blueprint")
     try:
@@ -46,7 +64,7 @@ def _decode_blueprint(value: str) -> dict:
         if blueprint["item"] != "blueprint":
             raise ValueError("not-a-blueprint")
         entities = blueprint["entities"]
-        if not isinstance(entities, list) or not 0 < len(entities) <= 500:
+        if not isinstance(entities, list) or not 0 < len(entities) <= limit:
             raise ValueError("invalid-entity-count")
         for entity in entities:
             if not isinstance(entity["name"], str) or not entity["name"]:
@@ -59,8 +77,8 @@ def _decode_blueprint(value: str) -> dict:
         raise ValueError("invalid-native-blueprint") from exc
 
 
-def parse_blueprint(value: str) -> list[dict]:
-    return _decode_blueprint(value)["entities"]
+def parse_blueprint(value: str, limit: int = BUILD_ENTITY_LIMIT) -> list[dict]:
+    return _decode_blueprint(value, limit)["entities"]
 
 
 def encode_blueprint(design: list[dict], label: str | None = None) -> str:
@@ -110,9 +128,9 @@ def pattern_entities(value: str) -> list[dict]:
     return rows
 
 
-def pattern_id_for(value: str) -> str:
+def pattern_id_for(value: str, limit: int = BUILD_ENTITY_LIMIT) -> str:
     """Ignore translation and entity ordering for plain machine layouts."""
-    blueprint = _decode_blueprint(value)
+    blueprint = _decode_blueprint(value, limit)
     entities = blueprint["entities"]
     raw_id = hashlib.sha256(value.encode("ascii")).hexdigest()[:16]
     if set(blueprint) - {"icons", "entities", "item", "version", "label", "description"} or any(any(key in e for key in ("connections", "neighbours", "wires", "schedule"))
@@ -136,12 +154,13 @@ def pattern_id_for(value: str) -> str:
 
 def record_blueprint(value: str, *, state: str, source: str,
                      materials: dict | None = None, audit: dict | None = None,
-                     contract: dict | None = None) -> dict:
+                     contract: dict | None = None, origin: dict | None = None,
+                     limit: int = BUILD_ENTITY_LIMIT) -> dict:
     """Deduplicate plain layouts; keep placement coordinates out of metadata."""
     if state not in RANK:
         raise ValueError("invalid-pattern-state")
-    entities = parse_blueprint(value)
-    pattern_id = pattern_id_for(value)
+    entities = parse_blueprint(value, limit)
+    pattern_id = pattern_id_for(value, limit)
     folder = catalog_dir()
     folder.mkdir(parents=True, exist_ok=True)
     path = folder / f"{pattern_id}.json"
@@ -165,6 +184,7 @@ def record_blueprint(value: str, *, state: str, source: str,
         "required_items": old.get("required_items") or materials or None,
         "audit": audit if state == "verified" and audit else old.get("audit"),
         "contract": contract or old.get("contract"),
+        "origin": origin or old.get("origin"),
         "blueprint_string": value,
     }
     with tempfile.NamedTemporaryFile("w", encoding="utf-8", dir=folder,
@@ -187,6 +207,8 @@ def list_patterns() -> list[dict]:
         row = {key: data.get(key) for key in (
             "pattern_id", "state", "entity_count", "entities", "required_items")}
         row["has_contract"] = bool(data.get("contract"))
+        if data.get("origin"):
+            row["origin"] = data["origin"].get("kind")
         rows.append(row)
     return rows
 
@@ -201,9 +223,10 @@ def load_pattern(pattern_id: str) -> dict:
     if data.get("pattern_id") != pattern_id:
         raise ValueError("pattern-id-mismatch")
     value = data["blueprint_string"]
-    if pattern_id_for(value) != pattern_id:
+    limit = REFERENCE_ENTITY_LIMIT if data.get("state") == "reference" else BUILD_ENTITY_LIMIT
+    if pattern_id_for(value, limit) != pattern_id:
         raise ValueError("pattern-content-mismatch")
-    parse_blueprint(value)
+    parse_blueprint(value, limit)
     return data
 
 
@@ -213,3 +236,54 @@ def artifact_blueprint(artifact: str) -> str:
         raise ValueError("invalid-artifact")
     path = script_output_dir() / (artifact + ".blueprint.txt")
     return path.read_text(encoding="ascii").strip()
+
+
+def game_version(blueprint: dict) -> str:
+    """Factorio packs its version as four 16-bit fields in one integer."""
+    v = int(blueprint.get("version") or 0)
+    return ".".join(str((v >> (16 * i)) & 0xFFFF) for i in (3, 2, 1, 0))
+
+
+def screen_reference(value: str) -> dict:
+    """What an imported string is, before anything is written. Never builds, never
+    contacts the game: `space_age` here is a static guess, `unknown` stays empty until
+    verify_against_game has asked the running map."""
+    blueprint = _decode_blueprint(value, REFERENCE_ENTITY_LIMIT)
+    names = Counter(e["name"] for e in blueprint["entities"])
+    version = game_version(blueprint)
+    return {
+        "label": blueprint.get("label"),
+        "description": blueprint.get("description"),
+        "game_version": version,
+        "major": version.split(".")[0],
+        "entity_count": sum(names.values()),
+        "entities": dict(sorted(names.items())),
+        "space_age": sorted(n for n in names if n in SPACE_AGE),
+        "unknown": [],
+        "over_build_limit": sum(names.values()) > BUILD_ENTITY_LIMIT,
+    }
+
+
+def import_reference(value: str, *, url: str | None = None, note: str | None = None,
+                     checked_against: str | None = None,
+                     unknown: list[str] | None = None) -> dict:
+    """Store a human-made blueprint as REFERENCE: readable, never auto-built. It carries
+    no contract, so the agent must declare its own before the executor will touch it."""
+    value = "".join(value.split())
+    screen = screen_reference(value)
+    if screen["major"] != "2":
+        raise ValueError("not-a-2.0-blueprint:" + screen["game_version"])
+    if screen["space_age"]:
+        raise ValueError("space-age-entities:" + ",".join(screen["space_age"]))
+    if unknown:
+        raise ValueError("entities-not-in-this-game:" + ",".join(sorted(unknown)))
+    origin = {"kind": "community", "url": url, "note": note,
+              "label": screen["label"], "game_version": screen["game_version"],
+              "checked_against": checked_against}
+    record = record_blueprint(value, state="reference", source="import",
+                              origin={k: v for k, v in origin.items() if v is not None},
+                              limit=REFERENCE_ENTITY_LIMIT)
+    record["origin"] = origin
+    record["over_build_limit"] = screen["over_build_limit"]
+    return record
+

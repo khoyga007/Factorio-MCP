@@ -34,6 +34,31 @@ Stored in mod `storage` → travels with the save, survives restarts/handoffs. O
 - `achieve(goal="annotate", contract={block:{id,...}})` merges given fields into block `id` (exec or hand); unknown → `block-not-found`. No id + `area=[x1,y1,x2,y2]` → registers new hand block, returns id. Neither → `block-id-or-area-required`.
 - Engine PASS tests/verify_ledger_runtime.py (28 checks): bad feeds refused; `per_minute=-3` refused; character in site → `character` reject; 2 jobs + eats → edge carrying `declared=30`; note merges keep other fields; hand chest counted live + edge; chest destroyed → `attention` missing 1; report carries block; fed furnace → window `{ticks 300, samples 6, made {iron-plate 12}, active {stone-furnace 83}}` and edge `measured=12` against `declared=30`; block a then wiped off the ground → its row leaves the ledger, b survives, and b's link to it comes back `missing_block`.
 
+## Reference imports (community blueprints, `catalog_add.py`)
+
+Human-made strings enter the catalog as `state=reference`: material to READ, never something
+the executor picks up on its own.
+- `python catalog_add.py <file> [--url U] [--note N] [--screen-only] [--offline]`. `--screen-only`
+  reports what the string is and writes nothing.
+- Refused, nothing written: `not-a-2.0-blueprint:<version>` (version stamp's major field),
+  `space-age-entities:<names>` (static list in `blueprint_library.SPACE_AGE`, INCOMPLETE by
+  construction), `entities-not-in-this-game:<names>`.
+- The authoritative compat check is the running map: every distinct entity name goes through
+  `spec entity`, and the bridge build string lands in `origin.checked_against`. With `--offline`,
+  or when the game is unreachable, that key is absent — the record is then UNCHECKED, say so
+  rather than treating it as compatible.
+- `origin = {kind: "community", url?, note?, label?, game_version, checked_against?}`. `RANK`
+  puts `reference` below `designed`/`captured`/`built`/`verified`: agent work always promotes a
+  reference record, and a re-import never demotes one.
+- Reference records carry NO contract. `achieve(goal="reuse_blueprint")` on one is refused
+  `reference-pattern-needs-contract` (reply carries `origin`) until the agent passes its own
+  `contract` — that is how imported material graduates: it must be run and audited here.
+- Entity cap: the executor builds ≤500 (`BUILD_ENTITY_LIMIT`); reference records are only read,
+  so they parse up to 2000 (`REFERENCE_ENTITY_LIMIT`) and report `over_build_limit`. A 533-entity
+  community array stores fine and still cannot be built in one job.
+- `observe(view="patterns")` rows carry `origin` (the kind) when a pattern has one.
+- Raw drops live in `incoming/` — not the catalog, not verified, safe to delete.
+
 ## Agent-authored design (`build_design`)
 
 `achieve(goal="build_design", design=[{name,x,y,direction?,recipe?,type?}], contract, x?, y?, dry_run?)`. Agent designs from game rules (sizes, drill area/drop, inserter reach, ratios); no human template required. `design` = entity centers in tiles: odd-size entity on .5, even-size on integer (2x2 drill center `1,2`); direction 16-way 0N 4E 8S 12W. Python `encode_blueprint` → native string (≤500 entities, bad row → `invalid-design-entity:<i>`) → same `blueprint_run` path as reuse. Not dry → catalog pattern state `designed` + contract saved; report(exec-N) verified → upgraded to `verified`. Read any saved pattern's layout: `observe(view="patterns", pattern_id)` → entities shifted by whole tiles (parity kept) + contract; edit and resubmit as `design`. Human blueprint = optional reference only.

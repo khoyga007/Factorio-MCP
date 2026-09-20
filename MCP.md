@@ -52,11 +52,16 @@ Nguồn: [MCP Python SDK 1.27.1](https://github.com/modelcontextprotocol/python-
    `iron_smelting_row` đã bị gỡ cùng `starter.lua`+`coal.lua`+`smelting.lua`. Muốn lại
    ô than: `reuse_blueprint(pattern_id="bp-f30d8a84af3098ee")`; muốn dãy lò: agent tự
    thiết kế `design` rồi khai contract, executor lo site/vật tư/primer/audit.)
-3. Research: `observe(view="research")`, `achieve(goal="research", tech)`.
+3. Blueprint cộng đồng: `python catalog_add.py <file> --url ... --note ...` nhập vào catalog
+   dạng `state=reference` — đồ để ĐỌC, executor không tự xây. `reuse_blueprint` trên nó bị
+   từ chối `reference-pattern-needs-contract` cho tới khi agent tự khai contract. Kiểm 2.0 +
+   Space Age offline, nhưng kiểm thật là hỏi map đang chạy từng tên entity. Spec: `CONTRACT.md`
+   §Reference imports.
+4. Research: `observe(view="research")`, `achieve(goal="research", tech)`.
    Chụp layout đã xây: `achieve(goal="capture", area=[x1,y1,x2,y2])`. Spec:
    `CONTRACT.md` §Research.
-4. Ledger: `observe(view="ledger")` = every block (exec job / hand area) with live status, throughput `flow` (items/min đo thật từ `products_finished`, cộng % thời gian máy chạy) + `edges` [{from,to,item,declared,measured,missing_block}] — `declared` là ý đồ agent khai (`per_minute` trên link), `measured` là sản lượng thật của block nguồn ở cửa sổ vừa đóng, `missing_block` = đầu mối không còn là block sống (gõ sai id, hoặc block đã bị dỡ). Block bị recall/phá sạch thì rời ledger, không để lại cạnh đói giả. Declare intent via `contract.block` on build, or `achieve(goal="annotate", contract={block}, area?)`. Spec + executor cheat sheet: `CONTRACT.md` §Ledger, §Executor rules.
-5. `report(job_id)` đọc audit của job `exec-N`. Blueprint và receipt chi tiết
+5. Ledger: `observe(view="ledger")` = every block (exec job / hand area) with live status, throughput `flow` (items/min đo thật từ `products_finished`, cộng % thời gian máy chạy) + `edges` [{from,to,item,declared,measured,missing_block}] — `declared` là ý đồ agent khai (`per_minute` trên link), `measured` là sản lượng thật của block nguồn ở cửa sổ vừa đóng, `missing_block` = đầu mối không còn là block sống (gõ sai id, hoặc block đã bị dỡ). Block bị recall/phá sạch thì rời ledger, không để lại cạnh đói giả. Declare intent via `contract.block` on build, or `achieve(goal="annotate", contract={block}, area?)`. Spec + executor cheat sheet: `CONTRACT.md` §Ledger, §Executor rules.
+6. `report(job_id)` đọc audit của job `exec-N`. Blueprint và receipt chi tiết
    nằm trong `script-output/executor/`.
 
 Một lượt gọi `achieve` có thể dùng nhiều action UDP bên trong; agent chỉ nhận
@@ -94,7 +99,7 @@ python tests/verify_holdout_fail_runtime.py --player-save .runtime-test/saves/re
 
 Lệnh cuối sao chép save vào `.runtime-test` để kiểm tra chuyển đồ với một player
 có inventory; không ghi vào save gốc. Fixture chỉ được chèn vào mod thử nghiệm.
-66 test Python (gồm 3 tool MCP và lớp chi tiết 25 action) + `contract_check.py` xanh.
+70 test Python (gồm 3 tool MCP và lớp chi tiết 25 action) + `contract_check.py` xanh.
 Engine 20/09: 10/11 bài verify_*_runtime.py PASS; `verify_economy_runtime.py` FAIL vì
 save nguồn đã ăn bản sửa một-lần coal-demo 18/09, hỏng y hệt trước khi refactor.
 Không cài `test_*runtime.lua` vào mod thật.

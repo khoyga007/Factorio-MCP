@@ -232,6 +232,12 @@ def achieve(goal: str,
             pattern = load_pattern(pattern_id)
         except (OSError, ValueError, KeyError, json.JSONDecodeError) as exc:
             return _result({"ok": False, "error": str(exc)}, True)
+        # Imported human material is reference, not a plan: it was never run here, so the
+        # agent has to state what it expects of it before the executor spends anything.
+        if pattern.get("state") == "reference" and not contract:
+            return _result({"ok": False, "error": "reference-pattern-needs-contract",
+                            "pattern_id": pattern_id,
+                            "origin": pattern.get("origin")}, True)
     if goal in {"reuse_blueprint", "build_design"}:
         # The agent's contract wins; otherwise the one saved with the pattern.
         body = {"action": "blueprint_run", "blueprint": pattern["blueprint_string"],

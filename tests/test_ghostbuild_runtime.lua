@@ -4,7 +4,7 @@ return function(handlers,state,bp)
   local result={ok=false,checks={}}
   local function check(v,name) assert(v,name) result.checks[#result.checks+1]=name end
   local function call(action,body) return handlers[action]("ghostbuild-"..game.tick..":"..#result.checks,body) end
-  local surface,stock,job,phase,mark,done,blocker=nil,nil,nil,0,0,false,nil
+  local surface,stock,job,phase,mark,done,blocker,parked=nil,nil,nil,0,0,false,nil,nil
   local CONTRACT={site={mode="exact",rotations={0}},build={mode="ghost"}}
   script.on_event(defines.events.on_tick,function()
     if done then return end
@@ -37,6 +37,20 @@ return function(handlers,state,bp)
         check(huge.ok and huge.state=="planned" and #huge.placed_at==520,
           "over-500-entities-accepted:"..tostring(huge.state)..":"..tostring(huge.error))
 
+        -- A character standing on the site used to refuse the whole plan. It is the one
+        -- blocker that walks away by itself, so ghost mode plans anyway.
+        -- A benchmark player may have no character entity at all, so place one.
+        local walker=surface.create_entity{name="character",position={0.5,-29.5},force="player"}
+        local onchar=call("blueprint_run",{blueprint=bp.huge,surface=surface.name,x=0,y=-30,
+          contract=CONTRACT,dry_run=true})
+        check(onchar.ok and onchar.state=="planned",
+          "character-does-not-refuse-ghost-site:"..tostring(onchar.state)..":"..tostring(onchar.error))
+        local direct=call("blueprint_run",{blueprint=bp.huge,surface=surface.name,x=0,y=-30,
+          contract={site={mode="exact",rotations={0}}},dry_run=true})
+        check(direct.state=="blocked" and direct.rejects and direct.rejects.character==1,
+          "direct-mode-still-refuses-character:"..helpers.table_to_json(direct.rejects))
+        walker.destroy()
+
         -- One planned tile is taken by something else, and the bag holds ONE chest of the
         -- two the plan wants. Both used to refuse the whole build.
         blocker=surface.create_entity{name="stone-furnace",position={4.5,1.5},force="player"}
@@ -44,6 +58,8 @@ return function(handlers,state,bp)
         local probe=call("blueprint_import",{blueprint=bp.plan,surface=surface.name,x=10,y=10,mode="ghosts"})
         check(probe.ok and probe.ghosts==4,"handler-ghost-paste:"..helpers.table_to_json(probe))
         for _,g in pairs(surface.find_entities_filtered{name="entity-ghost"}) do g.destroy() end
+        -- ...and a character parked ON a planned tile is waiting, never a dead blocker.
+        parked=surface.create_entity{name="character",position={1.5,0.5},force="player"}
         job=call("blueprint_run",{blueprint=bp.plan,surface=surface.name,x=0,y=0,contract=CONTRACT})
         check(job.ok and job.job_id,"ghost-run-started:"..helpers.table_to_json(job))
         mark=game.tick
@@ -53,7 +69,12 @@ return function(handlers,state,bp)
         check(s.state=="building","waiting-job-stays-building:"..helpers.table_to_json(s))
         check(s.placed==1,"one-affordable-entity-built:"..tostring(s.placed))
         check(s.pending and s.pending>0,"rest-pending:"..tostring(s.pending))
-        check(s.waiting and s.waiting["wooden-chest"],"names-what-it-waits-for:"..helpers.table_to_json(s.waiting))
+        check(s.waiting and s.waiting["small-electric-pole"],"names-what-it-waits-for:"..helpers.table_to_json(s.waiting))
+        check(s.standing and s.standing[1] and s.standing[1][2]==1.5,
+          "character-tile-is-standing-not-blocked:"..helpers.table_to_json(s.standing))
+        for _,b in pairs(s.blocked or {}) do assert(b.x~=1.5,"character-tile-not-in-blocked") end
+        check(true,"character-tile-not-in-blocked")
+        parked.destroy()
         check(surface.find_entity("entity-ghost",{1.5,0.5})~=nil,"unaffordable-entity-is-a-ghost")
         -- Stock arrives: nobody re-runs the job, it just finishes.
         stock.insert{name="wooden-chest",count=1}

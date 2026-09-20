@@ -187,6 +187,10 @@ refused for what is missing at the moment it is submitted.
   tiles named. Free the tile, `report(resume=true)` continues from there.
 - A blueprint entity's `recipe` rides through decode → orient → place_list → ghost, and is set
   again after revive if the ghost lost it (receipt `recipe_lost` when even that fails).
+- A character never refuses a ghost site: `check_site` reports `rejects.characters` and plans
+  anyway (direct mode still rejects `character`), and a tile a character is parked on comes back
+  in `standing` (name + x,y), counted as pending, NOT in `blocked` — it walks away by itself.
+  A tile blocked by a character AND anything else is still `blocked`.
 - Missing materials do NOT block the run (locked technology still does). Entity cap for the
   whole blueprint is 1000 (`control.lua` + `executor.lua`), not the old 64.
 - Engine PASS `tests/verify_ghostbuild_runtime.py` (18 checks): 70-entity blueprint planned;

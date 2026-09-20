@@ -369,7 +369,12 @@ local function check_site(surface,force,c,placed,rejects)
     -- Ghost mode on an agent-chosen site keeps going: the engine drops the entities whose
     -- tiles are taken, drain() lists them, and the rest of the plan still lands.
     if blocked and not (c.ghost and c.exact) then return no("occupied") end
-    if chars>0 then return no("character") end
+    -- A character is the one blocker that walks away by itself, so in ghost mode it is
+    -- news, not a refusal: the ghosts land under it and drain() waits for the tile.
+    if chars>0 then
+      if not (c.ghost and c.exact) then return no("character") end
+      rejects.characters=(rejects.characters or 0)+chars
+    end
   end
   if surface.count_entities_filtered{position={(x1+x2)/2,(y1+y2)/2},radius=c.enemy_radius or 16,
     force="enemy",limit=1}>0 then return no("enemies") end
@@ -564,7 +569,7 @@ function M.attach(ctx)
     return {job_id=j.id,state=j.state,pattern_id=j.pattern_id,site=j.site,
       step=j.step,steps=#(j.steps or {}),placed=j.placed,materials=j.materials,
       missing=j.missing,audit=j.audit,feed=j.feed,error=j.error,artifact=j.artifact,cleared=j.cleared,block=j.block,
-      pending=j.pending,waiting=j.waiting,blocked=j.blocked,replaced=j.replaced,
+      pending=j.pending,waiting=j.waiting,blocked=j.blocked,standing=j.standing,replaced=j.replaced,
       placed_at=j.layout and placed_at(j.layout)}
   end
   local function save(j)
@@ -915,6 +920,7 @@ function M.attach(ctx)
   -- Returns true while work is left (job stays in `building`).
   local function drain(j,surface,force,stock)
     local waiting,blocked,done,pending={},{},0,0
+    local standing={}  -- tiles a character is parked on: waiting, not blocked
     local budget=GHOST_PER_TICK
     local function one(e)
       local live=surface.find_entity(e.name,{e.x,e.y})
@@ -940,7 +946,17 @@ function M.attach(ctx)
       -- call it "pending": a silent stall instead of a named blocker.
       if not surface.can_place_entity{name=e.name,position={e.x,e.y},direction=e.dir,
         force=force,build_check_type=defines.build_check_type.manual} then
-        return "blocked"
+        -- Except when the only thing on the tile is a character: it moves, so naming it
+        -- a blocker would fail a job that is about to succeed on its own.
+        local only_character=#in_footprint(surface,e,"character")>0
+        for _,o in pairs(in_footprint(surface,e,nil)) do
+          if o.type~="character" and o.name~="entity-ghost" then only_character=false end
+        end
+        if not only_character then return "blocked" end
+        -- Named on the receipt anyway: a player who parks there forever would otherwise
+        -- leave the job "pending" with nothing saying why.
+        if #standing<8 then standing[#standing+1]={e.name,e.x,e.y} end
+        return "pending"
       end
       if budget<=0 then return "pending" end
       local item=prototypes.entity[e.name].items_to_place_this[1]
@@ -981,6 +997,7 @@ function M.attach(ctx)
     j.placed,j.pending=done,pending
     j.waiting=next(waiting) and waiting or nil
     j.blocked=#blocked>0 and blocked or nil
+    j.standing=#standing>0 and standing or nil
     return pending>0
   end
 

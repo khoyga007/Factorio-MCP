@@ -51,6 +51,17 @@ class GoalMCPTest(unittest.IsolatedAsyncioTestCase):
                         reply.update(ok=False, error="technology-locked")
                     else:
                         reply.update(recipe=body["recipe"], unchanged=False)
+                elif action == "craft":
+                    if body["recipe"] == "locked-recipe":
+                        reply.update(ok=False, error="technology-locked", craftable=0)
+                    else:
+                        reply.update(recipe=body["recipe"], count=body["count"])
+                elif action == "collect":
+                    reply.update(item=body["item"], count=body["count"],
+                                 source_remaining=7, player_total=99)
+                elif action == "insert":
+                    reply.update(item=body["item"], count=body["count"],
+                                 slot="source" if body.get("source") else "fuel", remaining=3)
                 elif action == "blueprint_job":
                     reply.update(state="verified", feed={"coal": 4},
                                  audit={"status": "passed", "windows": [{"index": 1}]})
@@ -196,6 +207,52 @@ class GoalMCPTest(unittest.IsolatedAsyncioTestCase):
                             self.assertEqual(1, len(p["set"]))
                             self.assertEqual("technology-locked", p["failed"][0]["error"])
                             self.assertEqual(4.5, p["failed"][0]["x"])
+                            # maintainer's 20/09 rule is MCP-only, so hand work needs a door of
+                            # its own: one bridge call per row, batched in one agent call.
+                            p = await call("achieve", {"goal": "craft", "design": [
+                                {"name": "stone-furnace", "count": 4},
+                                {"name": "transport-belt", "count": 20}]}, ["craft", "craft"])
+                            self.assertEqual(["stone-furnace", "transport-belt"],
+                                             [r["name"] for r in p["rows"]])
+                            self.assertEqual((20, "transport-belt"),
+                                             (seen[-1]["count"], seen[-1]["recipe"]))
+                            self.assertNotIn("x", seen[-1])
+                            # The call's own x/y are the default for rows that omit them.
+                            p = await call("achieve", {"goal": "collect", "x": -78, "y": 5,
+                                                       "design": [{"name": "iron-plate", "count": 50},
+                                                                  {"name": "coal", "count": 10,
+                                                                   "x": -100.5, "y": 58.5}]},
+                                           ["collect", "collect"])
+                            self.assertEqual((-78.0, 5.0), (seen[-2]["x"], seen[-2]["y"]))
+                            self.assertEqual((-100.5, 58.5), (seen[-1]["x"], seen[-1]["y"]))
+                            self.assertEqual(7, p["rows"][0]["source_remaining"])
+                            # source=True is the furnace ore slot; without it insert means fuel.
+                            p = await call("achieve", {"goal": "insert", "x": -78, "y": 5, "design": [
+                                {"name": "coal", "count": 10},
+                                {"name": "iron-ore", "count": 30, "source": True}]},
+                                ["insert", "insert"])
+                            self.assertEqual(["fuel", "source"], [r["slot"] for r in p["rows"]])
+                            self.assertNotIn("source", seen[-2])
+                            self.assertIs(True, seen[-1]["source"])
+                            # A failed row does not hide behind the ones that worked.
+                            before = len(seen)
+                            partial = await session.call_tool("achieve", {"goal": "craft", "design": [
+                                {"name": "stone-furnace", "count": 1},
+                                {"name": "locked-recipe", "count": 1}]})
+                            self.assertTrue(partial.isError)
+                            p = json.loads(partial.content[0].text)
+                            self.assertEqual(2, len(seen) - before)
+                            self.assertEqual([True, False], [r["ok"] for r in p["rows"]])
+                            self.assertEqual("technology-locked", p["rows"][1]["error"])
+                            for bad, why in (({"goal": "craft", "design": []}, "design-rows-required"),
+                                             ({"goal": "collect", "design": [{"name": "coal", "count": 1}]},
+                                              "coordinate-pairs-required:0"),
+                                             ({"goal": "craft", "design": [{"name": "coal", "count": 0}]},
+                                              "invalid-design-entity:0")):
+                                refused_hand = await session.call_tool("achieve", bad)
+                                self.assertTrue(refused_hand.isError)
+                                self.assertEqual(why, json.loads(
+                                    refused_hand.content[0].text)["error"])
                             p = await call("achieve", {"goal": "capture", "area": [0, 0, 9, 9]}, ["blueprint_export"])
                             self.assertEqual((pattern_id, "built"), (p["pattern_id"], p["state"]))
                             self.assertEqual(10, len(p["layout"]))

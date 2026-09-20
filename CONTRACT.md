@@ -157,7 +157,7 @@ Unknown keys ignored (notes: `source`). Contract errors (refused, nothing built)
   those 15829 on every poll. `placed_at` [[name,x,y,dir]] world coords is still there behind
   `detail:true` (bridge + `--detail` on `blueprint-run`/`blueprint-job`), and the artifact
   receipt on disk always holds the full rows. The MCP `report` tool has no `detail` flag: the
-  three-tool schema sits 2 bytes under its 4000-byte budget, so read the receipt instead.
+  three-tool schema is ~4 bytes under its 4000-byte budget, so read the receipt instead.
 - Several live jobs, build `2026-09-20-multi-job`: `blueprint_run` no longer hands back
   whatever job is running. Up to `MAX_LIVE_JOBS` = 8 jobs may be preparing/building/
   settling/auditing at once, so parked ghost plans do not block the next build.
@@ -213,6 +213,30 @@ Re-check site + stock right before build. Then trees/rocks inside any entity foo
 - `achieve(goal="set_recipe", design=[{x,y,recipe}])` → one `set_recipe` bridge call per row, in order. Fills BLANK assemblers only: the Lua handler (`control.lua:1084`) refuses a machine that already holds a different recipe (`recipe-already-set` + `current`) or any item in input/output/dump/trash (`assembler-not-empty`); same recipe → ok with `unchanged: true`. Also refused: `recipe-not-found`, `technology-locked`, `recipe-category-not-supported`, `assembler-not-found` (radius 0.1 around x,y, own force).
   - Reply `{set:[...], failed:[{x,y,recipe,error,current}]}`, `ok` false if ANY row failed — partial work is kept and named, never rolled back. Per-row calls exist so a failing target identifies itself; a batch of 6 costs 6 UDP round trips.
   - `design` rows carry `recipe`; no top-level recipe arg (schema byte budget). No `dry_run`: the handler has none.
+- `achieve(goal="craft"|"collect"|"insert", design=[{name,count,x?,y?,source?}])` — hand work
+  with no blueprint behind it, added 20/09 because maintainer's MCP-only rule left no path to feed a
+  furnace or stock the bag. One bridge call per row, in order, at most 8 rows. Reply
+  `{rows:[{name, ok, error?, count, requested?, slot?, remaining?, source_remaining?,
+  player_total?, have?, need?, craftable?}]}`, `ok` false if ANY row failed; partial work is
+  kept and named, never rolled back (same shape as `set_recipe`).
+  - Rows reuse `design` instead of new `recipe`/`item`/`count`/`source` parameters: the
+    three-tool schema has single-digit bytes of headroom under 4000. Row `x`/`y` fall back to
+    the call's own `x`/`y`; `craft` ignores both.
+  - `craft` wraps `handle_craft`: it only STARTS the hand-craft queue (`crafting-started`), so
+    the items appear in the bag over the following ticks — read them back with `observe`.
+    Cheat mode is forced off for the call, so a receipt always debits the inputs. Refusals:
+    `insufficient-ingredients` (+`need`,`craftable`), `technology-locked`, `recipe-not-found`,
+    `crafting-requires-player-treasury`.
+  - `collect` wraps `handle_collect`: chest/furnace/assembler output (or ground items) at
+    radius 0.1 around x,y → bag. Refusals: `insufficient-items` (+`have`,`need`),
+    `player-inventory-full`, `entity-not-found`. `recall` is NOT a substitute: it destroys
+    the machine.
+  - `insert` wraps `handle_insert`: bag → fuel slot by default; `source: true` picks the
+    furnace ore slot (lab/assembler/ammo-turret get their input slot, chests storage).
+    Refusals: `insufficient-items`, `fuel-not-accepted`/`input-rejects-item`,
+    `insufficient-input-capacity`, `insert-failed-refunded`.
+  - No Lua change: all three handlers have existed since the CLI days and are in
+    `actions.json`. An MCP restart is enough; the game does NOT need restarting.
 - `achieve(goal="capture", area=[x1,y1,x2,y2], contract?)` → blueprint_export of a built area → catalog `captured` + `layout` (design rows). Resubmit via build_design/reuse_blueprint to verify.
 - Engine PASS 2026-09-19 tests/verify_metrics_runtime.py: queue automation→logistics, unknown refused; drill→furnace products_finished 7/window verified; 1 powered lab 40 packs research_units 9.8/window ≤ speed cap, verified.
 

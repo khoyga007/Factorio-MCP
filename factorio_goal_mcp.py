@@ -54,6 +54,56 @@ def _send(body: dict, timeout: float) -> CallToolResult:
     return _result(p, not p.get("ok", False))
 
 
+HAND = {"craft": 15.0, "collect": 10.0, "insert": 10.0}
+
+
+def _hand(goal: str, rows, surface: str, force: str, x, y) -> CallToolResult:
+    """craft / collect / insert, one design row per item.
+
+    The bridge has had these three handlers since the CLI days; what was missing was an
+    MCP door to them, and maintainer's 20/09 rule is MCP-only, so without one the agent cannot
+    feed a furnace. They reuse `design` instead of adding `recipe`/`item`/`count`/`source`
+    parameters because the three tools' schemas have ~18 bytes of headroom under the
+    4000-byte budget. A row is {name, count, x?, y?, source?}; x/y fall back to the call's
+    own x/y, and `craft` ignores them. craft only STARTS the hand-craft queue -- the items
+    land in the bag over the following ticks, so read them back with observe.
+    """
+    if not isinstance(rows, list) or not rows:
+        return _result({"ok": False, "error": "design-rows-required"}, True)
+    if len(rows) > 8:
+        return _result({"ok": False, "error": "too-many-rows"}, True)
+    key = "recipe" if goal == "craft" else "item"
+    out, every = [], True
+    for i, row in enumerate(rows):
+        name = row.get("name") if isinstance(row, dict) else None
+        count = row.get("count", 1) if isinstance(row, dict) else 0
+        if not isinstance(name, str) or not name or not isinstance(count, int) or count < 1:
+            return _result({"ok": False, "error": "invalid-design-entity:%d" % i}, True)
+        body = {"action": goal, key: name, "count": count, "surface": surface}
+        if goal != "craft":
+            row_x, row_y = row.get("x", x), row.get("y", y)
+            if row_x is None or row_y is None:
+                return _result({"ok": False, "error": "coordinate-pairs-required:%d" % i}, True)
+            body.update(x=float(row_x), y=float(row_y))
+        if goal == "insert":
+            body["force"] = force
+            if row.get("source"):
+                body["source"] = True
+        try:
+            p = request(body, host=os.environ.get("FACTORIO_HOST", DEFAULT_HOST),
+                        port=int(os.environ.get("FACTORIO_PORT", DEFAULT_PORT)),
+                        timeout=HAND[goal])
+        except (OSError, ValueError, TimeoutError) as exc:
+            p = {"ok": False, "error": str(exc)}
+        every = every and bool(p.get("ok"))
+        # Every row carries a treasury dump otherwise; 8 of those is the reply, not the news.
+        out.append({"name": name, "ok": bool(p.get("ok")),
+                    **_fields(p, "error", "count", "requested", "slot", "remaining",
+                              "source_remaining", "player_total", "have", "need",
+                              "craftable")})
+    return _result({"ok": every, "goal": goal, "rows": out}, not every)
+
+
 RECALL_SLICE = 64
 
 
@@ -135,9 +185,9 @@ def observe(view: str = "situation",
             query: str | None = None,
             offset: Annotated[int, Field(ge=0)] = 0) -> CallToolResult:
     """situation|deposits|nearby(issues,machines,runs,poles)|entities(raw)|water|research|ledger(blocks
-    +flow, edges +declared/measured per min)|patterns(+pattern_id)
-    |references(imported human blueprints). query+offset page both. water
-    radius<=2048, others<=32."""
+    +flow, edges +declared/measured/min)|patterns(+pattern_id)
+    |references(imported human work). query+offset page both. water radius<=2048,
+    others<=32."""
     if (x is None) != (y is None):
         return _result({"ok": False, "error": "x-and-y-required-together"}, True)
     if view not in {"situation", "deposits", "nearby", "entities", "patterns", "references",
@@ -255,20 +305,23 @@ def achieve(goal: str,
             contract: dict | None = None, design: list[dict] | None = None,
             area: list[float] | None = None, force_active: bool = False,
             tech: str | None = None) -> CallToolResult:
-    """Goals (contract: CONTRACT.md): reuse_blueprint(pattern_id), build_design(design=
-[{name,x,y,direction?}] centers, dir 0N4E8S12W), recall(area=[x1,y1,x2,y2]|
-design=[{name,x,y}] -> bag+contents; force_active beats live job),
-capture(area->catalog), research(tech), annotate(contract.block; new block needs
-area), set_recipe(design=[{x,y,recipe}]; empty assemblers)."""
+    """Goals (CONTRACT.md; area=[x1,y1,x2,y2]): reuse_blueprint(pattern_id),
+build_design(design=[{name,x,y,direction?}] centers, dir 0N4E8S12W),
+recall(area|design=[{name,x,y}]->bag; force_active beats job),
+capture(area->catalog), research(tech), annotate(contract.block; new needs area),
+set_recipe(design=[{x,y,recipe}]; empty asm), craft|collect|insert
+(design=[{name,count,x?,y?,source?}]<=8; craft queues)."""
     if (x is None) != (y is None):
         return _result({"ok": False, "error": "coordinate-pairs-required"}, True)
-    if goal not in {"reuse_blueprint", "build_design", "recall",
-                    "capture", "research", "annotate", "set_recipe"}:
+    if goal not in {"reuse_blueprint", "build_design", "recall", "capture", "research",
+                    "annotate", "set_recipe", "craft", "collect", "insert"}:
         return _result({"ok": False, "error": "unknown-goal"}, True)
     if (tech is not None) != (goal == "research"):
         return _result({"ok": False, "error": "tech-only-for-research"}, True)
     if goal == "set_recipe":
         return _set_recipe(design, surface, force)
+    if goal in HAND:
+        return _hand(goal, design, surface, force, x, y)
     if goal == "research":
         return _send({"action": "research", "name": tech, "start": True, "force": force,
                       "surface": surface}, 5)
@@ -361,10 +414,10 @@ area), set_recipe(design=[{x,y,recipe}]; empty assemblers)."""
 
 @mcp.tool(annotations=READ)
 def report(job_id: str, resume: bool = False) -> CallToolResult:
-    """One goal's audit, progress, blocker, block and artifact path.
+    """One goal's audit, progress, blocker, block, artifact path.
 
-    resume=True restarts a built job that stopped on a blocker, once fixed; it
-    never re-imports or re-primes what is already on the ground.
+    resume=True restarts a built job stopped on a blocker, once fixed; never
+    re-imports or re-primes what is on the ground.
     """
     if not job_id.startswith("exec-"):
         return _result({"ok": False, "error": "unknown-job-id"}, True)

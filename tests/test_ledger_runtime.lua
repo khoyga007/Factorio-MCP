@@ -44,7 +44,7 @@ return function(handlers,state,bp)
         phase="a"
         return
       end
-      if game.tick-started>8000 then error("timeout in "..phase) end
+      if game.tick-started>10000 then error("timeout in "..phase) end
       if phase=="a" then
         if busy(a.job_id) then return end
         b=run(10,{name="consumer-b",eats={{item="iron-plate",block=a.job_id,via="inserter",per_minute=30}}})
@@ -66,6 +66,21 @@ return function(handlers,state,bp)
         end
         check(edge2 and edge2.declared==30 and (edge2.measured or 0)>0,
           "edge-measured:"..helpers.table_to_json(edge2))
+        -- Block a wiped off the ground (as `recall` does). It must leave the ledger, and
+        -- b's declared link to it must read as a missing block, not as a starved producer.
+        for _,e in pairs(surface.find_entities_filtered{area={{-2,-2},{9,9}}}) do
+          if e.type~="character" then e.destroy() end
+        end
+        phase="gone"
+        return
+      end
+      if phase=="gone" then
+        local led3=call("ledger",{})
+        check(not find(led3,a.job_id),"dead-block-dropped")
+        local e3
+        for _,e in ipairs(led3.edges) do if e.from==a.job_id then e3=e end end
+        check(e3 and e3.missing_block,"dead-edge-flagged:"..helpers.table_to_json(e3))
+        check(find(led3,b.job_id),"live-block-kept")
         result.ok,done=true,true
         return
       end

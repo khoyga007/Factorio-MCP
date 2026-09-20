@@ -818,6 +818,9 @@ function M.attach(ctx)
             if not result.ok then save(j) return end
             local es,bad=built_entities(j)
             if not es then error("import-geometry-mismatch:"..bad) end
+            -- Stamp identity while we still know which entities are ours. Belts, pipes and
+            -- rails carry no unit_number; those rows keep the coordinate fallback.
+            for i,e in ipairs(es) do j.layout[i].unit=e.unit_number end
             -- Declared infrastructure must be connected BEFORE primer spends fuel.
             for _,rule in ipairs(j.contract.connect) do
               for i,e in ipairs(es) do
@@ -895,13 +898,42 @@ function M.attach(ctx)
   local function flow() local s=ctx.state() s.ledger_flow=s.ledger_flow or {} return s.ledger_flow end
   local function flow_window() return ctx.state().ledger_flow_window or FLOW_WINDOW end
 
+  -- A job's own entities, plus how many of its planned entities are gone. The tile finds a
+  -- candidate, the stamped unit_number proves it is OURS: a recalled job whose cell was
+  -- rebuilt would otherwise see the NEW machines at its old coordinates, report itself
+  -- intact, and have its flow counted twice.
+  -- game.get_entity_by_unit_number is NOT usable for this: measured 20/09, it returns nil
+  -- for an entity we hold, valid, in the same tick we read its own unit_number.
+  -- Belts, pipes and rails have no unit_number, so those rows are still tile-only and a
+  -- rebuild on the same tiles can still fool a job made purely of them.
+  local function own_entities(j)
+    local surface=game.get_surface(j.surface)
+    local out,miss={},0
+    for _,e in ipairs(j.layout) do
+      local found=surface and surface.find_entity(e.name,{e.x,e.y})
+      if found and found.valid and (not e.unit or found.unit_number==e.unit) then out[#out+1]=found
+      else miss=miss+1 end
+    end
+    return out,miss
+  end
+
+  -- A built job with nothing left on the ground is not a block any more: it was recalled or
+  -- destroyed. It leaves the ledger so its declared links stop reading as starved edges.
+  local function gone(j)
+    if not j.placed then return false end
+    local _,miss=own_entities(j)
+    return miss>=#j.layout
+  end
+
   -- Every block that occupies ground right now, job or hand, as {id, surface, force, box}.
   local function block_sites()
     local out={}
     for _,id in ipairs(sorted_keys(jobs())) do
       local j=jobs()[id]
       if j.placed or j.state=="building" or j.state=="settling" or j.state=="auditing" then
-        out[#out+1]={id=id,surface=j.surface,force=j.force,box=box_of(j.layout)}
+        if not gone(j) then
+          out[#out+1]={id=id,surface=j.surface,force=j.force,box=box_of(j.layout),job=j}
+        end
       end
     end
     for _,id in ipairs(sorted_keys(hands())) do
@@ -912,6 +944,7 @@ function M.attach(ctx)
   end
 
   local function site_entities(site)
+    if site.job then return (own_entities(site.job)) end
     local surface=game.get_surface(site.surface)
     if not surface then return {} end
     return surface.find_entities_filtered{force=site.force,
@@ -996,13 +1029,11 @@ function M.attach(ctx)
     local out,edges,seen={}, {}, {}
     for _,id in ipairs(sorted_keys(jobs())) do
       local j=jobs()[id]
-      if j.placed or j.state=="building" or j.state=="settling" or j.state=="auditing" then
-        local surface=game.get_surface(j.surface)
-        local n,miss={},0
-        for _,e in ipairs(j.layout) do
-          n[e.name]=(n[e.name] or 0)+1
-          if not (surface and surface.find_entity(e.name,{e.x,e.y})) then miss=miss+1 end
-        end
+      if (j.placed or j.state=="building" or j.state=="settling" or j.state=="auditing")
+          and not gone(j) then
+        local n={}
+        for _,e in ipairs(j.layout) do n[e.name]=(n[e.name] or 0)+1 end
+        local _,miss=own_entities(j)
         local st=j.state
         if st=="needs-attention" or miss>0 then st="attention"
         elseif st=="verified" then st=j.audit and j.audit.status=="passed" and "verified" or "unverified" end
@@ -1040,7 +1071,12 @@ function M.attach(ctx)
         end
       end
     end
+    -- An endpoint that is not a live block is a typo or a block that has since gone. Say so,
+    -- or a declared link to nothing reads exactly like a producer that made nothing.
+    local live={}
+    for _,b in ipairs(out) do live[b.id]=true end
     for _,e in ipairs(edges) do
+      if not (live[e.from] and live[e.to]) then e.missing_block=true end
       local f=flow_of(e.from)
       if f and e.item then e.measured=f.made[e.item] or 0 end
     end

@@ -14,11 +14,15 @@ Job id `exec-N`; read with `report(job_id)` (action `blueprint_job`). Receipt + 
 - World coords of what gets built = `placed_at`, never recompute from anchor+rotation.
 - Every job is a ledger block; declare intent with `contract.block` (§Ledger).
 
-## Ledger (base memory, build `2026-09-19-ledger`)
+## Ledger (base memory, build `2026-09-20-block-identity`)
 
 Stored in mod `storage` → travels with the save, survives restarts/handoffs. Only intent stored; live state recomputed per read.
 - `contract.block = {id?, name, role, feeds:[{item?,block?,via?,per_minute?}], eats:[...], notes}` (name/id ≤40, role ≤120, notes ≤400, ≤12 links, link needs ≥1 field; `per_minute` = the rate the agent INTENDS that link to carry, >0 and <1e6). Bad → refused `invalid-block[-feeds|-eats]`, nothing built. Carried on job summary (`report.block`).
-- `observe(view="ledger")` → `blocks` [{id, name, role, feeds, eats, notes, status, box [x1,y1,x2,y2], n {entity: planned count}, missing?, error?, pattern_id, tick, flow?}] + `edges` [{from, to, item?, declared?, measured?}].
+- `observe(view="ledger")` → `blocks` [{id, name, role, feeds, eats, notes, status, box [x1,y1,x2,y2], n {entity: planned count}, missing?, error?, pattern_id, tick, flow?}] + `edges` [{from, to, item?, declared?, measured?, missing_block?}].
+  - Block identity is the entity, not the tile (build `2026-09-20-block-identity`). Each planned row is stamped with its built entity's `unit_number`; a row counts as present only when the tile holds an entity of that name AND that unit. A job whose planned entities are ALL gone (recalled, destroyed) leaves the ledger entirely, so its declared links stop reading as starved edges, and it stops being sampled for throughput.
+    - `game.get_entity_by_unit_number` is NOT usable for this lookup: measured 20/09 it returns nil for an entity the mod holds, valid, in the same tick it read that entity's own `unit_number`. Hence tile-lookup-then-confirm. (`control.lua:95` still resolves the treasury through that call — unverified there, suspect.)
+    - Belts, pipes and rails have no `unit_number`, so those rows are confirmed by tile alone; a job made purely of them can still be fooled by a rebuild on the same tiles.
+  - `missing_block` on an edge: an endpoint is not a live block — a typo in `feeds.block`/`eats.block`, or a block that has since gone. Without it a link to nothing reads exactly like a producer that made nothing.
   - Job blocks: every exec job that placed anything. `status`: `verified` (audit passed), `unverified` (verified, no passing audit), `attention` (needs-attention OR any planned entity gone: `missing`=count), else raw job state.
   - Hand blocks `hand-N`: `status=declared`, `n` = live own-force entities in box (characters skipped).
   - Edges from both sides: A.feeds{block=B} and B.eats{block=A} both give {from=A,to=B,item}, deduped. "What breaks if I remove X" = every edge with X as producer.
@@ -28,7 +32,7 @@ Stored in mod `storage` → travels with the save, survives restarts/handoffs. O
   - Known distortions, all deliberate: a machine added or removed mid-window carries its lifetime count in or out (negative deltas are dropped, so a removal reads as a quiet window, never a negative rate); a furnace whose recipe changed mid-window attributes the whole window to the recipe it ends on.
   - Sampling rides the 60-tick executor tick, ≤600 entities per tick across all blocks, resuming where the budget ran out so a big base cannot starve the last blocks in the list.
 - `achieve(goal="annotate", contract={block:{id,...}})` merges given fields into block `id` (exec or hand); unknown → `block-not-found`. No id + `area=[x1,y1,x2,y2]` → registers new hand block, returns id. Neither → `block-id-or-area-required`.
-- Engine PASS tests/verify_ledger_runtime.py (25 checks): bad feeds refused; `per_minute=-3` refused; character in site → `character` reject; 2 jobs + eats → edge carrying `declared=30`; note merges keep other fields; hand chest counted live + edge; chest destroyed → `attention` missing 1; report carries block; fed furnace → window `{ticks 300, samples 6, made {iron-plate 12}, active {stone-furnace 83}}` and edge `measured=12` against `declared=30`.
+- Engine PASS tests/verify_ledger_runtime.py (28 checks): bad feeds refused; `per_minute=-3` refused; character in site → `character` reject; 2 jobs + eats → edge carrying `declared=30`; note merges keep other fields; hand chest counted live + edge; chest destroyed → `attention` missing 1; report carries block; fed furnace → window `{ticks 300, samples 6, made {iron-plate 12}, active {stone-furnace 83}}` and edge `measured=12` against `declared=30`; block a then wiped off the ground → its row leaves the ledger, b survives, and b's link to it comes back `missing_block`.
 
 ## Agent-authored design (`build_design`)
 

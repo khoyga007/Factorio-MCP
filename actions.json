@@ -2,30 +2,281 @@
   "_comment": "Contract for bridge actions. `client` is the CLI subcommand when it differs from the action name. `required`/`optional` are the client argparse positional/flag args. Checked against HANDLERS (control.lua) and factorio_ai.py by contract_check.py.",
   "schema_version": 1,
   "actions": {
-    "ping":         { "required": [], "optional": [] },
-    "snapshot":     { "required": [], "optional": ["surface", "x", "y", "radius", "offset", "limit", "tiles", "name", "obstacles"] },
-    "brief":        { "required": [], "optional": ["surface", "x", "y", "radius"], "note": "one reply: owned counts, issues, enemies, ore_total/ore_patches, nearest_water, treasury" },
-    "blueprint_export": { "client": "blueprint-export", "required": ["x1", "y1", "x2", "y2", "file"], "optional": ["surface", "force"], "note": "read built area into Factorio blueprint string; client writes a new file" },
-    "blueprint_import": { "client": "blueprint-import", "required": ["file", "x", "y"], "optional": ["surface", "force", "ghosts", "direction"], "note": "default direct construction debits real treasury items; --ghosts defers construction to robots; --direction rotates 0/4/8/12" },
-    "blueprint_run": { "client": "blueprint-run", "required": ["file"], "optional": ["contract", "pattern_id", "x", "y", "radius", "surface", "force", "dry_run"], "note": "generic executor: agent contract (site/resources/primer/feeds/verify) -> site search, real-item gather, build, prime, holdout audit" },
-    "blueprint_job": { "client": "blueprint-job", "required": ["job_id"], "optional": [], "note": "executor job state + every holdout window" },
-    "ledger":       { "required": [], "optional": [], "note": "base ledger: every executor job + hand-registered block, live status, declared feeds/eats, edges" },
-    "ledger_note":  { "client": "ledger-note", "required": ["block"], "optional": ["x1", "y1", "x2", "y2", "surface", "force"], "note": "set block intent (name/role/feeds/eats/notes) by id, or register a hand-built area" },
-    "index":        { "required": [], "optional": ["surface"], "note": "whole-map ore/enemy/water index, cached in mod storage" },
-    "ore_marks":    { "client": "ore-marks", "required": [], "optional": ["surface", "name", "offset", "limit"], "note": "persistent ore sectors found by index, paged and filtered by resource" },
-    "repair_demo_economy": { "client": "repair-demo-economy", "required": ["key"], "optional": [], "note": "one-time exact Sandbox ingredient debit for cheat-mode crafting demo" },
-    "set_treasury": { "client": "treasury", "required": ["x", "y"], "optional": ["surface"] },
-    "craft":        { "required": ["recipe"], "optional": ["count"] },
-    "mine":         { "required": ["name", "x", "y"], "optional": ["surface"] },
-    "collect":      { "required": ["item", "count", "x", "y"], "optional": ["surface", "ground"] },
-    "autofuel":     { "required": ["state"], "optional": [], "note": "client arg state on|off maps to action field enabled(bool)" },
-    "spec":         { "required": ["kind"], "optional": ["name", "entity", "force"], "note": "kind recipe is force-level: enabled/have/via_entity/unlocked_by" },
-    "audit":        { "required": ["item"], "optional": ["surface", "force", "precision", "expected_per_second"], "note": "expected_per_second is client-only, not sent to Lua" },
-    "set_recipe":   { "client": "set-recipe", "required": ["recipe", "x", "y"], "optional": ["surface", "force"] },
-    "research":     { "required": [], "optional": ["name", "start", "force"] },
-    "insert":       { "required": ["item", "count", "x", "y"], "optional": ["surface", "force", "source"], "note": "input for lab/assembler/ammo-turret, chest storage, furnace source when requested, else fuel" },
-    "place":        { "required": ["name", "x", "y"], "optional": ["surface", "force", "direction", "dry_run", "type"], "note": "dry_run reports blockers; type input/output applies only to underground-belt" },
-    "water_sites":  { "client": "water-sites", "required": [], "optional": ["surface", "x", "y", "radius", "offset"], "note": "offshore-pump spots nearest x,y + blocked spots with obstacles" },
-    "recall":       { "required": ["x1", "y1", "x2", "y2"], "optional": ["surface", "dry_run", "force_active"], "note": "mine own-force entities + contents into player bag; MCP also takes an entity list" }
+    "ping": {
+      "required": [],
+      "optional": []
+    },
+    "snapshot": {
+      "required": [],
+      "optional": [
+        "surface",
+        "x",
+        "y",
+        "radius",
+        "offset",
+        "limit",
+        "tiles",
+        "name",
+        "obstacles"
+      ]
+    },
+    "brief": {
+      "required": [],
+      "optional": [
+        "surface",
+        "x",
+        "y",
+        "radius"
+      ],
+      "note": "one reply: owned counts, issues, enemies, ore_total/ore_patches, nearest_water, treasury"
+    },
+    "blueprint_export": {
+      "client": "blueprint-export",
+      "required": [
+        "x1",
+        "y1",
+        "x2",
+        "y2",
+        "file"
+      ],
+      "optional": [
+        "surface",
+        "force"
+      ],
+      "note": "read built area into Factorio blueprint string; client writes a new file"
+    },
+    "blueprint_import": {
+      "client": "blueprint-import",
+      "required": [
+        "file",
+        "x",
+        "y"
+      ],
+      "optional": [
+        "surface",
+        "force",
+        "ghosts",
+        "direction"
+      ],
+      "note": "default direct construction debits real treasury items; --ghosts defers construction to robots; --direction rotates 0/4/8/12"
+    },
+    "blueprint_run": {
+      "client": "blueprint-run",
+      "required": [
+        "file"
+      ],
+      "optional": [
+        "contract",
+        "pattern_id",
+        "x",
+        "y",
+        "radius",
+        "surface",
+        "force",
+        "dry_run"
+      ],
+      "note": "generic executor: agent contract (site/resources/primer/feeds/verify) -> site search, real-item gather, build, prime, holdout audit"
+    },
+    "blueprint_job": {
+      "client": "blueprint-job",
+      "required": [
+        "job_id"
+      ],
+      "optional": [
+        "resume"
+      ],
+      "note": "executor job state + every holdout window; resume restarts a built job that needs attention"
+    },
+    "ledger": {
+      "required": [],
+      "optional": [],
+      "note": "base ledger: every executor job + hand-registered block, live status, declared feeds/eats, edges"
+    },
+    "ledger_note": {
+      "client": "ledger-note",
+      "required": [
+        "block"
+      ],
+      "optional": [
+        "x1",
+        "y1",
+        "x2",
+        "y2",
+        "surface",
+        "force"
+      ],
+      "note": "set block intent (name/role/feeds/eats/notes) by id, or register a hand-built area"
+    },
+    "index": {
+      "required": [],
+      "optional": [
+        "surface"
+      ],
+      "note": "whole-map ore/enemy/water index, cached in mod storage"
+    },
+    "ore_marks": {
+      "client": "ore-marks",
+      "required": [],
+      "optional": [
+        "surface",
+        "name",
+        "offset",
+        "limit"
+      ],
+      "note": "persistent ore sectors found by index, paged and filtered by resource"
+    },
+    "repair_demo_economy": {
+      "client": "repair-demo-economy",
+      "required": [
+        "key"
+      ],
+      "optional": [],
+      "note": "one-time exact Sandbox ingredient debit for cheat-mode crafting demo"
+    },
+    "set_treasury": {
+      "client": "treasury",
+      "required": [
+        "x",
+        "y"
+      ],
+      "optional": [
+        "surface"
+      ]
+    },
+    "craft": {
+      "required": [
+        "recipe"
+      ],
+      "optional": [
+        "count"
+      ]
+    },
+    "mine": {
+      "required": [
+        "name",
+        "x",
+        "y"
+      ],
+      "optional": [
+        "surface"
+      ]
+    },
+    "collect": {
+      "required": [
+        "item",
+        "count",
+        "x",
+        "y"
+      ],
+      "optional": [
+        "surface",
+        "ground"
+      ]
+    },
+    "autofuel": {
+      "required": [
+        "state"
+      ],
+      "optional": [],
+      "note": "client arg state on|off maps to action field enabled(bool)"
+    },
+    "spec": {
+      "required": [
+        "kind"
+      ],
+      "optional": [
+        "name",
+        "entity",
+        "force"
+      ],
+      "note": "kind recipe is force-level: enabled/have/via_entity/unlocked_by"
+    },
+    "audit": {
+      "required": [
+        "item"
+      ],
+      "optional": [
+        "surface",
+        "force",
+        "precision",
+        "expected_per_second"
+      ],
+      "note": "expected_per_second is client-only, not sent to Lua"
+    },
+    "set_recipe": {
+      "client": "set-recipe",
+      "required": [
+        "recipe",
+        "x",
+        "y"
+      ],
+      "optional": [
+        "surface",
+        "force"
+      ]
+    },
+    "research": {
+      "required": [],
+      "optional": [
+        "name",
+        "start",
+        "force"
+      ]
+    },
+    "insert": {
+      "required": [
+        "item",
+        "count",
+        "x",
+        "y"
+      ],
+      "optional": [
+        "surface",
+        "force",
+        "source"
+      ],
+      "note": "input for lab/assembler/ammo-turret, chest storage, furnace source when requested, else fuel"
+    },
+    "place": {
+      "required": [
+        "name",
+        "x",
+        "y"
+      ],
+      "optional": [
+        "surface",
+        "force",
+        "direction",
+        "dry_run",
+        "type"
+      ],
+      "note": "dry_run reports blockers; type input/output applies only to underground-belt"
+    },
+    "water_sites": {
+      "client": "water-sites",
+      "required": [],
+      "optional": [
+        "surface",
+        "x",
+        "y",
+        "radius",
+        "offset"
+      ],
+      "note": "offshore-pump spots nearest x,y + blocked spots with obstacles"
+    },
+    "recall": {
+      "required": [
+        "x1",
+        "y1",
+        "x2",
+        "y2"
+      ],
+      "optional": [
+        "surface",
+        "dry_run",
+        "force_active"
+      ],
+      "note": "mine own-force entities + contents into player bag; MCP also takes an entity list"
+    }
   }
 }

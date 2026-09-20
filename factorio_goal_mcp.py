@@ -262,11 +262,15 @@ def achieve(goal: str,
                        not p.get("ok", False))
 
 @mcp.tool(annotations=READ)
-def report(job_id: str) -> CallToolResult:
-    """One goal's audit, progress, blocker, block and artifact path."""
+def report(job_id: str, resume: bool = False) -> CallToolResult:
+    """One goal's audit, progress, blocker, block and artifact path.
+
+    resume=True restarts a built job that stopped on a blocker, once fixed; it
+    never re-imports or re-primes what is already on the ground.
+    """
     if not job_id.startswith("exec-"):
         return _result({"ok": False, "error": "unknown-job-id"}, True)
-    p = _read(invoke("blueprint-job", job_id=job_id))
+    p = _read(invoke("blueprint-job", job_id=job_id, resume=resume or None))
     extra = {}
     if p.get("audit"):
         extra["self_sustaining"] = self_sustaining(p["audit"])

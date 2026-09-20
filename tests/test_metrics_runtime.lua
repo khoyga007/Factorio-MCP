@@ -56,12 +56,6 @@ return function(handlers,state,furnace_bp,furnace_c,lab_bp,lab_c)
         check(job.ok and job.job_id,"lab-job:"..helpers.table_to_json(job))
         return
       end
-      if phase=="island" then
-        result.island=status
-        check(status.state~="verified" and tostring(status.error):find("infra%-missing:power:lab"),"island-lab-refused:"..helpers.table_to_json(status))
-        result.ok,done=true,true
-        return
-      end
       result.lab=status
       local poles=surface.find_entities_filtered{name="small-electric-pole",area={{-16,-22},{-7,-19}}}
       check(#poles==2 and poles[1].electric_network_id==poles[2].electric_network_id,"layout-poles-wired")
@@ -69,10 +63,15 @@ return function(handlers,state,furnace_bp,furnace_c,lab_bp,lab_c)
       local cap=1800*(1+game.forces.player.laboratory_speed_modifier)/600*1.05
       result.cap=cap
       check(status.state=="verified" and last.values.units>=1.5 and last.values.units<=cap,"research-units-passed-own-labs-only:"..helpers.table_to_json(status))
-      phase="island"
-      job=call("blueprint_run",{blueprint=lab_bp,pattern_id="t-island",surface=surface.name,x=20,y=20,
+      -- Same design out in the open: its own poles reach no live grid, so the pre-check
+      -- refuses it. It used to build first and die on infra-missing:power:lab afterwards,
+      -- with the labs already on the ground and no way to resume.
+      local island=call("blueprint_run",{blueprint=lab_bp,pattern_id="t-island",surface=surface.name,x=20,y=20,
         contract=helpers.json_to_table(lab_c)})
-      check(job.ok and job.job_id,"island-job:"..helpers.table_to_json(job))
+      result.island=island
+      check(island.ok and island.state=="blocked" and (island.rejects or {})["no-power"],
+        "island-refused-prebuild:"..helpers.table_to_json(island))
+      result.ok,done=true,true
     end)
     if not ok then result.error,done=tostring(err),true end
     if done then helpers.write_file("metrics-check.json",helpers.table_to_json(result),false) end

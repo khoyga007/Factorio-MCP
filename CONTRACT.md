@@ -4,13 +4,19 @@
 
 Job id `exec-N`; read with `report(job_id)` (action `blueprint_job`). Receipt + audit + blueprint in script-output `executor/exec-N.*`. One active job at a time; repeat call returns the active job.
 
+`report(job_id, resume=true)` (action `blueprint_job`, optional `resume`) restarts a job that already imported and then stopped: the failure happened AFTER the build, so real machines are standing and a recall + rebuild would pay for the block twice.
+- Refused: `job-not-resumable` (state is not `needs-attention`) / `job-not-built` (never imported successfully — rerun the identical `blueprint_run` instead, the executor regathers).
+- Re-entry is idempotent: site re-check, tree clearing, stock debit, ghost aim and `blueprint_import` are ALL skipped once `j.imported` is set (`j.placed` can legitimately be `0`, which Lua reads as true — the flag, not the count, is the guard). The `connect` checks re-run, the primer resumes from `j.primed` (a flat index over primer×matching entities), and the holdout clock restarts.
+- Use after fixing the cause: a pole run built to the job, a pipe connected, a fuel problem. A failed audit is resumable too, but the primer will NOT re-fuel — put fuel in by hand first.
+
 ## Executor rules (cheat sheet)
 
 - Inserter `direction` = pickup side (dir 0 N: picks from north, drops south). Both ends must hold a receiver or `inserter-unconnected` (see §Site).
-- Footprint + `clearance` must contain NO own-force entity → `occupied`. `character` = a player (maintainer's or agent's) stands in it: move the player, not the site.
+- Each entity's tiles + `clearance` must contain NO own-force entity → `occupied` (per entity, not the design bounding box). `character` = a player (maintainer's or agent's) stands in it: move the player, not the site.
 - Trees/rocks in footprints auto-mined (products to bag). Cliffs → `cliff`, never cleared.
 - Items come from bag → own chests / furnace+assembler outputs → mining → hand craft. NOT from belts.
 - Job `needs-attention` with `insufficient-items` mid-build: rerun the IDENTICAL call; the executor regathers (Sonnet live 19/09).
+- Job `needs-attention` AFTER the import (`infra-missing:*`, a primer insert with no room, a failed audit): fix the cause, then `report(job_id, resume=true)`. Never recall + rebuild for this.
 - World coords of what gets built = `placed_at`, never recompute from anchor+rotation.
 - Every job is a ledger block; declare intent with `contract.block` (§Ledger).
 
@@ -109,14 +115,14 @@ Unknown keys ignored (notes: `source`). Contract errors (refused, nothing built)
 - Anchor = top-left tile of the rotated blueprint footprint. `exact`: anchor = `floor(x), floor(y)`. `search`: x,y = search center (default treasury player position), `radius` limit.
 - Rotations 16-way units, default `[0]`. `exact` needs exactly ONE rotation (agent placed water/pole for that orientation; spinning would miss them). Rotation turns every entity position AND direction; W/H swap for east/west entities.
 - Candidates, nearest first: with a resource rule → every anchor putting the rule's first matching entity's top-left tile on an ore tile; else square scan ≤64 tiles. Budget `max_checks` (≤20000) → `search-budget-exhausted`.
-- Per candidate, reject reason counted: `out-of-area`, `occupied` (own-force entity inside footprint + `clearance`), `character` (only own characters there: player in the way), `enemies` (within `enemy_radius`), `collision` (`can_place_entity` manual check, every entity; a failure whose footprint holds only trees/rocks passes if a `forced` blueprint_ghost check passes → clearable), `cliff` (cliff inside footprint: never cleared, needs explosives), `foreign-resource`, `resource-cover`, `resource-reserve`.
+- Per candidate, reject reason counted: `out-of-area`, `occupied` (own-force entity inside SOME entity's own tiles + `clearance` — NOT the design bounding box: a layout whose pole run reaches 10 tiles away does not claim the base in between; the bbox is only a fast path, one count query, and only a non-zero count triggers the per-entity pass), `character` (only own characters there: player in the way), `enemies` (within `enemy_radius`), `collision` (`can_place_entity` manual check, every entity; a failure whose footprint holds only trees/rocks passes if a `forced` blueprint_ghost check passes → clearable), `cliff` (cliff inside footprint: never cleared, needs explosives), `foreign-resource`, `resource-cover`, `resource-reserve`.
 - Resource rule area = `mining_drill_radius` of that entity (burner drill: its 2x2). `full_cover` (default): every tile in area holds `resource` ≥ `min_per_tile`. `exclusive` (default): other resource in area rejects. Sum ≥ `min_total`.
 - None fits → `state=blocked, error=no-site, rejects={reason: n}, checks`. Agent picks a new area / relaxes contract.
 - Inserter ends (after site found, before any debit, dry_run too): every inserter's pickup AND drop tile (prototype `inserter_pickup_position`/`inserter_drop_position`, dir 0 = pickup north, rotated by dir) must hold a receiver: planned entity of a receiver type (belt/underground/splitter/loader, chest, furnace, assembler, lab, drill, boiler, turret, wagon, silo...) or an existing own-force one. Else `state=blocked, error=inserter-unconnected, unconnected=[{inserter:[x,y], side:pickup|drop, tile:[x,y], hint?}]`. `hint={entity, from, to, design_shift:[dx,dy]}` only when exactly one planned receiver one tile away covers the tile, the move clashes with no planned entity AND lowers total gaps; `design_shift` is in the agent's design frame (rotation undone). Never auto-moved: agent edits design and resubmits (maintainer 19/09: pre-build check + hint over post-build snap — no wasted build, catalog blueprint = what was built, no guessing when a machine serves several inserters). Engine PASS tests/verify_inserter_runtime.py: lab 1 tile off → drop gap + shift [-1,0] (also under rotation 4), fixed → planned, pickup from existing belt counts, engine pickup/drop positions match.
 - `placed_at` [[name,x,y,dir]] world coords: in dry_run/blocked replies and every job report.
 - Water inlet, pole, load: NOT searched/provisioned (PORTING §2); agent builds them, executor checks via `connect`:
-  - `{entity, power: true}`: pre-build, every matching entity inside supply area of an own pole, else reject `no-power`. Post-build, `electric_network_id` set.
-  - `{entity, fluid}`: post-build, before primer: some fluidbox for that fluid (filter) connects to an entity NOT built by this job. Else `needs-attention: infra-missing:<fluid|power>:<entity>@x,y`; built entities stay, primer NOT spent.
+  - `{entity, power: true}`: pre-build, every matching entity inside the supply area of a pole that REACHES A LIVE GRID (§Poles), else reject `no-power`. Post-build, `electric_network_id` set with a source on it.
+  - `{entity, fluid}`: post-build, before primer: some fluidbox for that fluid (filter) connects to an entity NOT built by this job. Else `needs-attention: infra-missing:<fluid|power>:<entity>@x,y`; built entities stay, primer NOT spent. Connect the pipe, then `report(job_id, resume=true)`.
 
 ## Materials
 
@@ -129,9 +135,12 @@ Re-check site + stock right before build. Then trees/rocks inside any entity foo
 ## Poles and power
 
 - Blueprint import = ghost `revive`: no hand-style auto-wire (live 19/09 exec-15/16: 4 poles isolated, 5 inserters `no_power`). Fix build `2026-09-19-pole-wiring`: each revived pole copper-wired to every own pole within min(both max_wire_distance), nearest first, ≤5. Receipt row `wires`=count. Poles built before this build stay isolated: recall + rebuild.
-- Pre-build `connect power`: a pole of the same layout covering the entity counts (no longer only existing poles).
-- Post-build `connect power`: entity network must hold a source (generator, burner-generator, solar, EEI, fusion, charged accumulator) — island of poles → `infra-missing:power:<entity>@x,y`.
-- Engine PASS tests/verify_metrics_runtime.py: 2 layout poles chain to pre-placed pole+EEI, same network, lab verified; same layout far away → infra-missing.
+- Pre-build `connect power` (build `2026-09-20-resume-power`): the entity must be covered by a FED pole. Nodes = the layout's own poles + every own-force pole whose position is inside the layout bbox grown by 32. A node is fed when (a) its `electric_network_id` is a live network, (b) its supply area covers a producer THIS layout brings (a steam build powers its own substation), or (c) wire reach `min(a.max_wire_distance, b.max_wire_distance)` links it to a fed node — spread to a fixed point.
+  - Live network = some own-force producer on this surface (generator, burner-generator, solar, EEI, fusion, accumulator with `energy>0`) sits on that `electric_network_id`. Whole-surface scan, memoised per tick, computed only when a power rule exists.
+  - BEFORE: any pole in the layout satisfied the pre-check, so a design carrying its own pole always passed — including `dry_run` — and died AFTER the build on `infra-missing:power`, machines already on the ground. Solar counts even at night (deterministic); an accumulator at 0 J does not.
+- Post-build `connect power`: entity network must hold a source (same list) — island of poles → `infra-missing:power:<entity>@x,y`.
+- Engine PASS tests/verify_metrics_runtime.py: 2 layout poles chain to pre-placed pole+EEI, same network, lab verified; same layout far away → refused pre-build with `no-power`, nothing built.
+- Engine PASS tests/verify_power_runtime.py (14 checks): lab + near pole + pole 7 tiles out — a chest parked in the empty middle of the bbox does NOT read `occupied`, a chest on the lab's own tiles does; same design out of wire reach → `no-power`, same design where the far pole reaches a live grid → `planned`; resume (below).
 
 ## Research (`control.lua` handle_research)
 
@@ -163,3 +172,7 @@ Declared local loop: move real `item` from this job's own `from` chest into each
 
 - `bp-f30d8a84af3098ee` (2 coal drills): LEARNING_PROGRESSION §8.2. Engine PASS 2026-09-19: windows coal 35 → 32, active 2/2, feed 0 → 4.
 - `bp-985eb5fc230538b4` (steam 1:2): §8.3. `exact`, rotation [0] saved (agent overrides for its site). No saved load: agent MUST pass `declared_load_mw` (≥0.1) → power min 0.95×min(load,1.8). `connect`: boiler water, engines power. Rotation 0 footprint 3×14, boiler water inlets (anchor −0.5, +11.5) and (+3.5, +11.5). Engine PASS 2026-09-19 (tests/verify_steam_runtime.py): real water pipe, radar 0.3 MW → windows 0.3 MW, 165°C, fuel 5; no-water job stops `infra-missing:water`, coal untouched.
+
+## Resume (build `2026-09-20-resume-power`)
+
+Engine PASS tests/verify_power_runtime.py: a verified job is forced to `needs-attention` (stands in for `infra-missing`), `resume` on it returns `state=building` and it re-verifies; the chest is still ONE entity and still holds exactly ONE coal, `j.primed` unchanged. `resume` on a verified job → `job-not-resumable`; on an unknown id → `executor-job-not-found`.

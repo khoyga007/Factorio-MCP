@@ -191,6 +191,8 @@ def parser() -> argparse.ArgumentParser:
     bp_run.add_argument("--dry-run", action="store_true")
     bp_job = commands.add_parser("blueprint-job")
     bp_job.add_argument("job_id")
+    bp_job.add_argument("--resume", action="store_true",
+                        help="restart a needs-attention job that is already built")
     commands.add_parser("ledger")
     note = commands.add_parser("ledger-note")
     note.add_argument("block", help="JSON {id?,name,role,feeds,eats,notes}")
@@ -354,7 +356,10 @@ def command_body(args: argparse.Namespace) -> dict[str, Any]:
             body["dry_run"] = True
         return body
     if args.command == "blueprint-job":
-        return {"action": "blueprint_job", "job_id": args.job_id}
+        body = {"action": "blueprint_job", "job_id": args.job_id}
+        if getattr(args, "resume", False):
+            body["resume"] = True
+        return body
     if args.command == "ledger":
         return {"action": "ledger"}
     if args.command == "ledger-note":

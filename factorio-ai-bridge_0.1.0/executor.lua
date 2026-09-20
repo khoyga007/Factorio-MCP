@@ -69,22 +69,94 @@ local function tile_area(cx,cy,r)
   return math.floor(cx-r+0.01),math.floor(cy-r+0.01),math.ceil(cx+r-0.01)-1,math.ceil(cy+r-0.01)-1
 end
 
--- Supply area of an own-force pole covers the planned entity (pre-build power check).
-local function pole_covers(surface,force,e,planned)
-  -- A pole in the same layout counts; the post-build connect check proves it reaches a source.
-  for _,p in ipairs(planned or {}) do
-    local proto=prototypes.entity[p.name]
-    if proto.type=="electric-pole" then
-      local ok,d=pcall(function() return proto.get_supply_area_distance() end)
-      if not ok then d=proto.supply_area_distance end
-      if d and math.abs(p.x-e.x)<d+e.w/2 and math.abs(p.y-e.y)<d+e.h/2 then return true end
+-- Prototype reach, via the 2.0 getters when they exist.
+local function supply_d(proto)
+  local ok,d=pcall(function() return proto.get_supply_area_distance() end)
+  if not ok then d=proto.supply_area_distance end
+  return d or 0
+end
+local function wire_d(proto)
+  local ok,d=pcall(function() return proto.get_max_wire_distance() end)
+  if not ok then d=proto.max_wire_distance end
+  return d or 0
+end
+local function covers(px,py,d,e)
+  return math.abs(px-e.x)<d+e.w/2 and math.abs(py-e.y)<d+e.h/2
+end
+
+-- Electric networks that actually have a live source. A pole on any other network is an
+-- island: what it covers will never run. Whole-surface scan, so memoised per tick.
+local PRODUCERS={"generator","burner-generator","solar-panel","electric-energy-interface",
+  "fusion-generator","accumulator"}
+local PRODUCER={} for _,t in ipairs(PRODUCERS) do PRODUCER[t]=true end
+local live_cache={}
+local function live_networks(surface,force)
+  local key=surface.index..":"..force.index
+  local c=live_cache[key]
+  if c and c.tick==game.tick then return c.set end
+  local set={}
+  for _,g in pairs(surface.find_entities_filtered{force=force,type=PRODUCERS}) do
+    if g.electric_network_id and (g.type~="accumulator" or g.energy>0) then
+      set[g.electric_network_id]=true
     end
   end
-  for _,p in pairs(surface.find_entities_filtered{position={e.x,e.y},radius=math.max(e.w,e.h)/2+32,
-    type="electric-pole",force=force}) do
-    local ok,d=pcall(function() return p.prototype.get_supply_area_distance() end)
-    if not ok then d=p.prototype.supply_area_distance end
-    if d and math.abs(p.position.x-e.x)<d+e.w/2 and math.abs(p.position.y-e.y)<d+e.h/2 then return true end
+  live_cache[key]={tick=game.tick,set=set}
+  return set
+end
+
+-- Which poles can actually carry power to this layout. Nodes are the layout's own poles
+-- plus every own-force pole near it; a node is fed when it sits on a network that already
+-- has a live source, when its supply area covers a producer THIS layout brings (a steam
+-- build powers its own substation), or when wire reach links it to a fed node.
+-- The old check accepted ANY pole in the layout, so a design carrying its own pole always
+-- passed the pre-check (and dry_run) and only failed AFTER the build, with the machines
+-- already on the ground.
+local NEAR=32
+local function fed_poles(surface,force,planned)
+  local live=live_networks(surface,force)
+  local x1,y1,x2,y2=math.huge,math.huge,-math.huge,-math.huge
+  local nodes={}
+  for _,p in ipairs(planned) do
+    x1=math.min(x1,p.x) y1=math.min(y1,p.y) x2=math.max(x2,p.x) y2=math.max(y2,p.y)
+    local proto=prototypes.entity[p.name]
+    if proto.type=="electric-pole" then
+      nodes[#nodes+1]={x=p.x,y=p.y,w=wire_d(proto),s=supply_d(proto),fed=false}
+    end
+  end
+  for _,x in pairs(surface.find_entities_filtered{force=force,type="electric-pole",
+    area={{x1-NEAR,y1-NEAR},{x2+NEAR,y2+NEAR}}}) do
+    nodes[#nodes+1]={x=x.position.x,y=x.position.y,w=wire_d(x.prototype),s=supply_d(x.prototype),
+      fed=live[x.electric_network_id] or false}
+  end
+  for _,q in ipairs(nodes) do
+    if not q.fed then
+      for _,g in ipairs(planned) do
+        if PRODUCER[prototypes.entity[g.name].type] and covers(q.x,q.y,q.s,g) then q.fed=true break end
+      end
+    end
+  end
+  -- Spread along wire runs until nothing new is reached.
+  local moved=true
+  while moved do
+    moved=false
+    for _,a in ipairs(nodes) do
+      if a.fed then
+        for _,b in ipairs(nodes) do
+          if not b.fed then
+            local r=math.min(a.w,b.w)
+            if (a.x-b.x)^2+(a.y-b.y)^2<=r*r then b.fed=true moved=true end
+          end
+        end
+      end
+    end
+  end
+  return nodes
+end
+
+-- A live pole covers the planned entity (pre-build power check).
+local function pole_covers(nodes,e)
+  for _,q in ipairs(nodes) do
+    if q.fed and covers(q.x,q.y,q.s,e) then return true end
   end
   return false
 end
@@ -202,6 +274,7 @@ end
 
 local function check_site(surface,force,c,placed,rejects)
   local function no(reason) rejects[reason]=(rejects[reason] or 0)+1 return false end
+  local fed  -- layout poles that reach a live grid, computed once and only if power matters
   local x1,y1,x2,y2=math.huge,math.huge,-math.huge,-math.huge
   for _,e in ipairs(placed) do
     x1=math.min(x1,e.x-e.w/2) y1=math.min(y1,e.y-e.h/2)
@@ -212,11 +285,20 @@ local function check_site(surface,force,c,placed,rejects)
   end
   local gap=c.clearance or 0
   local box={{x1-gap,y1-gap},{x2+gap,y2+gap}}
-  local own=surface.count_entities_filtered{area=box,force=force}
-  if own>0 then
-    -- A player standing in the box blocks too; name it so the agent moves, not the site.
-    -- (invert=true would negate the force filter as well, so count characters apart.)
-    return no(own>surface.count_entities_filtered{area=box,force=force,type="character"} and "occupied" or "character")
+  if surface.count_entities_filtered{area=box,force=force,limit=1}>0 then
+    -- The bounding box spans every entity, so a design with one far-flung pole reads the
+    -- whole base between it and the machines as occupied. The box is only a fast path:
+    -- what has to be clear is each entity's own tiles plus the clearance around them.
+    local d,blocked,chars=0.01,false,0
+    for _,e in ipairs(placed) do
+      for _,o in pairs(surface.find_entities_filtered{force=force,
+        area={{e.x-e.w/2-gap+d,e.y-e.h/2-gap+d},{e.x+e.w/2+gap-d,e.y+e.h/2+gap-d}}}) do
+        if o.type=="character" then chars=chars+1 else blocked=true end
+      end
+    end
+    -- A player standing in the way blocks too; name it so the agent moves, not the site.
+    if blocked then return no("occupied") end
+    if chars>0 then return no("character") end
   end
   if surface.count_entities_filtered{position={(x1+x2)/2,(y1+y2)/2},radius=c.enemy_radius or 16,
     force="enemy",limit=1}>0 then return no("enemies") end
@@ -237,7 +319,10 @@ local function check_site(surface,force,c,placed,rejects)
       end
     end
     for _,rule in ipairs(c.connect) do
-      if rule.entity==e.name and rule.power and not pole_covers(surface,force,e,placed) then return no("no-power") end
+      if rule.entity==e.name and rule.power then
+        fed=fed or fed_poles(surface,force,placed)
+        if not pole_covers(fed,e) then return no("no-power") end
+      end
     end
   end
   return true
@@ -792,6 +877,11 @@ function M.attach(ctx)
             j.state="building"
           end
           if j.state=="building" then
+            -- Everything up to and including the import is skipped once it has happened:
+            -- a resumed job must not re-clear, re-spend or re-import what is on the ground.
+            -- The flag is set only on a SUCCESSFUL import; j.placed can be a count of 0,
+            -- which Lua reads as true.
+            if not j.imported then
             local rejects={}
             if not check_site(surface,force,j.contract,j.layout,rejects) then
               j.rejects=rejects error("site-changed-replan")
@@ -816,6 +906,8 @@ function M.attach(ctx)
             local result=perform(j,"import",{blueprint=j.blueprint,x=x,y=y,mode="direct",direction=j.site.rotation})
             j.placed=result.placed
             if not result.ok then save(j) return end
+            j.imported=true
+            end
             local es,bad=built_entities(j)
             if not es then error("import-geometry-mismatch:"..bad) end
             -- Stamp identity while we still know which entities are ours. Belts, pipes and
@@ -829,10 +921,16 @@ function M.attach(ctx)
                 end
               end
             end
+            -- Primer inserts are counted, so a resume does not fuel the same machine twice.
+            local primed=0
             for _,p in ipairs(j.contract.primer) do
-              for i,e in ipairs(j.layout) do
+              for _,e in ipairs(j.layout) do
                 if e.name==p.entity then
-                  if not perform(j,"insert",{item=p.item,count=p.count,x=e.x,y=e.y}).ok then save(j) return end
+                  primed=primed+1
+                  if primed>(j.primed or 0) then
+                    if not perform(j,"insert",{item=p.item,count=p.count,x=e.x,y=e.y}).ok then save(j) return end
+                    j.primed=primed
+                  end
                 end
               end
             end
@@ -1109,6 +1207,22 @@ function M.attach(ctx)
   function M.status(nonce,r)
     local j=jobs()[r.job_id]
     if not j then return ctx.response(nonce,false,{error="executor-job-not-found"}) end
+    -- A job that fails AFTER the import (infra not connected, a primer insert with no room,
+    -- a failed audit) leaves real machines standing. Once the agent has fixed the cause,
+    -- resume picks the job up where it stopped: the import and the primer inserts already
+    -- done are not repeated, and the holdout clock restarts. Recall + rebuild is the only
+    -- other way out, and it pays for the block twice.
+    if r.resume then
+      if j.state~="needs-attention" then
+        return ctx.response(nonce,false,{error="job-not-resumable",state=j.state})
+      end
+      if not j.imported then
+        return ctx.response(nonce,false,{error="job-not-built",state=j.state})
+      end
+      j.state,j.error,j.rejects="building",nil,nil
+      j.deadline=game.tick+18000
+      save(j)
+    end
     return ctx.response(nonce,true,summary(j))
   end
   return M

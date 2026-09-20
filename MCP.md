@@ -63,7 +63,7 @@ Nguồn: [MCP Python SDK 1.27.1](https://github.com/modelcontextprotocol/python-
    Chụp layout đã xây: `achieve(goal="capture", area=[x1,y1,x2,y2])`. Spec:
    `CONTRACT.md` §Research.
 5. Ledger: `observe(view="ledger")` = every block (exec job / hand area) with live status, throughput `flow` (items/min đo thật từ `products_finished`, cộng % thời gian máy chạy) + `edges` [{from,to,item,declared,measured,missing_block}] — `declared` là ý đồ agent khai (`per_minute` trên link), `measured` là sản lượng thật của block nguồn ở cửa sổ vừa đóng, `missing_block` = đầu mối không còn là block sống (gõ sai id, hoặc block đã bị dỡ). Block bị recall/phá sạch thì rời ledger, không để lại cạnh đói giả. Declare intent via `contract.block` on build, or `achieve(goal="annotate", contract={block}, area?)`. Spec + executor cheat sheet: `CONTRACT.md` §Ledger, §Executor rules.
-6. `report(job_id)` đọc audit của job `exec-N`. Blueprint và receipt chi tiết
+6. `report(job_id, resume?)` đọc audit của job `exec-N`; `resume=true` chạy tiếp một job đã dựng xong nhưng dừng vì lỗi sau khi build (điện/ống chưa nối, primer không nhét được, audit trượt) — không import lại, không mồi lại. Blueprint và receipt chi tiết
    nằm trong `script-output/executor/`.
 
 Một lượt gọi `achieve` có thể dùng nhiều action UDP bên trong; agent chỉ nhận
@@ -97,12 +97,13 @@ python tests/verify_executor_runtime.py --player-save .runtime-test/saves/replic
 python tests/verify_ledger_runtime.py --player-save .runtime-test/saves/replica-player.zip
 python tests/verify_steam_runtime.py --player-save .runtime-test/saves/replica-player.zip
 python tests/verify_holdout_fail_runtime.py --player-save .runtime-test/saves/replica-player.zip
+python tests/verify_power_runtime.py --player-save .runtime-test/saves/replica-player.zip
 ```
 
 Lệnh cuối sao chép save vào `.runtime-test` để kiểm tra chuyển đồ với một player
 có inventory; không ghi vào save gốc. Fixture chỉ được chèn vào mod thử nghiệm.
-70 test Python (gồm 3 tool MCP và lớp chi tiết 25 action) + `contract_check.py` xanh.
-Engine 20/09: 10/11 bài verify_*_runtime.py PASS; `verify_economy_runtime.py` FAIL vì
+72 test Python (gồm 3 tool MCP và lớp chi tiết 25 action) + `contract_check.py` xanh.
+Engine 20/09: 11/12 bài verify_*_runtime.py PASS (thêm `verify_power_runtime.py`); `verify_economy_runtime.py` FAIL vì
 save nguồn đã ăn bản sửa một-lần coal-demo 18/09, hỏng y hệt trước khi refactor.
 Không cài `test_*runtime.lua` vào mod thật.
 

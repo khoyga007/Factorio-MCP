@@ -1804,18 +1804,6 @@ local function handle_index(nonce, request)
   })
 end
 
-local smelting = require("smelting").attach {
-  state = bridge_state, response = response, inventory = treasury_inventory,
-  place = handle_place, export = handle_blueprint_export, status_name = entity_status_name,
-}
-local starter = require("starter").attach {
-  state = bridge_state, response = response, inventory = treasury_inventory,
-  place = handle_place, insert = handle_insert, mine = handle_mine, export = handle_blueprint_export,
-}
-local coal = require("coal").attach {
-  state = bridge_state, response = response, inventory = treasury_inventory,
-  place = handle_place, insert = handle_insert, export = handle_blueprint_export,
-}
 local executor = require("executor").attach {
   state = bridge_state, response = response, inventory = treasury_inventory,
   import = handle_blueprint_import, craft = handle_craft, collect = handle_collect,
@@ -1831,13 +1819,6 @@ local function handle_blueprint_run(nonce, request) return executor.start(nonce,
 local function handle_blueprint_job(nonce, request) return executor.status(nonce, request) end
 local function handle_ledger(nonce, request) return executor.ledger(nonce, request) end
 local function handle_ledger_note(nonce, request) return executor.note(nonce, request) end
-local function handle_smelt_plan(nonce, request) return smelting.plan(nonce, request) end
-local function handle_smelt_build(nonce, request) return smelting.build(nonce, request) end
-local function handle_smelt_status(nonce, request) return smelting.status(nonce, request) end
-local function handle_starter_smelt(nonce, request) return starter.start(nonce, request) end
-local function handle_starter_status(nonce, request) return starter.status(nonce, request) end
-local function handle_coal_stockpile(nonce, request) return coal.start(nonce, request) end
-local function handle_coal_status(nonce, request) return coal.status(nonce, request) end
 
 HANDLERS = {
   audit = handle_audit,
@@ -1862,13 +1843,6 @@ HANDLERS = {
   set_treasury = handle_set_treasury,
   set_recipe = handle_set_recipe,
   snapshot = handle_snapshot,
-  smelt_plan = handle_smelt_plan,
-  smelt_build = handle_smelt_build,
-  smelt_status = handle_smelt_status,
-  starter_smelt = handle_starter_smelt,
-  starter_status = handle_starter_status,
-  coal_stockpile = handle_coal_stockpile,
-  coal_status = handle_coal_status,
   place = handle_place,
   recall = handle_recall,
   water_sites = handle_water_sites,
@@ -1924,9 +1898,6 @@ script.on_configuration_changed(bridge_state)
 script.on_event(defines.events.on_udp_packet_received, on_packet)
 script.on_nth_tick(1, function() helpers.recv_udp() end)
 script.on_nth_tick(60, function()
-  smelting.tick()
-  starter.tick()
-  coal.tick()
   executor.tick()
 end)
 script.on_nth_tick(300, function()

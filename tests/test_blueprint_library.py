@@ -114,13 +114,13 @@ class BlueprintLibraryTest(unittest.TestCase):
             os.environ, {"FACTORIO_BLUEPRINT_CATALOG": str(Path(directory) / "catalog"),
                          "FACTORIO_SCRIPT_OUTPUT": directory}
         ), patch("factorio_ai.request", return_value={
-            "ok": True, "state": "verified", "artifact": "coal/coal-1",
+            "ok": True, "state": "verified", "artifact": "executor/exec-1",
             "audit": {"status": "passed", "coal_gained": 8},
         }):
-            artifact = Path(directory) / "coal" / "coal-1.blueprint.txt"
+            artifact = Path(directory) / "executor" / "exec-1.blueprint.txt"
             artifact.parent.mkdir()
             artifact.write_text(NATIVE + "\n", encoding="ascii")
-            args = argparse.Namespace(command="coal-status", job_id="coal-1",
+            args = argparse.Namespace(command="blueprint-job", job_id="exec-1",
                                       host="127.0.0.1", port=34198)
             reply = execute(args)
             self.assertEqual("verified", reply["pattern"]["state"])

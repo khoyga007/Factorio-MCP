@@ -22,7 +22,7 @@ Our port (Lua, whole blueprint, native checks — no C# collision field needed):
 - Budget: cap candidates evaluated per tick (spread over ticks via job) — site search on radius 192 is expensive; skyline caps 100 results, we cap evaluations.
 - Blocker when none: `no-site` + counts of rejects by reason (collision / resource / fluid / out-of-area). Agent decides next area.
 
-## 2. Power — `PowerGridPlanner` + `OffshoreSupplyPlanner` (NEXT, unblocks iron_smelting_row)
+## 2. Power — `PowerGridPlanner` + `OffshoreSupplyPlanner` (NEXT, unblocks powered smelting rows)
 
 Pole choice: among obtainable pole items with wire_distance>0 and supply_area>0, prefer already-carried, then longest wire, then name.
 

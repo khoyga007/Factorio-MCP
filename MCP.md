@@ -43,29 +43,23 @@ Nguồn: [MCP Python SDK 1.27.1](https://github.com/modelcontextprotocol/python-
    - One snapshot = one sample: a burner-fed stone furnace flickers `no_ingredients` (drill 0.25 ore/s < furnace 0.3125) and looks the same as a starved one. Confirm with an executor metric (`products_finished`) before acting.
    - Budget guard: tests/test_perception.py caps (live fixture tests/fixtures/nearby_r32_live.json ≤6000 chars, repetition must not grow output, every tile accounted for). Re-measure live at each scale step: `python tests/measure_nearby.py --x X --y Y --radius 32` (19/09: 25 calls/102 960 chars → 1/6 429, ×16).
    - Live 19/09 r16 (155 entities): old 13 calls/34 455 chars → v1 1 call/4 957 → v2 2 650. `view="entities"` = old raw rows paged by 12 (debug).
-2. `achieve(goal="first_iron_plates"|"first_copper_plates")` nhận diện cặp
-   máy khoan → lò đá đang có, kiểm tra nhiên liệu và nạp lại nếu đủ than. Nếu
-   chưa có, planner tìm mỏ, tự đào than bằng 1 gỗ ban đầu khi cần, xây cặp máy
-   bằng item thật và bắt đầu audit. `dry_run=true` chỉ trả phương án/blocker.
-3. `achieve(goal="coal_stockpile")` dựng hoặc dùng lại 1 khoan đốt nhiên liệu
-   đổ than vào rương gỗ kề bên. Dùng nhiên liệu và máy thật, tự chuyển than từ
-   rương sát khoan để cấp lại nhiên liệu, đo than tăng trong 1.800 tick và xuất
-   blueprint. Thiếu vật tư thì trả blocker, không xây.
-4. `achieve(goal="iron_smelting_row", target_per_minute=60)` dùng pattern dãy
-   lò lớn. Một lượt gọi MCP tự plan rồi build nếu có vật tư, công nghệ, belt
-   quặng–than và điện. Thiếu điều kiện thì trả blocker, không xây.
-5. `observe(view="patterns")` lists catalog (no blueprint string, `has_contract`).
+2. `observe(view="patterns")` lists catalog (no blueprint string, `has_contract`).
    `achieve(goal="reuse_blueprint", pattern_id, contract?, x?, y?)` → generic
    executor, same path for every pattern. Contract (agent's, else catalog's):
    site search/exact + rotations, resource rules, primer, feeds, holdout
    metrics. Job `exec-N`. Spec: `CONTRACT.md`.
-6. Research: `observe(view="research")`, `achieve(goal="research", tech)`.
+   Layout agent tự nghĩ ra: `achieve(goal="build_design", design=[{name,x,y,direction?}],
+   contract)` — cùng đường `blueprint_run`, không có nhánh riêng theo pattern.
+   (20/09: 4 goal hard-code `first_iron_plates`/`first_copper_plates`/`coal_stockpile`/
+   `iron_smelting_row` đã bị gỡ cùng `starter.lua`+`coal.lua`+`smelting.lua`. Muốn lại
+   ô than: `reuse_blueprint(pattern_id="bp-f30d8a84af3098ee")`; muốn dãy lò: agent tự
+   thiết kế `design` rồi khai contract, executor lo site/vật tư/primer/audit.)
+3. Research: `observe(view="research")`, `achieve(goal="research", tech)`.
    Chụp layout đã xây: `achieve(goal="capture", area=[x1,y1,x2,y2])`. Spec:
    `CONTRACT.md` §Research.
-7. Ledger: `observe(view="ledger")` = every block (exec job / hand area) with live status + `edges` [[producer, consumer, item]]. Declare intent via `contract.block` on build, or `achieve(goal="annotate", contract={block}, area?)`. Spec + executor cheat sheet: `CONTRACT.md` §Ledger, §Executor rules.
-8. `report(job_id)` đọc audit của các pattern. Blueprint và receipt chi tiết
-   nằm trong `script-output/starter/`, `script-output/coal/`,
-   `script-output/smelting/` hoặc `script-output/executor/`.
+4. Ledger: `observe(view="ledger")` = every block (exec job / hand area) with live status + `edges` [[producer, consumer, item]]. Declare intent via `contract.block` on build, or `achieve(goal="annotate", contract={block}, area?)`. Spec + executor cheat sheet: `CONTRACT.md` §Ledger, §Executor rules.
+5. `report(job_id)` đọc audit của job `exec-N`. Blueprint và receipt chi tiết
+   nằm trong `script-output/executor/`.
 
 Một lượt gọi `achieve` có thể dùng nhiều action UDP bên trong; agent chỉ nhận
 một kết quả ngắn. Retry UDP dùng lại nonce; nếu mutation timeout, đọc trạng thái
@@ -94,9 +88,6 @@ guardrail mới ngoài luồng hiện có chưa nằm trong đợt này.
 ```powershell
 python -m unittest discover -q -s tests -t .
 python contract_check.py
-python tests/verify_smelting_runtime.py
-python tests/verify_smelting_runtime.py --player-save 'C:\Users\user\AppData\Roaming\Factorio\saves\Legendary Seed.zip'
-python tests/verify_starter_runtime.py --player-save .runtime-test/saves/replica-player.zip
 python tests/verify_executor_runtime.py --player-save .runtime-test/saves/replica-player.zip
 python tests/verify_coal_runtime.py --player-save .runtime-test/saves/replica-player.zip
 python tests/verify_steam_runtime.py --player-save .runtime-test/saves/replica-player.zip

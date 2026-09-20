@@ -5,6 +5,8 @@ from pathlib import Path
 import shutil
 import subprocess
 
+from runtime_mod import sync_mod
+
 HERE = Path(__file__).resolve().parent
 ROOT = HERE.parent
 SANDBOX = ROOT / ".runtime-test"
@@ -16,9 +18,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--player-save", type=Path, required=True)
     args = parser.parse_args()
-    MOD.mkdir(parents=True, exist_ok=True)
-    for name in ("control.lua", "smelting.lua", "starter.lua", "coal.lua", "executor.lua", "field.lua", "info.json"):
-        shutil.copy2(ROOT / "factorio-ai-bridge_0.1.0" / name, MOD / name)
+    sync_mod(MOD)
     shutil.copy2(HERE / "test_economy_runtime.lua", MOD / "test_economy_runtime.lua")
     with (MOD / "control.lua").open("a", encoding="utf-8") as f:
         f.write('\nrequire("test_economy_runtime")(HANDLERS, bridge_state)\n')

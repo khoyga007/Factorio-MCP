@@ -51,16 +51,11 @@ class MCPTest(unittest.IsolatedAsyncioTestCase):
                             catalog = await session.list_tools()
                             self.assertEqual(set(load_actions()), {t.name for t in catalog.tools})
                             self.assertTrue(next(t for t in catalog.tools if t.name == "snapshot").annotations.readOnlyHint)
-                            self.assertFalse(next(t for t in catalog.tools if t.name == "smelt_build").annotations.readOnlyHint)
+                            self.assertFalse(next(t for t in catalog.tools if t.name == "blueprint_run").annotations.readOnlyHint)
                             cases = {
                                 "ping": {}, "brief": {}, "snapshot": {"obstacles": True},
                                 "index": {}, "ore_marks": {"name": "iron-ore"},
                                 "spec": {"kind": "recipe", "entity": "stone-furnace"},
-                                "smelt_plan": {"rate": 60, "x": 1, "y": 2},
-                                "smelt_build": {"plan_id": "smelt-1"},
-                                "smelt_status": {"plan_id": "smelt-1"},
-                                "starter_smelt": {"product": "iron-plate", "x": 0, "y": 0},
-                                "starter_status": {"job_id": "starter-1"},
                                 "set_treasury": {"x": 1, "y": 2},
                                 "place": {"name": "underground-belt", "x": 1.5, "y": 2.5, "type": "output"},
                                 "craft": {"recipe": "iron-gear-wheel"},
@@ -100,7 +95,7 @@ class MCPTest(unittest.IsolatedAsyncioTestCase):
                                         self.assertEqual("direct", seen[-1]["mode"])
                                     if name == "blueprint_run":
                                         self.assertEqual({"site": {"mode": "exact"}}, seen[-1]["contract"])
-                            for name, args in [("smelt_plan", {"rate": 0}), ("brief", {"x": 1}),
+                            for name, args in [("audit", {"item": "iron-plate", "precision": "nope"}), ("brief", {"x": 1}),
                                                ("blueprint_import", {"file": "relative.txt", "x": 0, "y": 0})]:
                                 before = len(seen)
                                 result = await session.call_tool(name, args)

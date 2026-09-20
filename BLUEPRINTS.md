@@ -1,6 +1,6 @@
 # Blueprint import cho map mới
 
-Trạng thái: đã có lệnh `blueprint-export` và `blueprint-import` (xây trực tiếp bằng vật tư thật hoặc đặt ghost với `--ghosts`). Planner `starter_smelt` đã xuất blueprint string của cặp máy khoan → lò trong bài thử engine trên bản sao save Sandbox; chưa nhập string này trở lại map live. Xem `MCP.md`.
+Trạng thái: đã có lệnh `blueprint-export` và `blueprint-import` (xây trực tiếp bằng vật tư thật hoặc đặt ghost với `--ghosts`). Executor xuất blueprint string của mọi job `exec-N` vào `script-output/executor/`. Xem `MCP.md`.
 
 Đầu ra cần bàn giao là **blueprint string nhập được trực tiếp vào Factorio**, xây dần trong quá trình chơi. Mỗi blueprint dùng tọa độ tương đối và có thể xoay/đặt lại trên map mới. Bridge đọc map, spec và recipe để chọn chỗ đặt; không mang tọa độ, kho, mỏ hay sản lượng của save cũ.
 
@@ -88,8 +88,8 @@ thả vào rương phía đông.
 
 CLI/MCP ghi `blueprints/catalog/bp-<hash>.json` sau mỗi lần nhập blueprint
 trực tiếp thành công. `blueprint-export` cũng ghi mẫu ở trạng thái `captured`;
-`starter-status`, `coal-status` hoặc `smelt-status` nâng thành `verified` khi
-audit trong game đạt. File chứa blueprint string native, số entity, vật tư đã
+`blueprint-job` (MCP `report(exec-N)`) nâng thành `verified` khi audit trong
+game đạt và layout tự duy trì. File chứa blueprint string native, số entity, vật tư đã
 trừ nếu biết và bằng chứng audit; hash loại trùng cùng một mẫu. Tọa độ map
 thuộc biên nhận lần xây, không đưa vào mẫu tái dùng.
 

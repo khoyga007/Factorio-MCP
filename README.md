@@ -17,8 +17,7 @@ factorio_goal_mcp.py ── blueprint_library.py (catalog, encode thiết kế �
 Mod factorio-ai-bridge (Lua, chạy trong game)
    ├─ control.lua   cổng action, kho vật tư, research
    ├─ executor.lua  executor blueprint dùng chung: tìm chỗ → gom/craft đồ → xây → nạp → audit
-   ├─ field.lua     tìm chỗ đặt bơm nước, thu hồi công trình
-   └─ starter / coal / smelting.lua  goal khởi đầu (legacy)
+   └─ field.lua     tìm chỗ đặt bơm nước, thu hồi công trình
 ```
 
 **Agent thiết kế, tool thực thi.** Agent tự tính layout (kích thước máy, vùng đào, tầm inserter, tỉ lệ) và khai báo một *contract*: cách tìm chỗ, yêu cầu mỏ, điện/nước, đồ nạp ban đầu, và chỉ số nghiệm thu. Executor kiểm tra, xây, rồi chạy **holdout audit**: đo theo từng cửa sổ thời gian, và window cuối phải đạt. Chỉ layout **tự duy trì** (window cuối không cần executor tiếp liệu) mới được lên `verified` trong catalog.
@@ -47,7 +46,7 @@ Yêu cầu: Factorio 2.0.77, Python ≥ 3.11, gói `mcp` ≥ 1.27.1.
 | Tool | Dùng để |
 |---|---|
 | `observe(view=…)` | `situation` · `deposits` (mỏ) · `nearby` (1 lần gọi: lỗi lên đầu, máy, đoạn belt/ống gộp, cột điện) · `entities` (dữ liệu thô, debug) · `water` (chỗ đặt bơm) · `research` (tiến độ, hàng chờ, lab) · `patterns` (catalog, `pattern_id` để xem layout) |
-| `achieve(goal=…)` | `build_design` (layout agent tự thiết kế) · `reuse_blueprint` (mẫu trong catalog) · `capture` (chụp vùng đã xây vào catalog) · `recall` (thu hồi công trình về túi) · `research` · goal khởi đầu `first_iron_plates` / `first_copper_plates` / `coal_stockpile` / `iron_smelting_row`. Có `dry_run` để xem trước. |
+| `achieve(goal=…)` | `build_design` (layout agent tự thiết kế) · `reuse_blueprint` (mẫu trong catalog) · `capture` (chụp vùng đã xây vào catalog) · `recall` (thu hồi công trình về túi) · `research` · `annotate` (ghi ý đồ vào ledger). Có `dry_run` để xem trước. |
 | `report(job_id)` | Trạng thái job `exec-N`: vị trí, vật tư, từng window audit, `self_sustaining` |
 
 Ví dụ minh họa cú pháp: 1 khoan than quay mặt về Bắc, đổ than vào rương ngay phía trên (layout lấy từ `tests/designs/coal-drill-chest.json`, đã test trong engine).

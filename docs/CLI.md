@@ -44,23 +44,12 @@ python E:\FactorioMayor\factorio_ai.py index
 python E:\FactorioMayor\factorio_ai.py ore-marks --name iron-ore
 ```
 
-Khai cuộc trên map có máy khoan đốt nhiên liệu, lò đá và 1 gỗ: planner tự lấy
-than thật, ghép máy khoan nhả thẳng vào lò, rồi đo plate đầu ra. Không cần
-belt, inserter, điện hay robot. Nếu thiếu đồ/mỏ/vị trí thì trả blocker và không
-xây. Dùng `--dry-run` để chỉ xem phương án.
-
-```powershell
-python E:\FactorioMayor\factorio_ai.py starter-smelt iron-plate
-python E:\FactorioMayor\factorio_ai.py starter-status starter-1  # thay bằng job_id vừa nhận
-```
-
-MCP dùng `achieve(goal="first_iron_plates")` và `report(job_id)`; xem [MCP.md](../MCP.md). Blueprint
-cặp máy được lưu trong `script-output/starter/` khi xây thành công.
-
-Nguồn than đầu game: `achieve(goal="coal_stockpile")` dùng 1 khoan đốt nhiên liệu,
-1 rương gỗ và 1 gỗ/than thật để tạo ô khai thác than có cấp nhiên liệu lại từ
-rương kề bên. `report(job_id)` đo than tăng và blueprint nằm trong
-`script-output/coal/`. Luồng CLI tương ứng là `coal-stockpile` và `coal-status`.
+Khai cuộc và mọi layout khác đi qua executor dùng chung: agent khai `design` +
+`contract`, hoặc dùng lại mẫu đã lưu. Xem [CONTRACT.md](../CONTRACT.md) và
+[MCP.md](../MCP.md). Ô than đầu game = `reuse_blueprint(pattern_id="bp-f30d8a84af3098ee")`;
+receipt + blueprint nằm trong `script-output/executor/`.
+(20/09: `starter-smelt`/`starter-status`/`coal-stockpile`/`coal-status`/`smelt-*` đã bị gỡ
+cùng 3 planner Lua hard-code. CLI tương ứng bây giờ là `blueprint-run` + `blueprint-job`.)
 
 Để thử xây thật, đặt một rương, bỏ vật phẩm xây dựng vào đó, rồi dùng tọa độ rương:
 
@@ -111,24 +100,6 @@ còn lại được dọn. Chế độ trực tiếp giới hạn 64 entity mỗ
 cũng nhập được bằng nút Import string của Factorio.
 Hai action này đã kiểm thử trong engine bằng save tách biệt; xem [MCP.md](../MCP.md)
 cho build hiện tại và cách gọi trực tiếp bằng MCP.
-
-Nung sắt: `smelt-plan` tính một dãy lò đá (tối đa 6 lò) đủ chạm mức đĩa/phút yêu
-cầu, tìm chỗ đặt + hướng, nối một nhánh belt cấp liệu tới belt quặng–than gần
-nhất, rồi trả kế hoạch ngắn: số lò, vật tư còn thiếu, vị trí, nguồn cấp và cách đo
-sản lượng. Thiếu điện hoặc nguồn cấp thì kế hoạch báo rõ; đặt đủ máy chưa được
-coi là dây chuyền đã chạy.
-
-```powershell
-python E:\FactorioMayor\factorio_ai.py smelt-plan 60 --x 10 --y -28
-python E:\FactorioMayor\factorio_ai.py smelt-build smelt-1
-python E:\FactorioMayor\factorio_ai.py smelt-status smelt-1
-```
-
-`smelt-plan` tự tìm chỗ nếu không truyền `--x/--y`; `--input-x/--input-y` chỉ vị
-trí belt cấp liệu. `smelt-build` kiểm tra lại công nghệ, vị trí và vật tư rồi mới
-xây, trừ vật tư thật có receipt và xuất blueprint; site đã đổi hoặc thiếu vật tư
-thì từ chối trước khi đặt gì. `smelt-status` đọc audit sau khi chạy ổn định (khoảng
-30 giây khởi động + 60 giây đo trong game): sản lượng so với mục tiêu và trạng thái từng lò.
 
 - `snapshot --tiles` mặc định liệt kê mọi ô mà offshore pump hút được, suy ra từ
   `LuaTilePrototype.fluid` lúc chạy nên không sót biến thể nước của mod.

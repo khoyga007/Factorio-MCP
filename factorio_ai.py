@@ -212,37 +212,6 @@ def parser() -> argparse.ArgumentParser:
     recall.add_argument("--dry-run", action="store_true")
     recall.add_argument("--force-active", action="store_true")
 
-    smelt = commands.add_parser("smelt-plan", help="size, site and preflight one reusable iron-smelting row")
-    smelt.add_argument("rate", type=float, help="target iron plates per minute")
-    smelt.add_argument("--surface", default="nauvis")
-    smelt.add_argument("--force", default="player")
-    smelt.add_argument("--x", type=float)
-    smelt.add_argument("--y", type=float)
-    smelt.add_argument("--input-x", type=float)
-    smelt.add_argument("--input-y", type=float)
-    smelt_build = commands.add_parser("smelt-build")
-    smelt_build.add_argument("plan_id")
-    smelt_status = commands.add_parser("smelt-status")
-    smelt_status.add_argument("plan_id")
-    starter = commands.add_parser("starter-smelt", help="bootstrap real coal, then feed a stone furnace from one burner drill")
-    starter.add_argument("product", choices=("iron-plate", "copper-plate"), nargs="?", default="iron-plate")
-    starter.add_argument("--x", type=float)
-    starter.add_argument("--y", type=float)
-    starter.add_argument("--radius", type=float, default=192)
-    starter.add_argument("--surface", default="nauvis")
-    starter.add_argument("--force", default="player")
-    starter.add_argument("--dry-run", action="store_true")
-    starter_status = commands.add_parser("starter-status")
-    starter_status.add_argument("job_id")
-    coal = commands.add_parser("coal-stockpile", help="build one real-coal burner drill and chest cell")
-    coal.add_argument("--x", type=float)
-    coal.add_argument("--y", type=float)
-    coal.add_argument("--radius", type=float, default=192)
-    coal.add_argument("--surface", default="nauvis")
-    coal.add_argument("--force", default="player")
-    coal.add_argument("--dry-run", action="store_true")
-    coal_status = commands.add_parser("coal-status")
-    coal_status.add_argument("job_id")
     repair = commands.add_parser("repair-demo-economy", help="one-time Sandbox coal-demo ingredient correction")
     repair.add_argument("key")
     return root
@@ -403,44 +372,6 @@ def command_body(args: argparse.Namespace) -> dict[str, Any]:
     if args.command == "recall":
         return {"action": "recall", "x1": args.x1, "y1": args.y1, "x2": args.x2, "y2": args.y2,
                 "surface": args.surface, "dry_run": args.dry_run, "force_active": args.force_active}
-    if args.command == "smelt-plan":
-        body = {"action": "smelt_plan", "rate": args.rate,
-                "surface": args.surface, "force": args.force}
-        for x_key, y_key in (("x", "y"), ("input_x", "input_y")):
-            x_value, y_value = getattr(args, x_key), getattr(args, y_key)
-            if (x_value is None) != (y_value is None):
-                raise ValueError(f"{x_key} and {y_key} must be supplied together")
-            if x_value is not None:
-                body[x_key], body[y_key] = x_value, y_value
-        return body
-    if args.command == "smelt-build":
-        return {"action": "smelt_build", "plan_id": args.plan_id}
-    if args.command == "smelt-status":
-        return {"action": "smelt_status", "plan_id": args.plan_id}
-    if args.command == "starter-smelt":
-        if (args.x is None) != (args.y is None):
-            raise ValueError("x and y must be supplied together")
-        body = {"action": "starter_smelt", "product": args.product,
-                "radius": args.radius, "surface": args.surface, "force": args.force}
-        if args.x is not None:
-            body.update(x=args.x, y=args.y)
-        if args.dry_run:
-            body["dry_run"] = True
-        return body
-    if args.command == "starter-status":
-        return {"action": "starter_status", "job_id": args.job_id}
-    if args.command == "coal-stockpile":
-        if (args.x is None) != (args.y is None):
-            raise ValueError("x and y must be supplied together")
-        body = {"action": "coal_stockpile", "radius": args.radius,
-                "surface": args.surface, "force": args.force}
-        if args.x is not None:
-            body.update(x=args.x, y=args.y)
-        if args.dry_run:
-            body["dry_run"] = True
-        return body
-    if args.command == "coal-status":
-        return {"action": "coal_status", "job_id": args.job_id}
     if args.command == "repair-demo-economy":
         return {"action": "repair_demo_economy", "key": args.key}
     if args.command == "place":
@@ -469,7 +400,7 @@ def execute(args: argparse.Namespace) -> dict[str, Any]:
     # on the live save 2026-09-17: a cold build takes ~4.1 s, so the 1.0 s x3
     # window expired first and every cold ore-marks call reported "did not answer"
     # while the engine was healthy and answering ping/index.
-    timeout = 15.0 if args.command in {"smelt-plan", "smelt-build", "starter-smelt", "coal-stockpile", "index", "ore-marks", "blueprint-run"} else 1.0
+    timeout = 15.0 if args.command in {"index", "ore-marks", "blueprint-run"} else 1.0
     body = command_body(args)
     reply = request(body, host=args.host, port=args.port, timeout=timeout)
     if args.command == "audit" and reply.get("ok"):
@@ -495,7 +426,7 @@ def execute(args: argparse.Namespace) -> dict[str, Any]:
                                                   materials=reply.get("spent"))
         except (OSError, ValueError, KeyError, json.JSONDecodeError) as exc:
             reply["catalog_error"] = str(exc)
-    if args.command in {"starter-status", "coal-status", "smelt-status", "blueprint-job"} \
+    if args.command == "blueprint-job" \
        and reply.get("ok") and reply.get("state") == "verified" \
        and (reply.get("audit") or {}).get("status") == "passed" \
        and reply.get("artifact"):

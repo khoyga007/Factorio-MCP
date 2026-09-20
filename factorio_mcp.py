@@ -27,8 +27,7 @@ mcp = FastMCP(
     "factorio-engineer",
     instructions=(
         "Use brief for orientation; use index/ore_marks for known deposits. "
-        "For the first iron/copper plates use starter_smelt -> starter_status. "
-        "For a larger iron row use smelt_plan -> smelt_build -> smelt_status. "
+        "Layouts are built through blueprint_run -> blueprint_job (agent-declared contract). "
         "Plans, blueprints and detailed build receipts stay outside model context. "
         "The mod checks live collisions, technology and real item costs. "
         "After a mutation timeout, inspect the world or plan status before retrying."
@@ -116,58 +115,6 @@ def spec(kind: Literal["entity", "item", "recipe"], name: str | None = None,
     return invoke("spec", **locals())
 
 
-@mcp.tool(annotations=WRITE)
-def smelt_plan(rate: Annotated[float, Field(gt=0, allow_inf_nan=False)],
-               x: FiniteFloat | None = None, y: FiniteFloat | None = None,
-               input_x: FiniteFloat | None = None, input_y: FiniteFloat | None = None,
-               surface: str = "nauvis", force: str = "player") -> CallToolResult:
-    """Plan a 1–6 furnace iron row for plates/minute. Returns plan_id, site and material/connection needs."""
-    return invoke("smelt-plan", **locals())
-
-
-@mcp.tool(annotations=WRITE)
-def smelt_build(plan_id: str) -> CallToolResult:
-    """Revalidate and build the saved row with real items; save blueprint/receipts and start its audit."""
-    return invoke("smelt-build", **locals())
-
-
-@mcp.tool(annotations=READ)
-def smelt_status(plan_id: str) -> CallToolResult:
-    """Read one row's state and measured production. Audit finishes after 30s warmup + 60 game seconds."""
-    return invoke("smelt-status", **locals())
-
-
-@mcp.tool(annotations=WRITE)
-def starter_smelt(product: Literal["iron-plate", "copper-plate"] = "iron-plate",
-                  x: FiniteFloat | None = None, y: FiniteFloat | None = None,
-                  radius: Annotated[float, Field(ge=4, le=256, allow_inf_nan=False)] = 192,
-                  surface: str = "nauvis", force: str = "player",
-                  dry_run: bool = False) -> CallToolResult:
-    """One starter goal: mine real coal with starting wood, then direct-feed a stone furnace; no belts or power."""
-    return invoke("starter-smelt", **locals())
-
-
-@mcp.tool(annotations=READ)
-def starter_status(job_id: str) -> CallToolResult:
-    """Read coal/bootstrap/build/audit progress for one starter goal."""
-    return invoke("starter-status", **locals())
-
-
-@mcp.tool(annotations=WRITE)
-def coal_stockpile(x: FiniteFloat | None = None, y: FiniteFloat | None = None,
-                   radius: Annotated[float, Field(ge=4, le=256, allow_inf_nan=False)] = 192,
-                   surface: str = "nauvis", force: str = "player",
-                   dry_run: bool = False) -> CallToolResult:
-    """Build or reuse a burner drill dropping mined coal into an adjacent chest."""
-    return invoke("coal-stockpile", **locals())
-
-
-@mcp.tool(annotations=READ)
-def coal_status(job_id: str) -> CallToolResult:
-    """Read measured coal output and saved receipt for one stockpile cell."""
-    return invoke("coal-status", **locals())
-
-
 @mcp.tool(annotations=REMOVE)
 def repair_demo_economy(key: str) -> CallToolResult:
     """One-time exact ingredient correction for the Sandbox coal demo."""
@@ -237,7 +184,7 @@ def research(name: str | None = None, start: bool = False, force: str = "player"
 def audit(item: str, precision: Literal["five_seconds", "one_minute", "ten_minutes", "one_hour"] = "one_minute",
           expected_per_second: FiniteFloat | None = None, surface: str = "nauvis",
           force: str = "player") -> CallToolResult:
-    """Read force-wide item production. Use smelt_status to attribute output to one row."""
+    """Read force-wide item production. Use blueprint_job to attribute output to one job."""
     return invoke("audit", **locals())
 
 

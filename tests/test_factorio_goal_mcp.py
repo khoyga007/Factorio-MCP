@@ -33,28 +33,6 @@ class GoalMCPTest(unittest.IsolatedAsyncioTestCase):
                 elif action == "snapshot":
                     reply.update(entities=[{"name": "stone-furnace", "x": 0, "y": 0,
                                             "status_name": "working"}], entities_total=1)
-                elif action == "starter_smelt":
-                    reply.update(state="auditing", job_id="starter-3", product=body["product"],
-                                 existing=True, output=2)
-                elif action == "starter_status":
-                    reply.update(state="verified", audit={"status": "passed", "products": 7})
-                elif action == "coal_stockpile":
-                    reply.update(state="auditing", job_id="coal-3", coal=2,
-                                 site={"drill": {"x": 0, "y": 0}})
-                elif action == "coal_status":
-                    reply.update(state="verified", coal=8,
-                                 audit={"status": "passed", "coal_gained": 6})
-                elif action == "smelt_plan":
-                    reply.update(plan_id="smelt-2", furnaces=3, missing={}, locked={},
-                                 connections={"input": "planned-connection",
-                                              "supply_observed": True,
-                                              "electricity": "pole-in-reach"})
-                    if body["rate"] == 999:
-                        reply["connections"]["electricity"] = "needs-power"
-                elif action == "smelt_build":
-                    reply.update(state="auditing", placed=28, artifact="smelting/smelt-2")
-                elif action == "smelt_status":
-                    reply.update(state="verified", audit={"status": "passed"})
                 elif action == "blueprint_run":
                     reply.update(state="planned" if body.get("dry_run") else "preparing",
                                  site_validated=True, job_id=None if body.get("dry_run") else "exec-1",
@@ -168,37 +146,17 @@ class GoalMCPTest(unittest.IsolatedAsyncioTestCase):
                             p = await call("achieve", {"goal": "capture", "area": [0, 0, 9, 9]}, ["blueprint_export"])
                             self.assertEqual((pattern_id, "built"), (p["pattern_id"], p["state"]))
                             self.assertEqual(10, len(p["layout"]))
-                            p = await call("achieve", {"goal": "first_iron_plates"}, ["starter_smelt"])
-                            self.assertEqual("starter-3", p["job_id"])
-                            self.assertTrue(p["existing"])
-                            p = await call("report", {"job_id": "starter-3"}, ["starter_status"])
-                            self.assertEqual(7, p["audit"]["products"])
-                            p = await call("achieve", {"goal": "coal_stockpile"}, ["coal_stockpile"])
-                            self.assertEqual("coal-3", p["job_id"])
-                            p = await call("report", {"job_id": "coal-3"}, ["coal_status"])
-                            self.assertEqual(6, p["audit"]["coal_gained"])
-                            p = await call("achieve", {"goal": "iron_smelting_row",
-                                                       "target_per_minute": 60},
-                                           ["smelt_plan", "smelt_build"])
-                            self.assertEqual("auditing", p["state"])
-                            p = await call("report", {"job_id": "smelt-2"}, ["smelt_status"])
-                            self.assertEqual("verified", p["state"])
-                            p = await call("achieve", {"goal": "iron_smelting_row",
-                                                       "target_per_minute": 999}, ["smelt_plan"])
-                            self.assertEqual("blocked", p["state"])
-                            self.assertIn("power", p["blockers"])
                             for name, args in [
-                                ("achieve", {"goal": "iron_smelting_row"}),
-                                ("achieve", {"goal": "first_iron_plates", "x": 1}),
                                 ("achieve", {"goal": "unknown-goal"}),
+                                ("achieve", {"goal": "reuse_blueprint", "x": 1}),
+                                ("achieve", {"goal": "reuse_blueprint", "area": [0, 0, 1, 1]}),
                                 ("achieve", {"goal": "build_design"}),
                                 ("observe", {"view": "nearby", "radius": 100}),
                                 ("achieve", {"goal": "research"}),
                                 ("achieve", {"goal": "capture"}),
-                                ("achieve", {"goal": "coal_stockpile", "tech": "automation"}),
+                                ("achieve", {"goal": "capture", "tech": "automation"}),
                                 ("achieve", {"goal": "recall"}),
                                 ("achieve", {"goal": "recall", "area": [0, 0, 4]}),
-                                ("achieve", {"goal": "first_iron_plates", "area": [0, 0, 1, 1]}),
                                 ("achieve", {"goal": "build_design", "design": [{"name": "x", "x": 0.3, "y": 0}]}),
                                 ("achieve", {"goal": "reuse_blueprint", "pattern_id": pattern_id,
                                              "design": [{"name": "x", "x": 0, "y": 0}]}),

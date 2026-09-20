@@ -149,24 +149,20 @@ def _nearby(surface, x, y, radius) -> CallToolResult:
 
 @mcp.tool(annotations=WRITE)
 def achieve(goal: str,
-            target_per_minute: Annotated[float, Field(gt=0, allow_inf_nan=False)] | None = None,
             x: FiniteFloat | None = None, y: FiniteFloat | None = None,
             radius: Annotated[float, Field(ge=4, le=256, allow_inf_nan=False)] = 192,
-            input_x: FiniteFloat | None = None, input_y: FiniteFloat | None = None,
             surface: str = "nauvis", force: str = "player",
             dry_run: bool = False, pattern_id: str | None = None,
             contract: dict | None = None, design: list[dict] | None = None,
             area: list[float] | None = None, force_active: bool = False,
             tech: str | None = None) -> CallToolResult:
-    """Goals: first_iron_plates, first_copper_plates, coal_stockpile, iron_smelting_row,
-    reuse_blueprint(pattern_id), build_design(design=[{name,x,y,direction?}] centers, dir 0N 4E 8S
-    12W), recall(area=[x1,y1,x2,y2] or design=[{name,x,y}]; own entities+contents to bag;
-    force_active overrides live job), capture(area -> catalog), research(tech; queued if busy),
-    annotate(contract.block; new block needs area). contract: CONTRACT.md."""
-    if (x is None) != (y is None) or (input_x is None) != (input_y is None):
+    """Goals: reuse_blueprint(pattern_id), build_design(design=[{name,x,y,direction?}] centers,
+    dir 0N 4E 8S 12W), recall(area=[x1,y1,x2,y2] or design=[{name,x,y}]; own entities+contents to
+    bag; force_active overrides live job), capture(area -> catalog), research(tech; queued if
+    busy), annotate(contract.block; new block needs area). contract: CONTRACT.md."""
+    if (x is None) != (y is None):
         return _result({"ok": False, "error": "coordinate-pairs-required"}, True)
-    if goal not in {"first_iron_plates", "first_copper_plates", "coal_stockpile",
-                    "iron_smelting_row", "reuse_blueprint", "build_design", "recall",
+    if goal not in {"reuse_blueprint", "build_design", "recall",
                     "capture", "research", "annotate"}:
         return _result({"ok": False, "error": "unknown-goal"}, True)
     if (tech is not None) != (goal == "research"):
@@ -199,7 +195,7 @@ def achieve(goal: str,
         return _result({"ok": True, "goal": goal, **saved,
                         "layout": pattern_entities(p["blueprint"])})
     if goal == "recall":
-        if pattern_id or contract or target_per_minute is not None or x is not None or input_x is not None:
+        if pattern_id or contract or x is not None:
             return _result({"ok": False, "error": "recall-takes-area-or-design-only"}, True)
         body = {"action": "recall", "surface": surface, "force": force,
                 "dry_run": dry_run, "force_active": force_active}
@@ -214,9 +210,6 @@ def achieve(goal: str,
         return _send(body, 15)
     if area is not None or force_active:
         return _result({"ok": False, "error": "area-only-for-recall-or-capture"}, True)
-    if goal in {"reuse_blueprint", "build_design"} and (
-            target_per_minute is not None or input_x is not None):
-        return _result({"ok": False, "error": "blueprint-goal-does-not-use-rate-or-input"}, True)
     if (design is not None) != (goal == "build_design"):
         return _result({"ok": False, "error": "design-only-for-build-design"}, True)
     if goal == "build_design":
@@ -255,78 +248,20 @@ def achieve(goal: str,
                                   "missing", "locked", "steps", "rejects", "checks", "unconnected",
                                   "placed_at", "error")},
                        not p.get("ok", False))
-    if pattern_id is not None:
-        return _result({"ok": False, "error": "pattern-id-only-for-reuse"}, True)
-    if goal == "coal_stockpile":
-        if target_per_minute is not None or input_x is not None:
-            return _result({"ok": False, "error": "coal-goal-does-not-use-rate-or-input"}, True)
-        p = _read(invoke("coal-stockpile", x=x, y=y, radius=radius,
-                         surface=surface, force=force, dry_run=dry_run))
-        return _result({"ok": p.get("ok", False), "goal": goal,
-                        **_fields(p, "state", "job_id", "site", "existing", "fuel",
-                                  "coal", "refuels", "missing", "audit", "artifact", "error")},
-                       not p.get("ok", False))
-    if goal != "iron_smelting_row":
-        if target_per_minute is not None or input_x is not None:
-            return _result({"ok": False, "error": "starter-goal-does-not-use-rate-or-input"}, True)
-        product = "iron-plate" if goal == "first_iron_plates" else "copper-plate"
-        p = _read(invoke("starter-smelt", product=product, x=x, y=y,
-                         radius=radius, surface=surface, force=force, dry_run=dry_run))
-        return _result({"ok": p.get("ok", False), "goal": goal,
-                        **_fields(p, "state", "job_id", "product", "existing", "output",
-                                  "iron_or_copper_site", "coal_site", "materials", "missing",
-                                  "fuel_needed", "audit", "artifact", "error")},
-                       not p.get("ok", False))
-    if target_per_minute is None:
-        return _result({"ok": False, "error": "target-per-minute-required"}, True)
-    p = _read(invoke("smelt-plan", rate=target_per_minute, x=x, y=y,
-                     input_x=input_x, input_y=input_y, surface=surface, force=force))
-    if not p.get("ok", False):
-        return _result({"ok": False, "goal": goal, **_fields(p, "error", "candidates")}, True)
-    connections = p.get("connections") or {}
-    blockers = []
-    if p.get("missing"):
-        blockers.append("materials")
-    if p.get("locked"):
-        blockers.append("technology")
-    if connections.get("input") != "planned-connection" or not connections.get("supply_observed"):
-        blockers.append("ore-coal-feed")
-    if connections.get("electricity") != "pole-in-reach":
-        blockers.append("power")
-    if dry_run or blockers:
-        return _result({"ok": True, "goal": goal,
-                        "state": "blocked" if blockers else "planned",
-                        "job_id": p.get("plan_id"), "blockers": blockers,
-                        **_fields(p, "origin", "furnaces", "target_per_minute", "materials",
-                                  "missing", "locked", "connections")})
-    built = _read(invoke("smelt-build", plan_id=p["plan_id"]))
-    return _result({"ok": built.get("ok", False), "goal": goal,
-                    "job_id": p["plan_id"], **_fields(built, "state", "placed", "furnaces",
-                                                       "connections", "missing", "locked", "audit",
-                                                       "artifact", "error")},
-                   not built.get("ok", False))
-
 
 @mcp.tool(annotations=READ)
 def report(job_id: str) -> CallToolResult:
     """One goal's audit, progress, blocker, block and artifact path."""
-    if job_id.startswith("starter-"):
-        p = _read(invoke("starter-status", job_id=job_id))
-    elif job_id.startswith("exec-"):
-        p = _read(invoke("blueprint-job", job_id=job_id))
-    elif job_id.startswith("coal-"):
-        p = _read(invoke("coal-status", job_id=job_id))
-    elif job_id.startswith("smelt-"):
-        p = _read(invoke("smelt-status", plan_id=job_id))
-    else:
+    if not job_id.startswith("exec-"):
         return _result({"ok": False, "error": "unknown-job-id"}, True)
+    p = _read(invoke("blueprint-job", job_id=job_id))
     extra = {}
-    if job_id.startswith("exec-") and p.get("audit"):
+    if p.get("audit"):
         extra["self_sustaining"] = self_sustaining(p["audit"])
     return _result({"ok": p.get("ok", False), "job_id": job_id, **extra,
-                    "pattern_id": (p.get("pattern") or {}).get("pattern_id"),
-                    **_fields(p, "state", "product", "existing", "output", "coal", "refuels", "site", "placed", "feed",
-                              "missing", "locked", "connections", "audit", "cleared", "placed_at",
+                    "pattern_id": p.get("pattern_id") or (p.get("pattern") or {}).get("pattern_id"),
+                    **_fields(p, "state", "site", "step", "steps", "placed", "materials", "feed",
+                              "missing", "audit", "cleared", "placed_at",
                               "block", "error", "artifact")},
                    not p.get("ok", False))
 

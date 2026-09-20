@@ -9,28 +9,6 @@ from factorio_ai import command_body, parser, request
 
 
 class BridgeClientTest(unittest.TestCase):
-    def test_starter_goal_and_status_commands(self):
-        args = parser().parse_args(["starter-smelt", "copper-plate", "--x", "0", "--y", "20"])
-        self.assertEqual({"action": "starter_smelt", "product": "copper-plate",
-                          "x": 0.0, "y": 20.0, "radius": 192.0,
-                          "surface": "nauvis", "force": "player"}, command_body(args))
-        self.assertEqual({"action": "starter_status", "job_id": "starter-1"},
-                         command_body(parser().parse_args(["starter-status", "starter-1"])))
-        with self.assertRaises(ValueError):
-            command_body(parser().parse_args(["starter-smelt", "--x", "10"]))
-
-    def test_smelting_commands_and_coordinate_pairs(self):
-        body = command_body(parser().parse_args(["smelt-plan", "30", "--x", "8", "--y", "12",
-                                                "--input-x", "2.5", "--input-y", "9.5"]))
-        self.assertEqual({"action": "smelt_plan", "rate": 30.0, "surface": "nauvis", "force": "player",
-                          "x": 8.0, "y": 12.0, "input_x": 2.5, "input_y": 9.5}, body)
-        for arguments in (["smelt-plan", "30", "--x", "8"], ["smelt-plan", "30", "--input-y", "9"]):
-            with self.assertRaises(ValueError):
-                command_body(parser().parse_args(arguments))
-        for command in ("smelt-build", "smelt-status"):
-            self.assertEqual({"action": command.replace("-", "_"), "plan_id": "smelt-1"},
-                             command_body(parser().parse_args([command, "smelt-1"])))
-
     def test_ore_marks_command(self):
         args = parser().parse_args(["ore-marks", "--name", "iron-ore", "--offset", "50"])
         self.assertEqual(

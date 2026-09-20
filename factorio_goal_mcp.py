@@ -356,7 +356,7 @@ area), set_recipe(design=[{x,y,recipe}]; empty assemblers)."""
         return _result({"ok": p.get("ok", False), "goal": goal, "pattern_id": pattern_id,
                         **_fields(p, "job_id", "state", "site", "site_validated", "materials",
                                   "missing", "locked", "steps", "rejects", "checks", "unconnected",
-                                  "placed_at", "error")},
+                                  "plan", "error")},
                        not p.get("ok", False))
 
 @mcp.tool(annotations=READ)
@@ -375,7 +375,7 @@ def report(job_id: str, resume: bool = False) -> CallToolResult:
     return _result({"ok": p.get("ok", False), "job_id": job_id, **extra,
                     "pattern_id": p.get("pattern_id") or (p.get("pattern") or {}).get("pattern_id"),
                     **_fields(p, "state", "site", "step", "steps", "placed", "materials", "feed",
-                              "missing", "audit", "cleared", "placed_at",
+                              "missing", "audit", "cleared", "plan", "placed_at",
                               "block", "error", "artifact")},
                    not p.get("ok", False))
 

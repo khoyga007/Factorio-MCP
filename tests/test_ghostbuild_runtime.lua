@@ -27,14 +27,15 @@ return function(handlers,state,bp)
         -- A blueprint bigger than the old hand-cut limit is now one paste.
         local big=call("blueprint_run",{blueprint=bp.wide,surface=surface.name,x=0,y=20,
           contract=CONTRACT,dry_run=true})
-        check(big.ok and big.state=="planned" and #big.placed_at==70,
+        check(big.ok and big.state=="planned" and big.plan.count==70 and not big.placed_at,
           "over-64-entities-accepted:"..tostring(big.state)..":"..tostring(big.error))
 
         -- maintainer's own starter base is 508 entities: past the old 500 cap, so a real
         -- blueprint of that size has to plan in one piece, not in hand-cut halves.
         local huge=call("blueprint_run",{blueprint=bp.huge,surface=surface.name,x=0,y=-30,
           contract=CONTRACT,dry_run=true})
-        check(huge.ok and huge.state=="planned" and #huge.placed_at==520,
+        check(huge.ok and huge.state=="planned" and huge.plan.count==520
+          and huge.plan.entities["transport-belt"]==520,
           "over-500-entities-accepted:"..tostring(huge.state)..":"..tostring(huge.error))
 
         -- A character standing on the site used to refuse the whole plan. It is the one
@@ -146,6 +147,13 @@ return function(handlers,state,bp)
           "already-standing-is-not-built:"..tostring(s3.built)..":"..tostring(s3.existing)
           ..":"..tostring(s3.state))
         check(s3.step<=s3.steps,"step-never-past-the-last-one:"..tostring(s3.step).."/"..tostring(s3.steps))
+        -- Every poll used to repeat one row per entity. The digest says the same thing,
+        -- and the rows are still one flag away.
+        check(not s3.placed_at and s3.plan and s3.plan.count==4 and s3.plan.bbox,
+          "report-is-a-digest-not-a-row-per-entity:"..helpers.table_to_json(s3.plan or {}))
+        local full=call("blueprint_job",{job_id=job3.job_id,detail=true})
+        check(full.placed_at and #full.placed_at==4 and full.plan.count==4,
+          "detail-still-returns-the-rows:"..tostring(full.placed_at and #full.placed_at))
         result.ok=true done=true
       end
     end)

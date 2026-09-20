@@ -31,7 +31,11 @@ return function(handlers,state,blueprint,contract_json)
       end
       result.status=status
       check(status.state=="verified" and status.audit.status=="passed","holdout-passed:"..helpers.table_to_json(status))
-      check(surface.count_entities_filtered{force="player"}==4,"four-entities")
+      -- force="player" also counts the player's own character when the save has one, so
+      -- name what the job built instead of counting everything standing on the surface.
+      local built=surface.count_entities_filtered{force="player",
+        name={"burner-mining-drill","wooden-chest"}}
+      check(built==4,"four-entities:"..tostring(built))
       result.ok,done=true,true
     end)
     if not ok then result.error,done=tostring(err),true end

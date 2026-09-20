@@ -189,10 +189,14 @@ def parser() -> argparse.ArgumentParser:
     bp_run.add_argument("--surface", default="nauvis")
     bp_run.add_argument("--force", default="player")
     bp_run.add_argument("--dry-run", action="store_true")
+    bp_run.add_argument("--detail", action="store_true",
+                        help="one row per entity instead of the plan digest")
     bp_job = commands.add_parser("blueprint-job")
     bp_job.add_argument("job_id")
     bp_job.add_argument("--resume", action="store_true",
                         help="restart a needs-attention job that is already built")
+    bp_job.add_argument("--detail", action="store_true",
+                        help="one row per entity instead of the plan digest")
     commands.add_parser("ledger")
     note = commands.add_parser("ledger-note")
     note.add_argument("block", help="JSON {id?,name,role,feeds,eats,notes}")
@@ -354,11 +358,15 @@ def command_body(args: argparse.Namespace) -> dict[str, Any]:
             body.update(x=args.x, y=args.y)
         if args.dry_run:
             body["dry_run"] = True
+        if getattr(args, "detail", False):
+            body["detail"] = True
         return body
     if args.command == "blueprint-job":
         body = {"action": "blueprint_job", "job_id": args.job_id}
         if getattr(args, "resume", False):
             body["resume"] = True
+        if getattr(args, "detail", False):
+            body["detail"] = True
         return body
     if args.command == "ledger":
         return {"action": "ledger"}

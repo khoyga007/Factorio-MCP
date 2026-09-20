@@ -336,6 +336,20 @@ local function placed_at(layout)
   return out
 end
 
+-- One row per entity is the right thing to WRITE (the receipt on disk keeps it) and the
+-- wrong thing to READ: a 508-entity job spends ~15800 characters repeating the same belt
+-- coordinates on every poll, and the reader only ever needs the counts and the footprint.
+-- `detail=true` still returns the rows for a caller that wants them.
+local function layout_digest(layout)
+  if not layout or #layout==0 then return nil end
+  local names,x1,y1,x2,y2={},math.huge,math.huge,-math.huge,-math.huge
+  for _,e in ipairs(layout) do
+    names[e.name]=(names[e.name] or 0)+1
+    x1=math.min(x1,e.x) y1=math.min(y1,e.y) x2=math.max(x2,e.x) y2=math.max(y2,e.y)
+  end
+  return {count=#layout,entities=names,bbox={x1,y1,x2,y2}}
+end
+
 local function check_site(surface,force,c,placed,rejects)
   local function no(reason) rejects[reason]=(rejects[reason] or 0)+1 return false end
   local fed  -- layout poles that reach a live grid, computed once and only if power matters
@@ -565,7 +579,7 @@ function M.attach(ctx)
   local function jobs()
     local s=ctx.state() s.executor_jobs=s.executor_jobs or {} return s.executor_jobs
   end
-  local function summary(j)
+  local function summary(j,detail)
     return {job_id=j.id,state=j.state,pattern_id=j.pattern_id,site=j.site,
       step=math.min(j.step,#(j.steps or {})),steps=#(j.steps or {}),placed=j.placed,materials=j.materials,
       missing=j.missing,audit=j.audit,feed=j.feed,error=j.error,artifact=j.artifact,cleared=j.cleared,block=j.block,
@@ -574,11 +588,13 @@ function M.attach(ctx)
       -- and paid for; existing = the ones that were already standing.
       built=j.built,existing=j.existing,replaced=j.replaced,replaced_at=j.replaced_at,
       skipped=j.skipped,
-      placed_at=j.layout and placed_at(j.layout)}
+      plan=layout_digest(j.layout),
+      placed_at=detail and j.layout and placed_at(j.layout) or nil}
   end
   local function save(j)
     helpers.write_file(j.artifact..".receipt.json",helpers.table_to_json{
-      job=summary(j),contract=j.contract_raw,receipts=j.receipts},false)
+      -- The receipt on disk is the archive: it keeps every row, whatever the reply trimmed.
+      job=summary(j,true),contract=j.contract_raw,receipts=j.receipts},false)
   end
   local function perform(j,action,body)
     body.surface,body.force=j.surface,j.force
@@ -871,7 +887,7 @@ function M.attach(ctx)
     end
     for _,j in pairs(jobs()) do
       if j.state=="preparing" or j.state=="building" or j.state=="settling" or j.state=="auditing" then
-        return ctx.response(nonce,true,summary(j))
+        return ctx.response(nonce,true,summary(j,r.detail))
       end
     end
     local site,rejects,checks,why=find_site(surface,force,c,base)
@@ -887,12 +903,14 @@ function M.attach(ctx)
     local gaps=inserter_gaps(surface,force,placed,site.rotation)
     if #gaps>0 then
       return ctx.response(nonce,true,{state="blocked",error="inserter-unconnected",unconnected=gaps,
-        site=site_out,placed_at=placed_at(placed),materials=cost})
+        site=site_out,plan=layout_digest(placed),
+        placed_at=r.detail and placed_at(placed) or nil,materials=cost})
     end
     local pgaps=pipe_gaps(surface,force,placed)
     if #pgaps>0 then
       return ctx.response(nonce,true,{state="blocked",error="pipe-unconnected",unconnected=pgaps,
-        site=site_out,placed_at=placed_at(placed),materials=cost})
+        site=site_out,plan=layout_digest(placed),
+        placed_at=r.detail and placed_at(placed) or nil,materials=cost})
     end
     if #locked>0 then table.sort(locked) end
     -- A short bag stops a direct build, but it is the normal opening state of a ghost
@@ -901,7 +919,8 @@ function M.attach(ctx)
     local short=next(missing)~=nil and not c.ghost
     if r.dry_run or short or #locked>0 then
       return ctx.response(nonce,true,{state=(short or #locked>0) and "blocked" or "planned",
-        site=site_out,site_validated=true,materials=cost,missing=missing,placed_at=placed_at(placed),
+        site=site_out,site_validated=true,materials=cost,missing=missing,
+        plan=layout_digest(placed),placed_at=r.detail and placed_at(placed) or nil,
         locked=#locked>0 and locked or nil,steps=#steps,rejects=rejects})
     end
     local state=ctx.state() state.executor_seq=(state.executor_seq or 0)+1
@@ -912,7 +931,7 @@ function M.attach(ctx)
       feeds=c.feeds,max_windows=c.max_windows,materials=cost,steps=steps,step=1,
       receipts={},feed={},state="preparing",block=block,artifact="executor/"..id,deadline=game.tick+18000}
     jobs()[id]=j save(j)
-    return ctx.response(nonce,true,summary(j))
+    return ctx.response(nonce,true,summary(j,r.detail))
   end
 
   -- Ghosts show where build_blueprint really lands; return the corrected position.
@@ -1493,7 +1512,7 @@ function M.attach(ctx)
       j.deadline=game.tick+18000
       save(j)
     end
-    return ctx.response(nonce,true,summary(j))
+    return ctx.response(nonce,true,summary(j,r.detail))
   end
   return M
 end

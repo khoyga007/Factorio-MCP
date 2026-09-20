@@ -66,7 +66,7 @@ the executor picks up on its own.
 - Entity cap: the executor builds ≤1000 (`BUILD_ENTITY_LIMIT`, same number in `control.lua` and
   `executor.lua`); reference records are only read, so they parse up to 2000
   (`REFERENCE_ENTITY_LIMIT`) and report `over_build_limit`. Measured: a 508-entity starter base
-  is one ghost job; the reply's one-row-per-entity `placed_at` stays well inside a UDP datagram.
+  is one ghost job; the reply digests it (§Reply size), the receipt on disk keeps every row.
 - `observe(view="patterns")` rows carry `origin` (the kind) when a pattern has one.
 - Books: `--book` flattens a blueprint-book string (nested books included) and imports every
   leaf that passes both screens, reporting the rest by reason instead of refusing the whole
@@ -132,7 +132,13 @@ Unknown keys ignored (notes: `source`). Contract errors (refused, nothing built)
   - `wrong-facing` (+`at`, `found_dir`, `expected_dir`): the first same-name underground down the ray does not face back. It steals the pairing, so reporting "no partner" would send the agent looking in the wrong place.
   - Both ends report independently, so a too-long run comes back as two rows.
   - Engine PASS tests/verify_pipe_runtime.py (7 checks): the prototype facts are pinned (a future Factorio changing them fails here, not silently in play), paired run planned, 12-tile run refused at both ends, mirrored-direction pair refused `wrong-facing`.
-- `placed_at` [[name,x,y,dir]] world coords: in dry_run/blocked replies and every job report.
+- Reply size, build `2026-09-20-plan-digest`: every plan and job reply carries `plan`
+  `{count, entities:{name:n}, bbox:[x1,y1,x2,y2]}`, NOT a row per entity. MEASURED on exec-45
+  (508 entities): `placed_at` 15829 chars, `plan` 272 — 98.3% cut, and `report` used to repeat
+  those 15829 on every poll. `placed_at` [[name,x,y,dir]] world coords is still there behind
+  `detail:true` (bridge + `--detail` on `blueprint-run`/`blueprint-job`), and the artifact
+  receipt on disk always holds the full rows. The MCP `report` tool has no `detail` flag: the
+  three-tool schema sits 2 bytes under its 4000-byte budget, so read the receipt instead.
 - Water inlet, pole, load: NOT searched/provisioned (PORTING §2); agent builds them, executor checks via `connect`:
   - `{entity, power: true}`: pre-build, every matching entity inside the supply area of a pole that REACHES A LIVE GRID (§Poles), else reject `no-power`. Post-build, `electric_network_id` set with a source on it.
   - `{entity, fluid}`: post-build, before primer: some fluidbox for that fluid (filter) connects to an entity NOT built by this job. Else `needs-attention: infra-missing:<fluid|power>:<entity>@x,y`; built entities stay, primer NOT spent. Connect the pipe, then `report(job_id, resume=true)`.

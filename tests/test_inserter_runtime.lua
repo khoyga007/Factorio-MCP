@@ -32,7 +32,7 @@ return function(handlers,state,buggy,fixed,feeder)
         check(r.state=="blocked" and g and g.hint and g.hint.design_shift[1]==-1 and g.hint.design_shift[2]==0
           and g.hint.to[2]-g.hint.from[2]==-1,"rotated-hint-in-design-frame:"..helpers.table_to_json(r))
         r=run(fixed,0,0)
-        check(r.state=="planned" and #r.placed_at==3,"fixed-layout-planned:"..helpers.table_to_json(r))
+        check(r.state=="planned" and r.plan.count==3,"fixed-layout-planned:"..helpers.table_to_json(r))
         r=run(feeder,10,10)
         check(r.state=="blocked" and r.unconnected[1].side=="pickup" and not r.unconnected[1].hint,
           "no-source-refused:"..helpers.table_to_json(r))
@@ -48,7 +48,7 @@ return function(handlers,state,buggy,fixed,feeder)
         if game.tick-started>3000 then error("timeout:"..helpers.table_to_json(status)) end
         return
       end
-      check(status.state=="verified" and #status.placed_at==2,"feeder-built:"..helpers.table_to_json(status))
+      check(status.state=="verified" and status.plan.count==2,"feeder-built:"..helpers.table_to_json(status))
       local ins=surface.find_entities_filtered{name="inserter"}[1]
       local chest=surface.find_entities_filtered{name="wooden-chest"}[1]
       local p,d=ins.pickup_position,ins.drop_position

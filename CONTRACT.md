@@ -187,6 +187,12 @@ refused for what is missing at the moment it is submitted.
   tiles named. Free the tile, `report(resume=true)` continues from there.
 - A blueprint entity's `recipe` rides through decode → orient → place_list → ghost, and is set
   again after revive if the ghost lost it (receipt `recipe_lost` when even that fails).
+- Ghost report counts, measured in `tests/verify_ghostbuild_runtime.py`: `placed` = tiles that
+  hold the right entity NOW (includes what was already standing), `built` = the ones this job
+  revived and paid for, `existing` = the ones that were already there. A re-run over a finished
+  site reads `built:0 existing:N`. `replaced` (+ `replaced_at` [[name,x,y]], max 8) = ghosts
+  drain() had to set again because they were missing — never an upgrade in place.
+  `step` is clamped to the number of steps.
 - In ghost mode the `preparing` steps (collect/mine/craft) are best-effort: a step that fails
   at run time (the chest emptied, an ingredient the base does not make yet) is skipped and
   named in `skipped` [[action,item,error],...] instead of ending the job. Direct mode still

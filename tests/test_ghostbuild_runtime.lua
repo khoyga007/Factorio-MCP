@@ -4,7 +4,7 @@ return function(handlers,state,bp)
   local result={ok=false,checks={}}
   local function check(v,name) assert(v,name) result.checks[#result.checks+1]=name end
   local function call(action,body) return handlers[action]("ghostbuild-"..game.tick..":"..#result.checks,body) end
-  local surface,stock,job,job2,phase,mark,done,blocker,parked=nil,nil,nil,nil,0,0,false,nil,nil
+  local surface,stock,job,job2,job3,phase,mark,done,blocker,parked=nil,nil,nil,nil,nil,0,0,false,nil,nil
   local CONTRACT={site={mode="exact",rotations={0}},build={mode="ghost"}}
   script.on_event(defines.events.on_tick,function()
     if done then return end
@@ -104,6 +104,8 @@ return function(handlers,state,bp)
           "recipe-survived-the-wait")
         check(s.state=="verified" and not s.blocked,"job-finishes:"..tostring(s.state))
         check(stock.get_item_count("assembling-machine-1")==0,"charged-exactly-once")
+        check(s.built==4 and (s.existing or 0)==0,
+          "this-job-built-all-four:"..tostring(s.built)..":"..tostring(s.existing))
         -- A gathering step that fails at run time (the chest it was going to collect from
         -- is empty by then) used to kill the whole paste with insufficient-items while
         -- still in `preparing`. In ghost mode the step is skipped, named, and the build
@@ -125,6 +127,25 @@ return function(handlers,state,bp)
         check(s.state=="building" or s.state=="settling" or s.state=="auditing"
           or s.state=="verified","ghost-job-reached-the-ground:"..tostring(s.state))
         check(surface.find_entity("entity-ghost",{10.5,10.5})~=nil,"ghosts-are-down")
+        -- Let it finish: blueprint_run hands back the live job instead of starting a
+        -- second one, so the next measurement needs this one closed.
+        stock.insert{name="small-electric-pole",count=1}
+        mark=game.tick phase=5
+      elseif phase==5 and game.tick-mark>=180 then
+        local s2=call("blueprint_job",{job_id=job2.job_id})
+        check(s2.state=="verified" and s2.built==1,
+          "skipped-job-still-finishes:"..tostring(s2.state)..":"..tostring(s2.built))
+        -- The same plan over a site that already holds it: nothing built, nothing charged,
+        -- and the report must not pass the standing base off as this job's work.
+        job3=call("blueprint_run",{blueprint=bp.plan,surface=surface.name,x=0,y=0,contract=CONTRACT})
+        check(job3.job_id~=job2.job_id,"third-run-is-its-own-job:"..tostring(job3.job_id))
+        mark=game.tick phase=6
+      elseif phase==6 and game.tick-mark>=180 then
+        local s3=call("blueprint_job",{job_id=job3.job_id})
+        check((s3.built or 0)==0 and s3.existing==4,
+          "already-standing-is-not-built:"..tostring(s3.built)..":"..tostring(s3.existing)
+          ..":"..tostring(s3.state))
+        check(s3.step<=s3.steps,"step-never-past-the-last-one:"..tostring(s3.step).."/"..tostring(s3.steps))
         result.ok=true done=true
       end
     end)

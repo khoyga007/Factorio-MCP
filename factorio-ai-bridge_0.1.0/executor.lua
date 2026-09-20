@@ -567,9 +567,12 @@ function M.attach(ctx)
   end
   local function summary(j)
     return {job_id=j.id,state=j.state,pattern_id=j.pattern_id,site=j.site,
-      step=j.step,steps=#(j.steps or {}),placed=j.placed,materials=j.materials,
+      step=math.min(j.step,#(j.steps or {})),steps=#(j.steps or {}),placed=j.placed,materials=j.materials,
       missing=j.missing,audit=j.audit,feed=j.feed,error=j.error,artifact=j.artifact,cleared=j.cleared,block=j.block,
-      pending=j.pending,waiting=j.waiting,blocked=j.blocked,standing=j.standing,replaced=j.replaced,
+      pending=j.pending,waiting=j.waiting,blocked=j.blocked,standing=j.standing,
+      -- placed = tiles that hold the right entity now; built = the ones THIS job revived
+      -- and paid for; existing = the ones that were already standing.
+      built=j.built,existing=j.existing,replaced=j.replaced,replaced_at=j.replaced_at,
       skipped=j.skipped,
       placed_at=j.layout and placed_at(j.layout)}
   end
@@ -925,7 +928,10 @@ function M.attach(ctx)
     local budget=GHOST_PER_TICK
     local function one(e)
       local live=surface.find_entity(e.name,{e.x,e.y})
-      if live and live.valid then return "done" end
+      -- `done` is not `built`: a tile the blueprint wants may already hold the right
+      -- entity from an earlier session. Mark which is which so the report cannot pass
+      -- off a base that was already standing as work this job paid for.
+      if live and live.valid then if not e.ours then e.pre=true end return "done" end
       local g=surface.find_entity("entity-ghost",{e.x,e.y})
       if not (g and g.valid and g.ghost_name==e.name) then
         local function ghost_at(recipe)
@@ -939,7 +945,11 @@ function M.attach(ctx)
         -- better than losing the entity, and drain() sets it again after revive.
         local made=ghost_at(e.recipe) or (e.recipe and ghost_at(nil))
         if not made then return "blocked" end
+        -- Named, not just counted: "replaced: 3" says nothing about WHICH tile lost its
+        -- ghost. This is a re-placement of a missing ghost, never an upgrade in place.
         j.replaced=(j.replaced or 0)+1
+        j.replaced_at=j.replaced_at or {}
+        if #j.replaced_at<8 then j.replaced_at[#j.replaced_at+1]={e.name,e.x,e.y} end
         return "pending"
       end
       -- A ghost may be SET over an occupied tile - ghosts do not collide - but it can
@@ -984,6 +994,7 @@ function M.attach(ctx)
         local okr2=pcall(function() built.set_recipe(e.recipe) end)
         recipe_lost=(not okr2) and e.recipe or nil
       end
+      e.ours,e.pre=true,nil
       j.receipts[#j.receipts+1]={ok=true,action="revive",name=e.name,x=e.x,y=e.y,
         item=item.name,count=item.count,recipe_lost=recipe_lost,
         wires=built.type=="electric-pole" and ctx.wire and ctx.wire(built) or nil}
@@ -995,6 +1006,11 @@ function M.attach(ctx)
       elseif verdict=="pending" then pending=pending+1
       else blocked[#blocked+1]={name=e.name,x=e.x,y=e.y} end
     end
+    local built_here,already=0,0
+    for _,e in ipairs(j.layout) do
+      if e.ours then built_here=built_here+1 elseif e.pre then already=already+1 end
+    end
+    j.built,j.existing=built_here,already
     j.placed,j.pending=done,pending
     j.waiting=next(waiting) and waiting or nil
     j.blocked=#blocked>0 and blocked or nil

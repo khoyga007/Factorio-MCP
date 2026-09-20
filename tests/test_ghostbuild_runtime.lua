@@ -5,7 +5,7 @@ return function(handlers,state,bp)
   local function check(v,name) assert(v,name) result.checks[#result.checks+1]=name end
   local function call(action,body) return handlers[action]("ghostbuild-"..game.tick..":"..#result.checks,body) end
   local surface,stock,job,job2,job3,phase,mark,done,blocker,parked=nil,nil,nil,nil,nil,0,0,false,nil,nil
-  local job4,feeder,bystander,job5,job6=nil,nil,nil,nil,nil
+  local job4,feeder,bystander,job5,job6,job7,job8,cliff=nil,nil,nil,nil,nil,nil,nil,nil
   local CONTRACT={site={mode="exact",rotations={0}},build={mode="ghost"}}
   script.on_event(defines.events.on_tick,function()
     if done then return end
@@ -218,6 +218,88 @@ return function(handlers,state,bp)
         check(surface.find_entity("small-electric-pole",{30.5,34.5})~=nil
           and surface.find_entity("small-electric-pole",{34.5,34.5})~=nil,
           "both-poles-on-the-ground")
+        -- Water. A pond under the plan is a blocker the job can clear -- but only once the
+        -- base can pay for landfill. With the recipe locked and an empty bag it is still a
+        -- reject, which is what keeps an early plan off a lake.
+        stock.clear()
+        local pond={} for x=-20,-19 do for y=-20,-19 do pond[#pond+1]={name="water",position={x,y}} end end
+        surface.set_tiles(pond)
+        game.forces.player.recipes["landfill"].enabled=false
+        local dry=call("blueprint_run",{blueprint=bp.pole,surface=surface.name,x=-20,y=-20,
+          contract=CONTRACT})
+        check(dry.state=="blocked" and dry.rejects and dry.rejects.water==1,
+          "water-is-a-reject-with-no-landfill:"..tostring(dry.state)..":"
+          ..helpers.table_to_json(dry.rejects or {}))
+        game.forces.player.recipes["landfill"].enabled=true
+        job7=call("blueprint_run",{blueprint=bp.pole,surface=surface.name,x=-20,y=-20,
+          contract=CONTRACT})
+        check(job7.ok and job7.job_id and job7.site and job7.site.fill==1,
+          "landfill-is-quoted-with-the-site:"..tostring(job7.error)
+          ..":"..tostring(job7.site and job7.site.fill))
+        check(job7.materials and job7.materials["landfill"]==1,
+          "landfill-is-on-the-bill:"..helpers.table_to_json(job7.materials or {}))
+        mark=game.tick phase=10
+      elseif phase==10 and game.tick-mark>=120 then
+        local s7=call("blueprint_job",{job_id=job7.job_id})
+        check(s7.state=="building" and s7.ground and s7.ground["landfill"]==1,
+          "plan-parks-on-the-water-it-cannot-fill-yet:"..tostring(s7.state)..":"
+          ..helpers.table_to_json(s7.ground or {}))
+        check(surface.get_tile(-20,-20).prototype.fluid~=nil,"pond-still-wet-while-unpaid")
+        stock.insert{name="landfill",count=1}
+        stock.insert{name="small-electric-pole",count=1}
+        mark=game.tick phase=11
+      elseif phase==11 and game.tick-mark>=180 then
+        local s7=call("blueprint_job",{job_id=job7.job_id})
+        check(s7.filled==1,"water-was-filled:"..tostring(s7.filled)..":"..tostring(s7.state))
+        check(surface.get_tile(-20,-20).prototype.fluid==nil,"tile-is-ground-now")
+        check(surface.get_tile(-19,-20).prototype.fluid~=nil,
+          "only-the-footprint-tile-was-filled")
+        check(stock.get_item_count("landfill")==0,"landfill-was-paid-for")
+        check(surface.find_entity("small-electric-pole",{-19.5,-19.5})~=nil,
+          "built-on-the-filled-tile:"..tostring(s7.state))
+        -- Cliffs. Same shape: a reject while cliff-explosives are out of reach, a clearable
+        -- blocker once one is in the bag.
+        stock.clear()
+        cliff=surface.create_entity{name="cliff",position={-32,-32},cliff_orientation="west-to-east"}
+        check(cliff and cliff.valid,"test-cliff-exists")
+        -- A cliff's box is 4x4 but it only blocks part of it, so the centre tile can be
+        -- perfectly buildable. Aim at a tile the cliff actually refuses.
+        local bb=cliff.bounding_box
+        local cx,cy
+        for x=math.floor(bb.left_top.x),math.ceil(bb.right_bottom.x)-1 do
+          for y=math.floor(bb.left_top.y),math.ceil(bb.right_bottom.y)-1 do
+            if not cx
+              and #surface.find_entities_filtered{area={{x+0.01,y+0.01},{x+0.99,y+0.99}},type="cliff"}>0
+              and not surface.can_place_entity{name="small-electric-pole",position={x+0.5,y+0.5},
+                force="player"} then
+              cx,cy=x,y
+            end
+          end
+        end
+        check(cx~=nil,"cliff-blocks-a-tile")
+        -- This save has the technology, so lock the recipe to get back the early-game
+        -- state the reject is actually about: no explosives, no way to make one.
+        game.forces.player.recipes["cliff-explosives"].enabled=false
+        local nope=call("blueprint_run",{blueprint=bp.pole,surface=surface.name,x=cx,y=cy,
+          contract=CONTRACT})
+        check(nope.state=="blocked" and nope.rejects and nope.rejects.cliff==1,
+          "cliff-is-a-reject-with-no-explosives:"..tostring(nope.state)..":"
+          ..helpers.table_to_json(nope.rejects or {}))
+        -- Recipe still locked: one explosive already in the bag is reason enough to try.
+        stock.insert{name="cliff-explosives",count=1}
+        stock.insert{name="small-electric-pole",count=1}
+        job8=call("blueprint_run",{blueprint=bp.pole,surface=surface.name,x=cx,y=cy,
+          contract=CONTRACT})
+        check(job8.ok and job8.job_id and job8.site and job8.site.blast==1,
+          "cliff-is-quoted-with-the-site:"..tostring(job8.error)
+          ..":"..tostring(job8.site and job8.site.blast))
+        mark=game.tick phase=12
+      elseif phase==12 and game.tick-mark>=180 then
+        local s8=call("blueprint_job",{job_id=job8.job_id})
+        check(s8.blasted==1,"cliff-was-blasted:"..tostring(s8.blasted)..":"..tostring(s8.state))
+        check(not (cliff and cliff.valid),"cliff-is-gone")
+        check(stock.get_item_count("cliff-explosives")==0,"explosives-were-paid-for")
+        check(s8.state=="verified","cliff-site-finished:"..tostring(s8.state)..":"..tostring(s8.error))
         result.ok=true done=true
       end
     end)

@@ -189,11 +189,34 @@ local function resource_ok(surface,e,rule)
 end
 
 -- Trees/rocks on an entity's tiles are mined before build (products -> bag, receipts).
--- Cliffs are never cleared: they need cliff explosives.
 local NATURAL={"tree","simple-entity"}
 local function in_footprint(surface,e,types)
   local d=0.01
   return surface.find_entities_filtered{area={{e.x-e.w/2+d,e.y-e.h/2+d},{e.x+e.w/2-d,e.y+e.h/2-d}},type=types}
+end
+
+-- Cliffs and water block a build the way a tree does; the difference is that clearing them
+-- costs items. One cliff-explosives per cliff -- the real capsule clears several at once,
+-- so a job paying per cliff can never underpay -- and one landfill per water tile. Neither
+-- is an option until the recipe is unlocked or the item is already in the bag, and that
+-- gate is what keeps an early plan off a lake instead of parking on one forever.
+local function affordable(force,stock,item)
+  if stock and stock.get_item_count{name=item,quality="normal"}>0 then return true end
+  local r=force.recipes[item]
+  return (r and r.enabled) and true or false
+end
+
+-- Fluid tiles under an entity's footprint, as "x:y" keys. `prototype.fluid` is how the
+-- rest of the bridge reads water (control.lua fluid_tile_names, field.lua:84).
+local function water_keys(surface,e,into)
+  local t=into or {}
+  for x=math.floor(e.x-e.w/2),math.ceil(e.x+e.w/2)-1 do
+    for y=math.floor(e.y-e.h/2),math.ceil(e.y+e.h/2)-1 do
+      local tile=surface.get_tile(x,y)
+      if tile.valid and tile.prototype.fluid then t[x..":"..y]=true end
+    end
+  end
+  return t
 end
 
 -- Inserter ends: pickup and drop tiles must hold something that takes/gives items,
@@ -413,11 +436,19 @@ local function check_site(surface,force,c,placed,rejects)
   for _,e in ipairs(placed) do
     if not surface.can_place_entity{name=e.name,position={e.x,e.y},direction=e.dir,force=force,
       build_check_type=defines.build_check_type.manual} then
-      if #in_footprint(surface,e,"cliff")>0 then return no("cliff") end
-      -- Blocked only by clearable nature: a forced ghost check ignores deconstructible trees/rocks.
-      if #in_footprint(surface,e,NATURAL)==0 or not surface.can_place_entity{name=e.name,position={e.x,e.y},
-        direction=e.dir,force=force,build_check_type=defines.build_check_type.blueprint_ghost,forced=true} then
-        if not (c.ghost and c.exact) then return no("collision") end
+      -- Cliff and water are rejects only when the base cannot pay to clear them; the job
+      -- blasts and fills before it builds. `can_blast`/`can_fill` are stamped on the
+      -- contract by the caller, which is the only place a treasury is in reach.
+      local cliffed=#in_footprint(surface,e,"cliff")>0
+      local flooded=next(water_keys(surface,e))~=nil
+      if cliffed and not c.can_blast then return no("cliff") end
+      if flooded and not c.can_fill then return no("water") end
+      if not (cliffed or flooded) then
+        -- Blocked only by clearable nature: a forced ghost check ignores deconstructible trees/rocks.
+        if #in_footprint(surface,e,NATURAL)==0 or not surface.can_place_entity{name=e.name,position={e.x,e.y},
+          direction=e.dir,force=force,build_check_type=defines.build_check_type.blueprint_ghost,forced=true} then
+          if not (c.ghost and c.exact) then return no("collision") end
+        end
       end
     end
     for _,rule in ipairs(c.resources) do
@@ -616,6 +647,8 @@ function M.attach(ctx)
       -- and paid for; existing = the ones that were already standing.
       built=j.built,existing=j.existing,replaced=j.replaced,replaced_at=j.replaced_at,
       skipped=j.skipped,restocked=j.restocked,
+      blasted=(j.blasted or 0)>0 and j.blasted or nil,filled=(j.filled or 0)>0 and j.filled or nil,
+      ground=j.ground,
       plan=layout_digest(j.layout),
       placed_at=detail and j.layout and placed_at(j.layout) or nil}
   end
@@ -958,6 +991,8 @@ function M.attach(ctx)
       return ctx.response(nonce,true,{state="blocked",error="too-many-live-jobs",jobs=ids,
         max=MAX_LIVE_JOBS,materials=cost})
     end
+    c.can_blast=affordable(force,stock,"cliff-explosives")
+    c.can_fill=affordable(force,stock,"landfill")
     c.reserved=reserved
     local site,rejects,checks,why=find_site(surface,force,c,base)
     -- Never stored on the job: it is a snapshot of OTHER jobs at this moment, and
@@ -966,12 +1001,24 @@ function M.attach(ctx)
     if not site then
       return ctx.response(nonce,true,{state="blocked",error=why,rejects=rejects,checks=checks,materials=cost})
     end
-    local steps,missing=prepare(surface,force,c.center,c.radius,stock,cost,c.supply)
     local site_out={x=site.x,y=site.y,rotation=site.rotation,checks=checks}
     local placed=place_list(site.shape,site.x,site.y)
-    local clear=0
-    for _,e in ipairs(placed) do clear=clear+#in_footprint(surface,e,NATURAL) end
+    local clear,cliffs,flood=0,{},{}
+    for _,e in ipairs(placed) do
+      clear=clear+#in_footprint(surface,e,NATURAL)
+      -- One cliff can sit under two footprints; pay for it once.
+      for _,o in ipairs(in_footprint(surface,e,"cliff")) do cliffs[o.position.x..":"..o.position.y]=true end
+      water_keys(surface,e,flood)
+    end
+    local blast,fill=0,0
+    for _ in pairs(cliffs) do blast=blast+1 end
+    for _ in pairs(flood) do fill=fill+1 end
     if clear>0 then site_out.clear=clear end
+    -- Explosives and landfill are part of the bill, not a surprise at build time: with the
+    -- counts in `cost`, prepare() collects and crafts them alongside the entities.
+    if blast>0 then cost["cliff-explosives"]=(cost["cliff-explosives"] or 0)+blast site_out.blast=blast end
+    if fill>0 then cost["landfill"]=(cost["landfill"] or 0)+fill site_out.fill=fill end
+    local steps,missing=prepare(surface,force,c.center,c.radius,stock,cost,c.supply)
     local gaps=inserter_gaps(surface,force,placed,site.rotation)
     if #gaps>0 then
       return ctx.response(nonce,true,{state="blocked",error="inserter-unconnected",unconnected=gaps,
@@ -1212,6 +1259,66 @@ function M.attach(ctx)
     return guess.x+delta[1],guess.y+delta[2]
   end
 
+  -- Cliffs blasted and water filled in one pass, debit BEFORE the ground changes -- the
+  -- same order as a ghost revive, and for the same reason: destroy() and set_tiles() are
+  -- free, so the debit is the no-free-items rule. Returns false when the bag is short, so
+  -- a ghost plan parks on it instead of failing.
+  local function clear_ground(j,surface,stock)
+    local cliffs,seen={},{}
+    for _,e in ipairs(j.layout) do
+      for _,o in ipairs(in_footprint(surface,e,"cliff")) do
+        local k=o.position.x..":"..o.position.y
+        if not seen[k] then seen[k]=true cliffs[#cliffs+1]=o end
+      end
+    end
+    local flood={}
+    for _,e in ipairs(j.layout) do water_keys(surface,e,flood) end
+    local tiles={}
+    for k in pairs(flood) do
+      local x,y=k:match("^(-?%d+):(-?%d+)$")
+      tiles[#tiles+1]={name="landfill",position={tonumber(x),tonumber(y)}}
+    end
+    local short
+    if #cliffs>0 and stock.get_item_count{name="cliff-explosives",quality="normal"}<#cliffs then
+      short={["cliff-explosives"]=#cliffs}
+    elseif #tiles>0 and stock.get_item_count{name="landfill",quality="normal"}<#tiles then
+      short={landfill=#tiles}
+    end
+    if short then j.ground=short return false end
+    j.ground=nil
+    for _,o in ipairs(cliffs) do
+      if o.valid then
+        local x,y=o.position.x,o.position.y
+        if stock.remove{name="cliff-explosives",count=1}~=1 then return false end
+        o.destroy{do_cliff_correction=true,raise_destroy=true}
+        j.receipts[#j.receipts+1]={ok=true,action="blast",name="cliff",x=x,y=y,
+          item="cliff-explosives",count=1}
+      end
+    end
+    j.blasted=(j.blasted or 0)+#cliffs
+    if #tiles==0 then j.filled=j.filled or 0 return true end
+    local removed=stock.remove{name="landfill",count=#tiles}
+    if removed<#tiles then
+      if removed>0 then stock.insert{name="landfill",count=removed} end
+      return false
+    end
+    surface.set_tiles(tiles,true)
+    -- Read the ground back. A tile the engine refused to change bought nothing, so the
+    -- landfill goes back in the bag; a fill that moved NOTHING is not a wait, it is a
+    -- surface that cannot take landfill at all, and waiting on it would never end.
+    local left=0
+    for _,t in ipairs(tiles) do
+      local g=surface.get_tile(t.position[1],t.position[2])
+      if g.valid and g.prototype.fluid then left=left+1 end
+    end
+    if left>0 then stock.insert{name="landfill",count=left} end
+    j.receipts[#j.receipts+1]={ok=left==0,action="landfill",count=#tiles-left,
+      item="landfill",refunded=left>0 and left or nil}
+    j.filled=(j.filled or 0)+(#tiles-left)
+    if left>=#tiles then error("landfill-refused:"..left) end
+    return left==0
+  end
+
   local flow_tick
 
   function M.tick()
@@ -1252,6 +1359,8 @@ function M.attach(ctx)
             -- which Lua reads as true.
             if not j.imported then
             local rejects={}
+            j.contract.can_blast=affordable(force,stock,"cliff-explosives")
+            j.contract.can_fill=affordable(force,stock,"landfill")
             if not check_site(surface,force,j.contract,j.layout,rejects) then
               j.rejects=rejects error("site-changed-replan")
             end
@@ -1267,6 +1376,15 @@ function M.attach(ctx)
                 end
               end
               j.cleared=n
+            end
+            -- Cliffs and water: the other two natural blockers (maintainer 20/09). Both are
+            -- cleared here, after the trees, because both spend items the preparing steps
+            -- just collected. A ghost plan that cannot pay yet parks and retries.
+            if j.blasted==nil or j.filled==nil then
+              if not clear_ground(j,surface,stock) then
+                if not j.contract.ghost then error("ground-not-clear") end
+                j.scan_at=game.tick+SCAN_TICKS save(j) return
+              end
             end
             if j.contract.ghost then
               -- No native paste here. MEASURED (tests/verify_ghost_runtime.py): a

@@ -1,4 +1,5 @@
--- Engine test: executor mines trees/rocks off build tiles into the bag; cliffs refuse the site.
+-- Engine test: executor mines trees/rocks off build tiles into the bag; a cliff refuses the
+-- site only while the base cannot pay to blast it.
 return function(handlers,state,bp)
   local result={ok=false,checks={}}
   local function check(v,name) assert(v,name) result.checks[#result.checks+1]=name end
@@ -41,18 +42,33 @@ return function(handlers,state,bp)
       end
       check(surface.count_entities_filtered{position={7.5,5.5},radius=0.2,type="tree"}==1,"outside-footprint-kept")
       check(bag.get_item_count("wood")>0 and bag.get_item_count("stone")>0,"products-in-bag")
-      -- Cliff under the site: refused, never cleared.
+      -- Cliff under the site: refused while the base cannot pay for explosives, quoted as
+      -- part of the bill once it can. The blast itself is covered by the ghostbuild test.
       local cliff=surface.create_entity{name="cliff",position={20,20},cliff_orientation="west-to-east"}
       check(cliff and cliff.valid,"cliff-created")
-      local box,refused=cliff.bounding_box,nil
-      for x=math.floor(box.left_top.x)-1,math.ceil(box.right_bottom.x) do
-        for y=math.floor(box.left_top.y)-1,math.ceil(box.right_bottom.y) do
-          local r=call("blueprint_run",{blueprint=bp,surface=surface.name,x=x,y=y,contract={site={mode="exact"}},dry_run=true})
-          if r.state=="blocked" and r.rejects and r.rejects.cliff then refused=r end
+      local box=cliff.bounding_box
+      local function sweep()
+        local hit,quoted
+        for x=math.floor(box.left_top.x)-1,math.ceil(box.right_bottom.x) do
+          for y=math.floor(box.left_top.y)-1,math.ceil(box.right_bottom.y) do
+            local r=call("blueprint_run",{blueprint=bp,surface=surface.name,x=x,y=y,contract={site={mode="exact"}},dry_run=true})
+            if r.state=="blocked" and r.rejects and r.rejects.cliff then hit=r end
+            if r.site and r.site.blast then quoted=r end
+          end
         end
+        return hit,quoted
       end
-      check(refused,"cliff-refused")
-      check(cliff.valid,"cliff-never-cleared")
+      local had=bag.get_item_count("cliff-explosives")
+      if had>0 then bag.remove{name="cliff-explosives",count=had} end
+      game.forces.player.recipes["cliff-explosives"].enabled=false
+      local refused=sweep()
+      check(refused,"cliff-refused-with-no-explosives")
+      check(cliff.valid,"cliff-not-cleared-by-a-dry-run")
+      bag.insert{name="cliff-explosives",count=4}
+      local _,quoted=sweep()
+      check(quoted and quoted.materials and quoted.materials["cliff-explosives"],
+        "cliff-is-on-the-bill-once-affordable:"..helpers.table_to_json(quoted and quoted.materials or {}))
+      check(cliff.valid,"cliff-still-standing-after-dry-runs")
       result.ok,done=true,true
     end)
     if not ok then result.error,done=tostring(err),true end

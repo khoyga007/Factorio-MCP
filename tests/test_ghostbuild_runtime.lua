@@ -30,6 +30,13 @@ return function(handlers,state,bp)
         check(big.ok and big.state=="planned" and #big.placed_at==70,
           "over-64-entities-accepted:"..tostring(big.state)..":"..tostring(big.error))
 
+        -- maintainer's own starter base is 508 entities: past the old 500 cap, so a real
+        -- blueprint of that size has to plan in one piece, not in hand-cut halves.
+        local huge=call("blueprint_run",{blueprint=bp.huge,surface=surface.name,x=0,y=-30,
+          contract=CONTRACT,dry_run=true})
+        check(huge.ok and huge.state=="planned" and #huge.placed_at==520,
+          "over-500-entities-accepted:"..tostring(huge.state)..":"..tostring(huge.error))
+
         -- One planned tile is taken by something else, and the bag holds ONE chest of the
         -- two the plan wants. Both used to refuse the whole build.
         blocker=surface.create_entity{name="stone-furnace",position={4.5,1.5},force="player"}

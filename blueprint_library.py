@@ -20,9 +20,11 @@ ID = re.compile(r"bp-[0-9a-f]{16}\Z")
 # `reference` ranks below everything: imported human material never overrides what the
 # agent designed, built or verified, and any of those promote a reference record.
 RANK = {"reference": 0, "designed": 1, "captured": 1, "built": 2, "verified": 3}
-# The executor builds at most 500 entities; reference material is only ever read, so it
-# gets a looser cap (a community smelting array is routinely 500+ entities).
-BUILD_ENTITY_LIMIT = 500
+# The executor builds at most 1000 entities: a whole starter base is one paste (maintainer's
+# lab blueprint is 508), and ghost mode drains it 12 entities per tick. The reply that
+# carries one row per entity still fits a UDP datagram (~34 B/row). Reference material is
+# only ever read, so it keeps a looser cap.
+BUILD_ENTITY_LIMIT = 1000
 REFERENCE_ENTITY_LIMIT = 2000
 # A string the bridge may have to carry over UDP vs one that is only ever read locally.
 BUILD_STRING_CHARS = 24000
@@ -93,7 +95,7 @@ def parse_blueprint(value: str, limit: int = BUILD_ENTITY_LIMIT) -> list[dict]:
 def encode_blueprint(design: list[dict], label: str | None = None) -> str:
     """Agent layout -> native blueprint string. Positions = entity centers in tiles
     (odd-size entity on .5, even-size on integer); direction 16-way (0 N, 4 E, 8 S, 12 W)."""
-    if not isinstance(design, list) or not 0 < len(design) <= 500:
+    if not isinstance(design, list) or not 0 < len(design) <= BUILD_ENTITY_LIMIT:
         raise ValueError("invalid-design-size")
     entities = []
     for i, row in enumerate(design, 1):

@@ -26,10 +26,10 @@ local function decode(value)
     return stack.get_blueprint_entities()
   end)
   inv.destroy()
-  -- The 64 was this module's own limit, not the engine's: control.lua already guards the
-  -- import at 500. Ghost mode pastes the whole thing in one call, so chunking by hand is
-  -- no longer the price of a big blueprint.
-  if not ok or not es or #es==0 or #es>500 then return nil,"unsupported-blueprint" end
+  -- The 64 was this module's own limit, not the engine's: control.lua guards the import
+  -- at the same 1000. Ghost mode places one ghost per entity at 12 per tick, so a whole
+  -- starter base is one paste instead of a hand-cut pile of jobs.
+  if not ok or not es or #es==0 or #es>1000 then return nil,"unsupported-blueprint" end
   local out={}
   for _,e in ipairs(es) do
     local p=prototypes.entity[e.name]

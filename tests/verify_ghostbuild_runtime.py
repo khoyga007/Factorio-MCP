@@ -22,6 +22,8 @@ PLAN = [{"name": "wooden-chest", "x": 0.5, "y": 0.5},
         {"name": "assembling-machine-1", "x": 4.5, "y": 1.5, "recipe": "iron-gear-wheel"}]
 # Past the 64 entities the executor used to cap at.
 WIDE = [{"name": "transport-belt", "x": 0.5 + i, "y": 0.5} for i in range(70)]
+# Past the 500 the executor used to cap at: maintainer's starter base is 508 entities.
+HUGE = [{"name": "transport-belt", "x": 0.5 + (i % 26), "y": 0.5 + (i // 26)} for i in range(520)]
 
 
 def main():
@@ -33,7 +35,8 @@ def main():
     with (MOD / "control.lua").open("a", encoding="utf-8") as f:
         f.write('\nrequire("test_ghostbuild_runtime")(HANDLERS, bridge_state, {plan='
                 + json.dumps(encode_blueprint(PLAN)) + ", wide="
-                + json.dumps(encode_blueprint(WIDE)) + "})\n")
+                + json.dumps(encode_blueprint(WIDE)) + ", huge="
+                + json.dumps(encode_blueprint(HUGE)) + "})\n")
     save = SANDBOX / "saves" / "ghostbuild-player.zip"
     shutil.copy2(args.player_save, save)
     result = SANDBOX / "script-output" / "ghostbuild-check.json"

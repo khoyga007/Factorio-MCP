@@ -1,5 +1,5 @@
 local BRIDGE_VERSION = 1
-local BRIDGE_BUILD = "2026-09-20-ghost-build"
+local BRIDGE_BUILD = "2026-09-20-ghost-build-1000"
 local MAX_PACKET_BYTES = 32768
 local MAX_RADIUS = 32
 local MAX_ENTITIES = 64
@@ -1494,7 +1494,7 @@ local function handle_blueprint_import(nonce, request)
     inventory.destroy()
     return response(nonce, false, {error = "blueprint-tiles-not-supported"})
   end
-  if count > 500 then
+  if count > 1000 then
     inventory.destroy()
     return response(nonce, false, {error = "blueprint-too-many-entities", entities = count})
   end

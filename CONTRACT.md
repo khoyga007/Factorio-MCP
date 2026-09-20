@@ -63,9 +63,10 @@ the executor picks up on its own.
 - Reference records carry NO contract. `achieve(goal="reuse_blueprint")` on one is refused
   `reference-pattern-needs-contract` (reply carries `origin`) until the agent passes its own
   `contract` — that is how imported material graduates: it must be run and audited here.
-- Entity cap: the executor builds ≤500 (`BUILD_ENTITY_LIMIT`); reference records are only read,
-  so they parse up to 2000 (`REFERENCE_ENTITY_LIMIT`) and report `over_build_limit`. A 533-entity
-  community array stores fine and still cannot be built in one job.
+- Entity cap: the executor builds ≤1000 (`BUILD_ENTITY_LIMIT`, same number in `control.lua` and
+  `executor.lua`); reference records are only read, so they parse up to 2000
+  (`REFERENCE_ENTITY_LIMIT`) and report `over_build_limit`. Measured: a 508-entity starter base
+  is one ghost job; the reply's one-row-per-entity `placed_at` stays well inside a UDP datagram.
 - `observe(view="patterns")` rows carry `origin` (the kind) when a pattern has one.
 - Books: `--book` flattens a blueprint-book string (nested books included) and imports every
   leaf that passes both screens, reporting the rest by reason instead of refusing the whole
@@ -82,7 +83,7 @@ the executor picks up on its own.
 
 ## Agent-authored design (`build_design`)
 
-`achieve(goal="build_design", design=[{name,x,y,direction?,recipe?,type?}], contract, x?, y?, dry_run?)`. Agent designs from game rules (sizes, drill area/drop, inserter reach, ratios); no human template required. `design` = entity centers in tiles: odd-size entity on .5, even-size on integer (2x2 drill center `1,2`); direction 16-way 0N 4E 8S 12W. Python `encode_blueprint` → native string (≤500 entities, bad row → `invalid-design-entity:<i>`) → same `blueprint_run` path as reuse. Not dry → catalog pattern state `designed` + contract saved; report(exec-N) verified → upgraded to `verified`. Read any saved pattern's layout: `observe(view="patterns", pattern_id)` → entities shifted by whole tiles (parity kept) + contract; edit and resubmit as `design`. Human blueprint = optional reference only.
+`achieve(goal="build_design", design=[{name,x,y,direction?,recipe?,type?}], contract, x?, y?, dry_run?)`. Agent designs from game rules (sizes, drill area/drop, inserter reach, ratios); no human template required. `design` = entity centers in tiles: odd-size entity on .5, even-size on integer (2x2 drill center `1,2`); direction 16-way 0N 4E 8S 12W. Python `encode_blueprint` → native string (≤1000 entities, bad row → `invalid-design-entity:<i>`) → same `blueprint_run` path as reuse. Not dry → catalog pattern state `designed` + contract saved; report(exec-N) verified → upgraded to `verified`. Read any saved pattern's layout: `observe(view="patterns", pattern_id)` → entities shifted by whole tiles (parity kept) + contract; edit and resubmit as `design`. Human blueprint = optional reference only.
 
 Engine PASS 2026-09-19 (tests/verify_design_runtime.py, tests/designs/coal-drill-chest.json): 2 burner drills facing N drop straight into own chest, feed chest→drill keep 2; 4 entities, windows coal 34/36/34, active 2/2, feed 12 total. NOT self-sustaining: no physical return path, feed moved 4 every window; live exec-2 (19/09) drills went no_fuel after job end with coal still in chests. Proves the build_design path only, not a good layout. Physical closed loop found live by Sonnet-agent: belt ring + 2 burner inserters feeding drills (pattern bp-888ab81fe7579dfd, exec-3).
 
@@ -187,7 +188,7 @@ refused for what is missing at the moment it is submitted.
 - A blueprint entity's `recipe` rides through decode → orient → place_list → ghost, and is set
   again after revive if the ghost lost it (receipt `recipe_lost` when even that fails).
 - Missing materials do NOT block the run (locked technology still does). Entity cap for the
-  whole blueprint is now 500 (`control.lua`), not the old 64 in `executor.lua`.
+  whole blueprint is 1000 (`control.lua` + `executor.lua`), not the old 64.
 - Engine PASS `tests/verify_ghostbuild_runtime.py` (18 checks): 70-entity blueprint planned;
   1-of-2 affordable chests built, rest ghosted with `waiting` naming the item; stock inserted
   → finishes with no new call; blocked assembler named with coords and NOT charged; blocker

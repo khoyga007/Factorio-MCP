@@ -23,6 +23,7 @@ PLAN = [{"name": "wooden-chest", "x": 0.5, "y": 0.5},
 # Past the 64 entities the executor used to cap at.
 WIDE = [{"name": "transport-belt", "x": 0.5 + i, "y": 0.5} for i in range(70)]
 # Past the 500 the executor used to cap at: maintainer's starter base is 508 entities.
+POLE = [{"name": "small-electric-pole", "x": 0.5, "y": 0.5}]
 HUGE = [{"name": "transport-belt", "x": 0.5 + (i % 26), "y": 0.5 + (i // 26)} for i in range(520)]
 
 
@@ -36,7 +37,8 @@ def main():
         f.write('\nrequire("test_ghostbuild_runtime")(HANDLERS, bridge_state, {plan='
                 + json.dumps(encode_blueprint(PLAN)) + ", wide="
                 + json.dumps(encode_blueprint(WIDE)) + ", huge="
-                + json.dumps(encode_blueprint(HUGE)) + "})\n")
+                + json.dumps(encode_blueprint(HUGE)) + ", pole="
+                + json.dumps(encode_blueprint(POLE)) + "})\n")
     save = SANDBOX / "saves" / "ghostbuild-player.zip"
     shutil.copy2(args.player_save, save)
     result = SANDBOX / "script-output" / "ghostbuild-check.json"

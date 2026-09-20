@@ -570,6 +570,7 @@ function M.attach(ctx)
       step=j.step,steps=#(j.steps or {}),placed=j.placed,materials=j.materials,
       missing=j.missing,audit=j.audit,feed=j.feed,error=j.error,artifact=j.artifact,cleared=j.cleared,block=j.block,
       pending=j.pending,waiting=j.waiting,blocked=j.blocked,standing=j.standing,replaced=j.replaced,
+      skipped=j.skipped,
       placed_at=j.layout and placed_at(j.layout)}
   end
   local function save(j)
@@ -1070,7 +1071,20 @@ function M.attach(ctx)
             if owner.crafting_queue_size>0 then return end
             local s=j.steps[j.step]
             if s then
-              if perform(j,s.action,s.body).ok then j.step=j.step+1 end
+              local r=perform(j,s.action,s.body)
+              if r.ok then j.step=j.step+1
+              elseif j.contract.ghost then
+                -- Ghost mode gathers best-effort. A collect/craft step that cannot run
+                -- (an ingredient the base does not make yet) must not kill the paste:
+                -- perform() already marked the job, so undo that, skip the step, and let
+                -- the ghosts go down. drain() names whatever is still short in `waiting`.
+                j.state,j.error="preparing",nil
+                j.skipped=j.skipped or {}
+                if #j.skipped<8 then
+                  j.skipped[#j.skipped+1]={s.action,s.body.recipe or s.body.item or s.body.name,r.error}
+                end
+                j.step=j.step+1
+              end
               save(j) return
             end
             j.state="building"

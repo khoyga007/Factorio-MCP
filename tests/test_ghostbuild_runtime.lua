@@ -4,7 +4,7 @@ return function(handlers,state,bp)
   local result={ok=false,checks={}}
   local function check(v,name) assert(v,name) result.checks[#result.checks+1]=name end
   local function call(action,body) return handlers[action]("ghostbuild-"..game.tick..":"..#result.checks,body) end
-  local surface,stock,job,phase,mark,done,blocker,parked=nil,nil,nil,0,0,false,nil,nil
+  local surface,stock,job,job2,phase,mark,done,blocker,parked=nil,nil,nil,nil,0,0,false,nil,nil
   local CONTRACT={site={mode="exact",rotations={0}},build={mode="ghost"}}
   script.on_event(defines.events.on_tick,function()
     if done then return end
@@ -104,6 +104,27 @@ return function(handlers,state,bp)
           "recipe-survived-the-wait")
         check(s.state=="verified" and not s.blocked,"job-finishes:"..tostring(s.state))
         check(stock.get_item_count("assembling-machine-1")==0,"charged-exactly-once")
+        -- A gathering step that fails at run time (the chest it was going to collect from
+        -- is empty by then) used to kill the whole paste with insufficient-items while
+        -- still in `preparing`. In ghost mode the step is skipped, named, and the build
+        -- goes down anyway.
+        -- The bag holds the ingredients when the plan is made, so a craft step IS planned;
+        -- they are gone by the time it runs.
+        stock.clear()
+        stock.insert{name="wood",count=1} stock.insert{name="copper-cable",count=2}
+        job2=call("blueprint_run",{blueprint=bp.pole,surface=surface.name,x=10,y=10,
+          contract=CONTRACT})
+        check(job2.ok and job2.job_id,"second-ghost-run-started:"..tostring(job2.error))
+        stock.clear()
+        mark=game.tick phase=4
+      elseif phase==4 and game.tick-mark>=180 then
+        local s=call("blueprint_job",{job_id=job2.job_id})
+        check(s.state~="needs-attention" or s.error~="insufficient-items",
+          "shortfall-does-not-kill-ghost-job:"..tostring(s.state)..":"..tostring(s.error))
+        check(s.skipped and s.skipped[1],"skipped-step-is-named:"..helpers.table_to_json(s.skipped))
+        check(s.state=="building" or s.state=="settling" or s.state=="auditing"
+          or s.state=="verified","ghost-job-reached-the-ground:"..tostring(s.state))
+        check(surface.find_entity("entity-ghost",{10.5,10.5})~=nil,"ghosts-are-down")
         result.ok=true done=true
       end
     end)

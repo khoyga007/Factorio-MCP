@@ -24,6 +24,11 @@ RANK = {"reference": 0, "designed": 1, "captured": 1, "built": 2, "verified": 3}
 # gets a looser cap (a community smelting array is routinely 500+ entities).
 BUILD_ENTITY_LIMIT = 500
 REFERENCE_ENTITY_LIMIT = 2000
+# A string the bridge may have to carry over UDP vs one that is only ever read locally.
+BUILD_STRING_CHARS = 24000
+REFERENCE_STRING_CHARS = 200000
+# A blueprint book is one string holding many layouts; 30 nested books decompress to ~10 MB.
+BOOK_PAYLOAD_BYTES = 40_000_000
 # Space Age entities, screened statically because the base game cannot be enumerated
 # offline. INCOMPLETE by construction: the authoritative check is `verify_against_game`,
 # which asks the running map whether every name exists.
@@ -52,12 +57,16 @@ def script_output_dir() -> Path:
 
 
 def _decode_blueprint(value: str, limit: int = BUILD_ENTITY_LIMIT) -> dict:
-    if not value.startswith("0") or len(value) > 24000:
+    # One knob: asking for more entities than a job can build means this string is
+    # reference material, which is read locally and never has to fit in a UDP packet.
+    max_chars = BUILD_STRING_CHARS if limit <= BUILD_ENTITY_LIMIT else REFERENCE_STRING_CHARS
+    if not value.startswith("0") or len(value) > max_chars:
         raise ValueError("invalid-native-blueprint")
     try:
         decoder = zlib.decompressobj()
-        raw = decoder.decompress(base64.b64decode(value[1:], validate=True), 1_000_001)
-        if len(raw) > 1_000_000 or not decoder.eof:
+        cap = 1_000_000 if limit <= BUILD_ENTITY_LIMIT else 20_000_000
+        raw = decoder.decompress(base64.b64decode(value[1:], validate=True), cap + 1)
+        if len(raw) > cap or not decoder.eof:
             raise ValueError("blueprint-payload-too-large")
         data = json.loads(raw)
         blueprint = data["blueprint"]
@@ -197,20 +206,38 @@ def record_blueprint(value: str, *, state: str, source: str,
     return {key: record[key] for key in ("pattern_id", "state", "entity_count", "entities")}
 
 
-def list_patterns() -> list[dict]:
+def list_patterns(reference: bool = False, query: str | None = None,
+                  offset: int = 0, limit: int = 40) -> dict:
+    """The agent's own patterns by default. Imported reference material is a library, not
+    a work queue: hundreds of rows would drown the reply, so it is listed separately,
+    compactly, and only what a filter word asks for."""
     folder = catalog_dir()
-    if not folder.exists():
-        return []
-    rows = []
-    for path in sorted(folder.glob("bp-*.json")):
+    rows, total = [], 0
+    for path in sorted(folder.glob("bp-*.json")) if folder.exists() else []:
         data = json.loads(path.read_text(encoding="utf-8"))
+        origin = data.get("origin") or {}
+        is_reference = data.get("state") == "reference"
+        if is_reference != reference:
+            continue
+        if reference:
+            where = " / ".join(origin.get("path") or [])
+            text = f"{origin.get('label') or ''} {where}".lower()
+            if query and query.lower() not in text:
+                continue
+            total += 1
+            if offset <= total - 1 < offset + limit:
+                rows.append({"pattern_id": data["pattern_id"], "label": origin.get("label"),
+                             "book": where or None, "entity_count": data.get("entity_count")})
+            continue
+        total += 1
         row = {key: data.get(key) for key in (
             "pattern_id", "state", "entity_count", "entities", "required_items")}
         row["has_contract"] = bool(data.get("contract"))
-        if data.get("origin"):
-            row["origin"] = data["origin"].get("kind")
+        if origin:
+            row["origin"] = origin.get("kind")
         rows.append(row)
-    return rows
+    return {"patterns": rows, "total": total,
+            "next_offset": offset + len(rows) if reference and offset + len(rows) < total else None}
 
 
 def load_pattern(pattern_id: str) -> dict:
@@ -266,7 +293,8 @@ def screen_reference(value: str) -> dict:
 
 def import_reference(value: str, *, url: str | None = None, note: str | None = None,
                      checked_against: str | None = None,
-                     unknown: list[str] | None = None) -> dict:
+                     unknown: list[str] | None = None,
+                     path: list[str] | None = None) -> dict:
     """Store a human-made blueprint as REFERENCE: readable, never auto-built. It carries
     no contract, so the agent must declare its own before the executor will touch it."""
     value = "".join(value.split())
@@ -279,11 +307,47 @@ def import_reference(value: str, *, url: str | None = None, note: str | None = N
         raise ValueError("entities-not-in-this-game:" + ",".join(sorted(unknown)))
     origin = {"kind": "community", "url": url, "note": note,
               "label": screen["label"], "game_version": screen["game_version"],
-              "checked_against": checked_against}
+              "checked_against": checked_against, "path": path or None}
     record = record_blueprint(value, state="reference", source="import",
                               origin={k: v for k, v in origin.items() if v is not None},
                               limit=REFERENCE_ENTITY_LIMIT)
     record["origin"] = origin
     record["over_build_limit"] = screen["over_build_limit"]
     return record
+
+
+def read_book(text: str) -> list[tuple[list[str], str]]:
+    """Flatten one blueprint-book string into (path, single-blueprint string) leaves.
+    Path is the chain of book labels, so an imported leaf still says where it sat."""
+    text = "".join(text.split())
+    if not text.startswith("0"):
+        raise ValueError("invalid-native-blueprint")
+    try:
+        decoder = zlib.decompressobj()
+        raw = decoder.decompress(base64.b64decode(text[1:], validate=True),
+                                 BOOK_PAYLOAD_BYTES + 1)
+        if len(raw) > BOOK_PAYLOAD_BYTES or not decoder.eof:
+            raise ValueError("book-payload-too-large")
+        data = json.loads(raw)
+    except (TypeError, ValueError, binascii.Error, zlib.error) as exc:
+        raise ValueError("invalid-native-blueprint") from exc
+    if "blueprint_book" not in data:
+        raise ValueError("not-a-blueprint-book")
+    leaves: list[tuple[list[str], str]] = []
+
+    def walk(entries, path):
+        for entry in entries or []:
+            if "blueprint_book" in entry:
+                book = entry["blueprint_book"]
+                walk(book.get("blueprints"), path + [str(book.get("label") or "?")])
+            elif "blueprint" in entry:
+                raw_leaf = json.dumps({"blueprint": entry["blueprint"]},
+                                      separators=(",", ":")).encode()
+                leaves.append((path, "0" + base64.b64encode(
+                    zlib.compress(raw_leaf, 9)).decode("ascii")))
+
+    walk(data["blueprint_book"].get("blueprints"), [])
+    if not leaves:
+        raise ValueError("empty-blueprint-book")
+    return leaves
 

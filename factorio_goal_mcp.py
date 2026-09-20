@@ -64,13 +64,16 @@ def observe(view: str = "situation",
             y: FiniteFloat | None = None,
             radius: Annotated[float, Field(ge=1, le=2048, allow_inf_nan=False)] = 16,
             resource: str | None = None, pattern_id: str | None = None,
+            query: str | None = None,
             offset: Annotated[int, Field(ge=0)] = 0) -> CallToolResult:
     """situation|deposits|nearby(issues,machines,runs,poles)|entities(raw)|water|research|ledger(blocks
-    +flow, edges +declared/measured per min)|patterns(+pattern_id). offset pages. water radius<=2048,
-    others<=32."""
+    +flow, edges +declared/measured per min)|patterns(+pattern_id)
+    |references(imported human blueprints, query filters label/book). offset pages. water
+    radius<=2048, others<=32."""
     if (x is None) != (y is None):
         return _result({"ok": False, "error": "x-and-y-required-together"}, True)
-    if view not in {"situation", "deposits", "nearby", "entities", "patterns", "water", "research", "ledger"}:
+    if view not in {"situation", "deposits", "nearby", "entities", "patterns", "references",
+                    "water", "research", "ledger"}:
         return _result({"ok": False, "error": "unknown-view"}, True)
     if view == "ledger":
         return _send({"action": "ledger"}, 5)
@@ -91,8 +94,10 @@ def observe(view: str = "situation",
         return _result({"ok": True, "view": view, "pattern_id": pattern_id,
                         "state": pattern.get("state"), "contract": pattern.get("contract"),
                         "entities": pattern_entities(pattern["blueprint_string"])})
-    if view == "patterns":
-        return _result({"ok": True, "view": view, "patterns": list_patterns()})
+    if view in {"patterns", "references"}:
+        return _result({"ok": True, "view": view,
+                        **list_patterns(reference=view == "references", query=query,
+                                        offset=offset)})
     if view == "situation":
         p = _read(invoke("brief", surface=surface, x=x, y=y, radius=radius))
         return _result({"ok": p.get("ok", False), "view": view, **_fields(p,

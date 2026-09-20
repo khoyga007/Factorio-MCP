@@ -56,7 +56,9 @@ Nguồn: [MCP Python SDK 1.27.1](https://github.com/modelcontextprotocol/python-
    dạng `state=reference` — đồ để ĐỌC, executor không tự xây. `reuse_blueprint` trên nó bị
    từ chối `reference-pattern-needs-contract` cho tới khi agent tự khai contract. Kiểm 2.0 +
    Space Age offline, nhưng kiểm thật là hỏi map đang chạy từng tên entity. Spec: `CONTRACT.md`
-   §Reference imports.
+   §Reference imports. Cả book: `--book` rải phẳng mọi bản trong sách, bỏ trang nào dính
+   Space Age. Đọc lại bằng `observe(view="references", query=..., offset=...)` — 40 dòng/trang,
+   KHÔNG lẫn vào `view="patterns"` của agent.
 4. Research: `observe(view="research")`, `achieve(goal="research", tech)`.
    Chụp layout đã xây: `achieve(goal="capture", area=[x1,y1,x2,y2])`. Spec:
    `CONTRACT.md` §Research.

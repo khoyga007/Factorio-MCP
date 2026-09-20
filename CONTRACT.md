@@ -57,7 +57,18 @@ the executor picks up on its own.
   so they parse up to 2000 (`REFERENCE_ENTITY_LIMIT`) and report `over_build_limit`. A 533-entity
   community array stores fine and still cannot be built in one job.
 - `observe(view="patterns")` rows carry `origin` (the kind) when a pattern has one.
+- Books: `--book` flattens a blueprint-book string (nested books included) and imports every
+  leaf that passes both screens, reporting the rest by reason instead of refusing the whole
+  file over a few DLC pages. `origin.path` keeps the chain of book labels. `--screen-only
+  --book` is a dry run over the whole book. Identical layouts across books collapse onto one
+  `pattern_id` (dedup is by content).
+- Reading them back: `observe(view="references", query=?, offset=?)` → compact rows
+  `{pattern_id, label, book, entity_count}`, 40 per page, `total` + `next_offset`. Reference
+  records are NOT in `observe(view="patterns")`: a library of hundreds would drown the reply
+  (measured 20/09: 259 reference rows = 74 KB in the old shape, 5.7 KB paged).
 - Raw drops live in `incoming/` — not the catalog, not verified, safe to delete.
+- String/payload caps split by purpose: build strings ≤24 000 chars / 1 MB inflated (UDP),
+  reference ≤200 000 chars / 20 MB, a book ≤40 MB inflated.
 
 ## Agent-authored design (`build_design`)
 

@@ -11,7 +11,7 @@ import zlib
 
 from blueprint_library import (BUILD_ENTITY_LIMIT, encode_blueprint, import_reference,
                                list_patterns, load_pattern, pattern_entities,
-                               pattern_id_for, record_blueprint, screen_reference)
+                               pattern_id_for, read_book, record_blueprint, screen_reference)
 from factorio_ai import execute
 
 
@@ -73,7 +73,7 @@ class BlueprintLibraryTest(unittest.TestCase):
                                         audit={"status": "passed", "coal_gained": 17})
             self.assertEqual(first["pattern_id"], built["pattern_id"])
             self.assertEqual(first["pattern_id"], verified["pattern_id"])
-            self.assertEqual(1, len(list_patterns()))
+            self.assertEqual(1, len(list_patterns()["patterns"]))
             row = load_pattern(first["pattern_id"])
             self.assertEqual("verified", row["state"])
             self.assertEqual(10, row["entity_count"])
@@ -82,7 +82,7 @@ class BlueprintLibraryTest(unittest.TestCase):
             self.assertEqual(17, row["audit"]["coal_gained"])
             self.assertNotIn("surface", row)
             self.assertNotIn("world_x", row)
-            self.assertNotIn("blueprint_string", list_patterns()[0])
+            self.assertNotIn("blueprint_string", list_patterns()["patterns"][0])
             self.assertEqual(1, len(list(Path(directory).glob("*.json"))))
 
     def test_successful_direct_import_autosaves_json(self):
@@ -165,7 +165,13 @@ class ReferenceImportTest(unittest.TestCase):
             self.assertIsNone(saved["contract"])
             self.assertEqual("community", saved["origin"]["kind"])
             self.assertEqual("2.0.43.3", saved["origin"]["game_version"])
-            self.assertEqual("community", list_patterns()[0]["origin"])
+            # Reference material stays out of the agent's own pattern list.
+            self.assertEqual([], list_patterns()["patterns"])
+            listed = list_patterns(reference=True)
+            self.assertEqual(1, listed["total"])
+            self.assertEqual("community row", listed["patterns"][0]["label"])
+            self.assertIsNone(listed["next_offset"])
+            self.assertEqual([], list_patterns(reference=True, query="nothing")["patterns"])
 
     def test_agent_work_outranks_reference_and_reference_never_demotes(self):
         with tempfile.TemporaryDirectory() as directory, patch.dict(
@@ -191,7 +197,7 @@ class ReferenceImportTest(unittest.TestCase):
             with self.assertRaises(ValueError) as gone:
                 import_reference(self._string(), unknown=["stone-furnace"])
             self.assertIn("entities-not-in-this-game", str(gone.exception))
-            self.assertEqual([], list_patterns())
+            self.assertEqual([], list_patterns()["patterns"])
 
     def test_reference_may_exceed_the_build_limit(self):
         with tempfile.TemporaryDirectory() as directory, patch.dict(
@@ -206,6 +212,33 @@ class ReferenceImportTest(unittest.TestCase):
                              load_pattern(record["pattern_id"])["entity_count"])
             with self.assertRaises(ValueError):
                 record_blueprint(big, state="designed", source="t")
+
+
+    def test_book_flattens_to_leaves_that_remember_where_they_sat(self):
+        leaf = {"item": "blueprint", "version": 562949956239363, "label": "row",
+                "entities": [{"entity_number": 1, "name": "stone-furnace",
+                              "position": {"x": 0.0, "y": 0.0}}]}
+        book = {"blueprint_book": {"item": "blueprint-book", "label": "top", "blueprints": [
+            {"blueprint": leaf},
+            {"blueprint_book": {"item": "blueprint-book", "label": "inner",
+                                "blueprints": [{"blueprint": dict(leaf, label="deep")}]}}]}}
+        value = "0" + base64.b64encode(zlib.compress(json.dumps(book).encode())).decode()
+        leaves = read_book(value)
+        self.assertEqual([[], ["inner"]], [path for path, _ in leaves])
+        with tempfile.TemporaryDirectory() as directory, patch.dict(
+            os.environ, {"FACTORIO_BLUEPRINT_CATALOG": directory}
+        ):
+            for path, string in leaves:
+                import_reference(string, path=path)
+            listed = list_patterns(reference=True, query="inner")
+            self.assertEqual(1, listed["total"])
+            self.assertEqual("inner", listed["patterns"][0]["book"])
+            self.assertEqual("deep", listed["patterns"][0]["label"])
+
+    def test_a_plain_blueprint_is_not_a_book(self):
+        with self.assertRaises(ValueError) as exc:
+            read_book(encode_blueprint([{"name": "stone-furnace", "x": 1, "y": 1}]))
+        self.assertIn("not-a-blueprint-book", str(exc.exception))
 
 
 if __name__ == "__main__":

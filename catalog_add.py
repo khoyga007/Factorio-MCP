@@ -13,7 +13,7 @@ import os
 from pathlib import Path
 import sys
 
-from blueprint_library import import_reference, screen_reference
+from blueprint_library import import_reference, read_book, screen_reference
 from factorio_ai import DEFAULT_HOST, DEFAULT_PORT, request
 
 
@@ -31,6 +31,50 @@ def verify_against_game(names: list[str]) -> tuple[str, list[str]]:
     return str(ping.get("version") or ping.get("build") or "unknown"), unknown
 
 
+def import_book(args) -> int:
+    """A book is a library, not one layout: import every leaf that passes both screens and
+    report the ones that do not, rather than refusing the whole file over a few DLC pages."""
+    leaves = read_book(args.file.read_text(encoding="utf-8"))
+    names = set()
+    for _, value in leaves:
+        try:
+            names |= set(screen_reference(value)["entities"])
+        except ValueError:
+            continue
+    checked, unknown = None, set()
+    if not args.offline:
+        try:
+            checked, found = verify_against_game(sorted(names))
+            unknown = set(found)
+        except (OSError, ValueError, TimeoutError) as exc:
+            print(f"game unreachable ({exc}); importing UNCHECKED", file=sys.stderr)
+    taken, refused = [], {}
+    for path, value in leaves:
+        try:
+            screen = screen_reference(value)
+            missing = sorted(unknown & set(screen["entities"])) or None
+            if args.screen_only:
+                # Same refusals, nothing written: dry_run for a whole book.
+                if screen["major"] != "2":
+                    raise ValueError("not-a-2.0-blueprint")
+                if screen["space_age"]:
+                    raise ValueError("space-age-entities")
+                if missing:
+                    raise ValueError("entities-not-in-this-game:" + ",".join(missing))
+                taken.append(path)
+                continue
+            taken.append(import_reference(
+                value, url=args.url, note=args.note, path=path, checked_against=checked,
+                unknown=missing)["pattern_id"])
+        except ValueError as exc:
+            refused.setdefault(str(exc).split(":")[0], []).append(" / ".join(path))
+    print(json.dumps({"leaves": len(leaves), "imported": len(taken),
+                      "checked_against": checked,
+                      "refused": {k: len(v) for k, v in refused.items()}},
+                     indent=2, ensure_ascii=False))
+    return 0
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("file", type=Path, help="file holding one blueprint string")
@@ -40,7 +84,11 @@ def main() -> int:
                         help="report what the string is; write nothing")
     parser.add_argument("--offline", action="store_true",
                         help="skip the running-game check (record stays unverified)")
+    parser.add_argument("--book", action="store_true",
+                        help="the file holds a blueprint BOOK: import every leaf it can")
     args = parser.parse_args()
+    if args.book:
+        return import_book(args)
 
     value = "".join(args.file.read_text(encoding="utf-8").split())
     screen = screen_reference(value)

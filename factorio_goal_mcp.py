@@ -136,7 +136,7 @@ def observe(view: str = "situation",
             offset: Annotated[int, Field(ge=0)] = 0) -> CallToolResult:
     """situation|deposits|nearby(issues,machines,runs,poles)|entities(raw)|water|research|ledger(blocks
     +flow, edges +declared/measured per min)|patterns(+pattern_id)
-    |references(imported human blueprints, query filters label/book). offset pages. water
+    |references(imported human blueprints). query+offset page both. water
     radius<=2048, others<=32."""
     if (x is None) != (y is None):
         return _result({"ok": False, "error": "x-and-y-required-together"}, True)

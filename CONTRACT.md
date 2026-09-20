@@ -81,7 +81,12 @@ the executor picks up on its own.
   `executor.lua`); reference records are only read, so they parse up to 2000
   (`REFERENCE_ENTITY_LIMIT`) and report `over_build_limit`. Measured: a 508-entity starter base
   is one ghost job; the reply digests it (§Reply size), the receipt on disk keeps every row.
-- `observe(view="patterns")` rows carry `origin` (the kind) when a pattern has one.
+- `observe(view="patterns", query=?, offset=?)` pages exactly like `references`: 40 rows,
+  `total` + `next_offset`, `query` matched against the pattern id, the state and the ENTITY
+  NAMES (a designed pattern has no label; its entity names are the label). Null columns are
+  dropped from the rows. Measured 20/09: 162 own patterns unpaged = 27 495 chars every call,
+  5 762 paged (-79%); `query="stone-furnace"` = 14 rows, 2 548 chars. Rows carry `origin`
+  (the kind) when a pattern has one.
 - Books: `--book` flattens a blueprint-book string (nested books included) and imports every
   leaf that passes both screens, reporting the rest by reason instead of refusing the whole
   file over a few DLC pages. `origin.path` keeps the chain of book labels. `--screen-only

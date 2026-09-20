@@ -235,15 +235,26 @@ def list_patterns(reference: bool = False, query: str | None = None,
                              "book": where or None, "entity_count": data.get("entity_count"),
                              "note": (note[:157] + "...") if len(note) > 160 else (note or None)})
             continue
+        # The agent's own patterns were the one branch that paged nothing: 162 rows,
+        # 27495 characters, on EVERY observe(patterns) call. Same filter-then-page as the
+        # reference branch. For a designed pattern the entity names ARE the label, so the
+        # query searches those along with the id and the state.
+        text = "%s %s %s" % (data["pattern_id"], data.get("state") or "",
+                             " ".join(data.get("entities") or {}))
+        if query and query.lower() not in text.lower():
+            continue
         total += 1
+        if not offset <= total - 1 < offset + limit:
+            continue
         row = {key: data.get(key) for key in (
             "pattern_id", "state", "entity_count", "entities", "required_items")}
         row["has_contract"] = bool(data.get("contract"))
         if origin:
             row["origin"] = origin.get("kind")
-        rows.append(row)
+        # `required_items: null` on 150 of 162 rows is a column, not information.
+        rows.append({key: value for key, value in row.items() if value is not None})
     return {"patterns": rows, "total": total,
-            "next_offset": offset + len(rows) if reference and offset + len(rows) < total else None}
+            "next_offset": offset + len(rows) if offset + len(rows) < total else None}
 
 
 def load_pattern(pattern_id: str) -> dict:

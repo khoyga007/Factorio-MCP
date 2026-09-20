@@ -173,6 +173,29 @@ class ReferenceImportTest(unittest.TestCase):
             self.assertIsNone(listed["next_offset"])
             self.assertEqual([], list_patterns(reference=True, query="nothing")["patterns"])
 
+    def test_own_patterns_page_and_filter_like_the_reference_shelf(self):
+        with tempfile.TemporaryDirectory() as directory, patch.dict(
+            os.environ, {"FACTORIO_BLUEPRINT_CATALOG": directory}
+        ):
+            for i in range(45):
+                record_blueprint(self._string(count=i + 1), state="designed", source="test")
+            record_blueprint(self._string(count=2, name="transport-belt"),
+                             state="designed", source="test")
+            listed = list_patterns()
+            # 46 rows used to come back whole, on every single observe(patterns).
+            self.assertEqual(46, listed["total"])
+            self.assertEqual(40, len(listed["patterns"]))
+            self.assertEqual(40, listed["next_offset"])
+            self.assertEqual(6, len(list_patterns(offset=40)["patterns"]))
+            self.assertIsNone(list_patterns(offset=40)["next_offset"])
+            # Entity names are the only label a designed pattern has, so the query reads them.
+            belts = list_patterns(query="transport-belt")
+            self.assertEqual(1, belts["total"])
+            self.assertEqual({"transport-belt": 2}, belts["patterns"][0]["entities"])
+            self.assertEqual([], list_patterns(query="nothing")["patterns"])
+            # A null column on every row is not information.
+            self.assertNotIn("required_items", belts["patterns"][0])
+
     def test_agent_work_outranks_reference_and_reference_never_demotes(self):
         with tempfile.TemporaryDirectory() as directory, patch.dict(
             os.environ, {"FACTORIO_BLUEPRINT_CATALOG": directory}

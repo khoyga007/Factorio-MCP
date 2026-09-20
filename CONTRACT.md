@@ -139,6 +139,19 @@ Unknown keys ignored (notes: `source`). Contract errors (refused, nothing built)
   `detail:true` (bridge + `--detail` on `blueprint-run`/`blueprint-job`), and the artifact
   receipt on disk always holds the full rows. The MCP `report` tool has no `detail` flag: the
   three-tool schema sits 2 bytes under its 4000-byte budget, so read the receipt instead.
+- `supply` [{x,y}] (max 8), build `2026-09-20-supply-chests`: the chests a job may take from.
+  - `prepare()` gathers from THESE chests only when the list is set; with no list it keeps
+    scanning every container/furnace/assembling-machine inside `radius` (default 192).
+  - A parked ghost job restocks itself every 600 ticks: for each item in `waiting` it reads
+    the declared chest and collects `min(short, in_chest)` (a plain `collect` refuses a
+    partial pull, so asking for the full shortfall would take nothing). Counts land in
+    `restocked {item:n}`; a short chest is NOT a job failure -- waiting is the state.
+  - No `supply` = the loop takes NOTHING. Engine-checked: an undeclared chest holding the
+    exact item the job waits for is still full afterwards (`undeclared-chest-untouched`).
+  - Receipts for restock pulls stop at 200 rows so an hours-long wait cannot grow the file
+    without bound.
+- `prepare()` plans every item in the cost, not just the ones before the first shortfall
+  (it used to `break`); `missing` still names whatever came up short.
 - Water inlet, pole, load: NOT searched/provisioned (PORTING §2); agent builds them, executor checks via `connect`:
   - `{entity, power: true}`: pre-build, every matching entity inside the supply area of a pole that REACHES A LIVE GRID (§Poles), else reject `no-power`. Post-build, `electric_network_id` set with a source on it.
   - `{entity, fluid}`: post-build, before primer: some fluidbox for that fluid (filter) connects to an entity NOT built by this job. Else `needs-attention: infra-missing:<fluid|power>:<entity>@x,y`; built entities stay, primer NOT spent. Connect the pipe, then `report(job_id, resume=true)`.

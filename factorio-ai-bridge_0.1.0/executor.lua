@@ -489,7 +489,7 @@ local function parse_block(raw)
 end
 local function parse_contract(raw,r)
   raw=type(raw)=="table" and raw or {}
-  local c={resources={},primer={},feeds={},rotations={},connect={}}
+  local c={resources={},primer={},feeds={},rotations={},connect={},supply={}}
   local site=type(raw.site)=="table" and raw.site or {}
   c.exact=site.mode=="exact"
   local build=type(raw.build)=="table" and raw.build or {}
@@ -517,6 +517,16 @@ local function parse_contract(raw,r)
       return nil,"invalid-resource-rule"
     end
     c.resources[#c.resources+1]=v
+  end
+  -- Supply chests, maintainer 20/09: a job that waits for materials pulls from THESE chests and
+  -- nowhere else. Without them the restock loop takes nothing: a parked ghost plan must
+  -- never quietly drain the coal a running base is eating.
+  for _,v in ipairs(list(raw.supply)) do
+    if type(v.x)~="number" or type(v.y)~="number" or not finite(v.x) or not finite(v.y) then
+      return nil,"invalid-supply"
+    end
+    if #c.supply>=8 then return nil,"too-many-supply-chests" end
+    c.supply[#c.supply+1]={x=v.x,y=v.y}
   end
   for _,v in ipairs(list(raw.primer)) do
     if type(v.entity)~="string" or type(v.item)~="string" or not prototypes.item[v.item]
@@ -587,7 +597,7 @@ function M.attach(ctx)
       -- placed = tiles that hold the right entity now; built = the ones THIS job revived
       -- and paid for; existing = the ones that were already standing.
       built=j.built,existing=j.existing,replaced=j.replaced,replaced_at=j.replaced_at,
-      skipped=j.skipped,
+      skipped=j.skipped,restocked=j.restocked,
       plan=layout_digest(j.layout),
       placed_at=detail and j.layout and placed_at(j.layout) or nil}
   end
@@ -606,13 +616,23 @@ function M.attach(ctx)
   end
 
   -- Plan real-item steps: stock -> nearby chests/machine output -> trees/rocks -> hand craft.
-  local function prepare(surface,force,center,radius,stock,cost)
+  local function prepare(surface,force,center,radius,stock,cost,supply)
     local available,steps,missing={}, {}, {}
     for _,s in pairs(stock.get_contents()) do
       if s.quality=="normal" then available[s.name]=(available[s.name] or 0)+s.count end
     end
-    local sources=surface.find_entities_filtered{position=center,radius=radius,force=force,
-      type={"container","logistic-container","furnace","assembling-machine"}}
+    local sources
+    if supply and #supply>0 then
+      -- Declared supply chests only: the job reads what it was given, not the whole base.
+      sources={}
+      for _,p in ipairs(supply) do
+        for _,e in ipairs(surface.find_entities_filtered{position={p.x,p.y},radius=1.5,
+          force=force,type={"container","logistic-container"}}) do sources[#sources+1]=e end
+      end
+    else
+      sources=surface.find_entities_filtered{position=center,radius=radius,force=force,
+        type={"container","logistic-container","furnace","assembling-machine"}}
+    end
     table.sort(sources,function(a,b) return (a.unit_number or 0)<(b.unit_number or 0) end)
     local reserved={}
     local function ensure(item,count,depth)
@@ -669,7 +689,10 @@ function M.attach(ctx)
       return true
     end
     for _,item in ipairs(sorted_keys(cost)) do
-      if not ensure(item,cost[item],0) then break end
+      -- One item the base cannot make yet used to end the planning loop, so everything
+      -- sorted after it got no collect step at all. Plan each item on its own; `missing`
+      -- names whichever ones came up short.
+      ensure(item,cost[item],0)
     end
     return steps,missing
   end
@@ -894,7 +917,7 @@ function M.attach(ctx)
     if not site then
       return ctx.response(nonce,true,{state="blocked",error=why,rejects=rejects,checks=checks,materials=cost})
     end
-    local steps,missing=prepare(surface,force,c.center,c.radius,stock,cost)
+    local steps,missing=prepare(surface,force,c.center,c.radius,stock,cost,c.supply)
     local site_out={x=site.x,y=site.y,rotation=site.rotation,checks=checks}
     local placed=place_list(site.shape,site.x,site.y)
     local clear=0
@@ -936,6 +959,51 @@ function M.attach(ctx)
 
   -- Ghosts show where build_blueprint really lands; return the corrected position.
   local GHOST_PER_TICK=12
+
+  -- A parked ghost plan restocks itself: every RESTOCK_TICKS it asks its declared supply
+  -- chests for exactly what drain() said it was waiting for. No supply chests = takes
+  -- nothing, which is the safe default (maintainer 20/09, option A). A collect that comes up
+  -- short is not a job failure here -- waiting IS the state -- so this never calls
+  -- perform(), which would mark the job needs-attention.
+  local RESTOCK_TICKS=600
+  local function restock(j,surface,force)
+    local supply=j.contract.supply
+    if not supply or #supply==0 or not j.waiting then return end
+    if j.restock_at and game.tick<j.restock_at then return end
+    j.restock_at=game.tick+RESTOCK_TICKS
+    -- Resolve the declared points to real chests once: `collect` matches at radius 0.1,
+    -- so it needs the chest's own position, not the corner the agent typed.
+    local chests={}
+    for _,p in ipairs(supply) do
+      local e=surface.find_entities_filtered{position={p.x,p.y},radius=1.5,force=force,
+        type={"container","logistic-container","linked-container"}}[1]
+      if e and e.valid then chests[#chests+1]=e end
+    end
+    for item,count in pairs(j.waiting) do
+      local short=count
+      for _,e in ipairs(chests) do
+        if short<=0 then break end
+        local inv=e.get_inventory(defines.inventory.chest)
+        -- collect() refuses the whole pull when the chest is short, so ask for what is
+        -- actually in there: half a delivery still lets drain() build half the plan.
+        local n=inv and math.min(short,inv.get_item_count{name=item,quality="normal"}) or 0
+        if n>0 then
+          local ok,r=pcall(ctx.collect,j.id..":restock-"..((j.restocks or 0)+1),
+            {item=item,count=n,x=e.position.x,y=e.position.y,surface=j.surface,force=j.force})
+          if ok and type(r)=="table" and r.ok then
+            local got=tonumber(r.count) or 0
+            short=short-got
+            j.restocks=(j.restocks or 0)+1
+            j.restocked=j.restocked or {}
+            j.restocked[item]=(j.restocked[item] or 0)+got
+            -- One receipt per successful pull, capped: a plan parked for an hour would
+            -- otherwise write a receipt file that never stops growing.
+            if #j.receipts<200 then j.receipts[#j.receipts+1]=r end
+          end
+        end
+      end
+    end
+  end
 
   -- Ghost mode's engine room. Walks the job's own layout, not a stored ghost list, so a
   -- ghost that vanished unbuilt is noticed and re-placed: this API build exposes no
@@ -1173,6 +1241,7 @@ function M.attach(ctx)
             -- Stays in `building` while ghosts remain: no new state, so every guard,
             -- ledger row and report path that already knows `building` keeps working.
             if j.contract.ghost then
+              restock(j,surface,force)
               if drain(j,surface,force,stock) then save(j) return end
               -- Nothing left waiting, but tiles the engine refused are still refused: name
               -- them and stop. Free the tile, then report(resume=true) picks up from here.

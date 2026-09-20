@@ -5,6 +5,7 @@ return function(handlers,state,bp)
   local function check(v,name) assert(v,name) result.checks[#result.checks+1]=name end
   local function call(action,body) return handlers[action]("ghostbuild-"..game.tick..":"..#result.checks,body) end
   local surface,stock,job,job2,job3,phase,mark,done,blocker,parked=nil,nil,nil,nil,nil,0,0,false,nil,nil
+  local job4,feeder,bystander=nil,nil,nil
   local CONTRACT={site={mode="exact",rotations={0}},build={mode="ghost"}}
   script.on_event(defines.events.on_tick,function()
     if done then return end
@@ -154,6 +155,42 @@ return function(handlers,state,bp)
         local full=call("blueprint_job",{job_id=job3.job_id,detail=true})
         check(full.placed_at and #full.placed_at==4 and full.plan.count==4,
           "detail-still-returns-the-rows:"..tostring(full.placed_at and #full.placed_at))
+        -- A parked plan with nothing in the bag: the pole it needs sits in a declared
+        -- supply chest, and nobody calls the bridge again. It has to finish by itself.
+        -- The chest is EMPTY when the plan is made, so prepare() cannot gather anything:
+        -- the only way this job ever finishes is the restock loop, later, on its own.
+        feeder=surface.create_entity{name="wooden-chest",position={20.5,20.5},force="player"}
+        -- An undeclared chest holding exactly what the job wants. It must stay full: a
+        -- parked plan that quietly drains the base's own chests is the failure mode
+        -- supply chests exist to prevent.
+        bystander=surface.create_entity{name="wooden-chest",position={18.5,20.5},force="player"}
+        bystander.get_inventory(defines.inventory.chest).insert{name="small-electric-pole",count=1}
+        stock.clear()
+        job4=call("blueprint_run",{blueprint=bp.pole,surface=surface.name,x=24,y=24,
+          contract={site={mode="exact",rotations={0}},build={mode="ghost"},
+                    supply={{x=20.5,y=20.5}}}})
+        check(job4.ok and job4.job_id and job4.job_id~=job3.job_id,
+          "supply-job-started:"..tostring(job4.job_id)..":"..tostring(job4.error))
+        mark=game.tick phase=7
+      elseif phase==7 and game.tick-mark>=120 then
+        local parked_s=call("blueprint_job",{job_id=job4.job_id})
+        check(parked_s.state=="building" and parked_s.waiting
+          and parked_s.waiting["small-electric-pole"]==1,
+          "parked-plan-waits:"..tostring(parked_s.state)..":"..helpers.table_to_json(parked_s.waiting or {}))
+        -- Delivery arrives. Nobody calls the bridge after this line.
+        feeder.get_inventory(defines.inventory.chest).insert{name="small-electric-pole",count=1}
+        mark=game.tick phase=8
+      elseif phase==8 and game.tick-mark>=700 then
+        local s4=call("blueprint_job",{job_id=job4.job_id})
+        check(s4.restocked and s4.restocked["small-electric-pole"]==1,
+          "pulled-from-the-supply-chest:"..helpers.table_to_json(s4.restocked or {}))
+        check(surface.find_entity("small-electric-pole",{24.5,24.5})~=nil,
+          "parked-plan-built-itself:"..tostring(s4.state))
+        check(feeder.get_inventory(defines.inventory.chest).get_item_count("small-electric-pole")==0,
+          "supply-chest-was-emptied")
+        check(bystander.get_inventory(defines.inventory.chest).get_item_count("small-electric-pole")==1,
+          "undeclared-chest-untouched:"
+          ..tostring(bystander.get_inventory(defines.inventory.chest).get_item_count("small-electric-pole")))
         result.ok=true done=true
       end
     end)

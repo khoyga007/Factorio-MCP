@@ -60,6 +60,10 @@ Nguồn: [MCP Python SDK 1.27.1](https://github.com/modelcontextprotocol/python-
    Space Age. Đọc lại bằng `observe(view="references", query=..., offset=...)` — 40 dòng/trang,
    KHÔNG lẫn vào `view="patterns"` của agent.
 4. Research: `observe(view="research")`, `achieve(goal="research", tech)`.
+   Đặt công thức cho assembler trống: `achieve(goal="set_recipe", design=[{x,y,recipe}])`,
+   batch, mỗi máy 1 call UDP; máy đã có công thức khác hoặc còn đồ trong bụng thì bị từ chối
+   (`recipe-already-set` / `assembler-not-empty`), các máy còn lại vẫn chạy. Spec:
+   `CONTRACT.md` §Research.
    Chụp layout đã xây: `achieve(goal="capture", area=[x1,y1,x2,y2])`. Spec:
    `CONTRACT.md` §Research.
 5. Ledger: `observe(view="ledger")` = every block (exec job / hand area) with live status, throughput `flow` (items/min đo thật từ `products_finished`, cộng % thời gian máy chạy) + `edges` [{from,to,item,declared,measured,missing_block}] — `declared` là ý đồ agent khai (`per_minute` trên link), `measured` là sản lượng thật của block nguồn ở cửa sổ vừa đóng, `missing_block` = đầu mối không còn là block sống (gõ sai id, hoặc block đã bị dỡ). Block bị recall/phá sạch thì rời ledger, không để lại cạnh đói giả. Declare intent via `contract.block` on build, or `achieve(goal="annotate", contract={block}, area?)`. Spec + executor cheat sheet: `CONTRACT.md` §Ledger, §Executor rules.

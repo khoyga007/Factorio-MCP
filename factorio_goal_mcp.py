@@ -221,6 +221,31 @@ def _nearby(surface, x, y, radius) -> CallToolResult:
     return _result(data)
 
 
+def _set_recipe(design, surface: str, force: str) -> CallToolResult:
+    """Commission empty assemblers. One call per machine so a bad target names itself.
+
+    The Lua handler refuses a machine that already holds a recipe or items, so this is
+    not a re-configure: it only fills in what the blueprint left blank.
+    """
+    if not design:
+        return _result({"ok": False, "error": "design-required"}, True)
+    done, failed = [], []
+    for t in design:
+        name = t.get("recipe")
+        if not name or t.get("x") is None or t.get("y") is None:
+            failed.append({"x": t.get("x"), "y": t.get("y"), "error": "recipe-and-xy-required"})
+            continue
+        p = _read(_send({"action": "set_recipe", "recipe": name, "x": t["x"], "y": t["y"],
+                         "surface": surface, "force": force}, 5))
+        row = {"x": t["x"], "y": t["y"], "recipe": name}
+        if p.get("ok"):
+            done.append(row | {"unchanged": bool(p.get("unchanged"))})
+        else:
+            failed.append(row | {"error": p.get("error"), "current": p.get("current")})
+    return _result({"ok": not failed, "goal": "set_recipe",
+                    "set": done, "failed": failed}, bool(failed))
+
+
 @mcp.tool(annotations=WRITE)
 def achieve(goal: str,
             x: FiniteFloat | None = None, y: FiniteFloat | None = None,
@@ -230,17 +255,20 @@ def achieve(goal: str,
             contract: dict | None = None, design: list[dict] | None = None,
             area: list[float] | None = None, force_active: bool = False,
             tech: str | None = None) -> CallToolResult:
-    """Goals: reuse_blueprint(pattern_id), build_design(design=[{name,x,y,direction?}] centers,
-    dir 0N 4E 8S 12W), recall(area=[x1,y1,x2,y2] or design=[{name,x,y}]; own entities+contents to
-    bag; force_active overrides live job), capture(area -> catalog), research(tech; queued if
-    busy), annotate(contract.block; new block needs area). contract: CONTRACT.md."""
+    """Goals (contract: CONTRACT.md): reuse_blueprint(pattern_id), build_design(design=
+[{name,x,y,direction?}] centers, dir 0N4E8S12W), recall(area=[x1,y1,x2,y2]|
+design=[{name,x,y}] -> bag+contents; force_active beats live job),
+capture(area->catalog), research(tech), annotate(contract.block; new block needs
+area), set_recipe(design=[{x,y,recipe}]; empty assemblers)."""
     if (x is None) != (y is None):
         return _result({"ok": False, "error": "coordinate-pairs-required"}, True)
     if goal not in {"reuse_blueprint", "build_design", "recall",
-                    "capture", "research", "annotate"}:
+                    "capture", "research", "annotate", "set_recipe"}:
         return _result({"ok": False, "error": "unknown-goal"}, True)
     if (tech is not None) != (goal == "research"):
         return _result({"ok": False, "error": "tech-only-for-research"}, True)
+    if goal == "set_recipe":
+        return _set_recipe(design, surface, force)
     if goal == "research":
         return _send({"action": "research", "name": tech, "start": True, "force": force,
                       "surface": surface}, 5)

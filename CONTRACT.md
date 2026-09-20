@@ -156,6 +156,9 @@ Re-check site + stock right before build. Then trees/rocks inside any entity foo
 
 - `observe(view="research")` → current, progress, `queue`, `labs` {status→count on surface}, `available` (enabled, unresearched, prerequisites met).
 - `achieve(goal="research", tech)` → `force.add_research`: starts or appends to queue; 2.0 accepts a tech whose prerequisites are researched OR already queued. Refused → `cannot-queue` + `missing_prerequisites`, `current`. Unknown → `technology-not-found`.
+- `achieve(goal="set_recipe", design=[{x,y,recipe}])` → one `set_recipe` bridge call per row, in order. Fills BLANK assemblers only: the Lua handler (`control.lua:1084`) refuses a machine that already holds a different recipe (`recipe-already-set` + `current`) or any item in input/output/dump/trash (`assembler-not-empty`); same recipe → ok with `unchanged: true`. Also refused: `recipe-not-found`, `technology-locked`, `recipe-category-not-supported`, `assembler-not-found` (radius 0.1 around x,y, own force).
+  - Reply `{set:[...], failed:[{x,y,recipe,error,current}]}`, `ok` false if ANY row failed — partial work is kept and named, never rolled back. Per-row calls exist so a failing target identifies itself; a batch of 6 costs 6 UDP round trips.
+  - `design` rows carry `recipe`; no top-level recipe arg (schema byte budget). No `dry_run`: the handler has none.
 - `achieve(goal="capture", area=[x1,y1,x2,y2], contract?)` → blueprint_export of a built area → catalog `captured` + `layout` (design rows). Resubmit via build_design/reuse_blueprint to verify.
 - Engine PASS 2026-09-19 tests/verify_metrics_runtime.py: queue automation→logistics, unknown refused; drill→furnace products_finished 7/window verified; 1 powered lab 40 packs research_units 9.8/window ≤ speed cap, verified.
 

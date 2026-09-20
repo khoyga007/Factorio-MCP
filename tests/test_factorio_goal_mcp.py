@@ -46,6 +46,11 @@ class GoalMCPTest(unittest.IsolatedAsyncioTestCase):
                     reply.update(candidates=[{"x": 1.5, "y": 2, "direction": 0}])
                 elif action == "recall":
                     reply.update(state="planned" if body.get("dry_run") else "done", count=1)
+                elif action == "set_recipe":
+                    if body["recipe"] == "locked-recipe":
+                        reply.update(ok=False, error="technology-locked")
+                    else:
+                        reply.update(recipe=body["recipe"], unchanged=False)
                 elif action == "blueprint_job":
                     reply.update(state="verified", feed={"coal": 4},
                                  audit={"status": "passed", "windows": [{"index": 1}]})
@@ -173,6 +178,24 @@ class GoalMCPTest(unittest.IsolatedAsyncioTestCase):
                             self.assertTrue(seen[-1]["available"])
                             p = await call("achieve", {"goal": "research", "tech": "automation"}, ["research"])
                             self.assertEqual(("automation", True), (seen[-1]["name"], seen[-1]["start"]))
+                            # One bridge call per machine, so a refusal names its own target.
+                            p = await call("achieve", {"goal": "set_recipe", "design": [
+                                {"x": 1.5, "y": 2.5, "recipe": "pipe"},
+                                {"x": 4.5, "y": 2.5, "recipe": "repair-pack"}]},
+                                ["set_recipe", "set_recipe"])
+                            self.assertEqual([], p["failed"])
+                            self.assertEqual(["pipe", "repair-pack"], [r["recipe"] for r in p["set"]])
+                            self.assertEqual((4.5, "repair-pack"), (seen[-1]["x"], seen[-1]["recipe"]))
+                            before = len(seen)
+                            partial = await session.call_tool("achieve", {"goal": "set_recipe", "design": [
+                                {"x": 1.5, "y": 2.5, "recipe": "pipe"},
+                                {"x": 4.5, "y": 2.5, "recipe": "locked-recipe"}]})
+                            self.assertTrue(partial.isError)
+                            p = json.loads(partial.content[0].text)
+                            self.assertEqual(2, len(seen) - before)
+                            self.assertEqual(1, len(p["set"]))
+                            self.assertEqual("technology-locked", p["failed"][0]["error"])
+                            self.assertEqual(4.5, p["failed"][0]["x"])
                             p = await call("achieve", {"goal": "capture", "area": [0, 0, 9, 9]}, ["blueprint_export"])
                             self.assertEqual((pattern_id, "built"), (p["pattern_id"], p["state"]))
                             self.assertEqual(10, len(p["layout"]))
@@ -186,6 +209,8 @@ class GoalMCPTest(unittest.IsolatedAsyncioTestCase):
                                 ("achieve", {"goal": "capture"}),
                                 ("achieve", {"goal": "capture", "tech": "automation"}),
                                 ("achieve", {"goal": "recall"}),
+                                ("achieve", {"goal": "set_recipe"}),
+                                ("achieve", {"goal": "set_recipe", "design": [{"x": 0, "y": 0}]}),
                                 ("achieve", {"goal": "recall", "area": [0, 0, 4]}),
                                 ("achieve", {"goal": "build_design", "design": [{"name": "x", "x": 0.3, "y": 0}]}),
                                 ("achieve", {"goal": "reuse_blueprint", "pattern_id": pattern_id,

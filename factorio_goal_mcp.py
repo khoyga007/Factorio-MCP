@@ -54,6 +54,74 @@ def _send(body: dict, timeout: float) -> CallToolResult:
     return _result(p, not p.get("ok", False))
 
 
+RECALL_SLICE = 64
+
+
+def _slices(lo: float, hi: float) -> list:
+    """Cuts covering [lo, hi), each shorter than the Lua handler's 64-tile cap."""
+    out, v = [], lo
+    while v < hi:
+        n = min(v + RECALL_SLICE, hi)
+        out.append((v, n))
+        v = n
+    return out
+
+
+def _recall_area(body: dict, area: list) -> CallToolResult:
+    """Recall a box of any size by slicing it into pieces the bridge accepts.
+
+    field.lua caps one recall at 64x64 tiles and 200 entities on purpose: it is the
+    safety net against an accidental base-wide recall, so the cap stays where it is and
+    the slicing happens here. A long pipe or belt run is one agent intent, not twelve.
+    Entities straddling a cut are returned by both slices, so rows are deduped by
+    name+position; in a real run the first slice already mined them, so only a dry_run
+    can actually see the duplicate.
+    """
+    pieces = [(x1, y1, x2, y2)
+              for x1, x2 in _slices(area[0], area[2])
+              for y1, y2 in _slices(area[1], area[3])]
+    if len(pieces) == 1:
+        body.update(x1=area[0], y1=area[1], x2=area[2], y2=area[3])
+        return _send(body, 15)
+    rows, receipts, seen = [], [], set()
+    delta, spilled, done = {}, {}, 0
+    for i, (x1, y1, x2, y2) in enumerate(pieces):
+        part = _read(_send({**body, "x1": x1, "y1": y1, "x2": x2, "y2": y2}, 15))
+        if not part.get("ok"):
+            # "nothing-to-recall" is the normal answer for an empty slice.
+            if part.get("error") == "nothing-to-recall":
+                continue
+            return _result({"ok": False, "error": part.get("error"), "slice": [x1, y1, x2, y2],
+                            "slices": len(pieces), "slices_done": done,
+                            "count": len(receipts) or len(rows),
+                            "receipts": receipts or None, "entities": rows or None,
+                            "delta": delta or None}, True)
+        done += 1
+        for row in part.get("entities") or []:
+            key = (row["name"], row["x"], row["y"])
+            if key not in seen:
+                seen.add(key)
+                rows.append(row)
+        for row in part.get("receipts") or []:
+            key = (row["name"], row["x"], row["y"])
+            if key not in seen:
+                seen.add(key)
+                receipts.append(row)
+        for name, n in (part.get("delta") or {}).items():
+            delta[name] = delta.get(name, 0) + n
+        for name, n in (part.get("spilled") or {}).items():
+            spilled[name] = spilled.get(name, 0) + n
+    out = {"ok": True, "action": "recall", "slices": len(pieces), "slices_done": done,
+           "state": "planned" if body.get("dry_run") else "done"}
+    if body.get("dry_run"):
+        out.update(entities=rows, count=len(rows))
+    else:
+        out.update(receipts=receipts, count=len(receipts), delta=delta)
+        if spilled:
+            out["spilled"] = spilled
+    return _result(out)
+
+
 def _fields(source: dict, *names: str) -> dict:
     return {name: source[name] for name in names if name in source}
 
@@ -208,7 +276,9 @@ def achieve(goal: str,
         if area is not None:
             if len(area) != 4:
                 return _result({"ok": False, "error": "area-is-x1-y1-x2-y2"}, True)
-            body.update(x1=area[0], y1=area[1], x2=area[2], y2=area[3])
+            if not (area[0] < area[2] and area[1] < area[3]):
+                return _result({"ok": False, "error": "area-is-x1-y1-x2-y2"}, True)
+            return _recall_area(body, area)
         elif design:
             body["entities"] = design
         else:

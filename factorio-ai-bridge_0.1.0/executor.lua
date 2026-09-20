@@ -266,6 +266,66 @@ local function inserter_gaps(surface,force,placed,rotation)
   return out
 end
 
+-- Underground pipe pairs. Measured in the engine 20/09 (tests/verify_pipe_runtime.py):
+-- pipe-to-ground's prototype carries a "normal" connection facing its own direction and an
+-- "underground" connection 8 (180 degrees) away, `max_underground_distance` 10. Two of them
+-- link ONLY when each one's underground side points at the other -- dirB == (dirA+8)%16 --
+-- on the same row/column, centres at most 10 apart (d=10 links, d=11 does not).
+-- Without this check a run that is one tile too long, or an entrance built with the wrong
+-- facing, passes dry_run, gets built, and the water silently never arrives.
+local DIRV={[0]={0,-1},[4]={1,0},[8]={0,1},[12]={-1,0}}
+local function under_of(name)
+  local proto=prototypes.entity[name]
+  if not proto or proto.type~="pipe-to-ground" then return nil end
+  for _,fb in pairs(proto.fluidbox_prototypes or {}) do
+    for _,c in pairs(fb.pipe_connections or {}) do
+      if c.connection_type=="underground" then
+        return c.direction or 8,c.max_underground_distance or proto.max_underground_distance or 10
+      end
+    end
+  end
+  return 8,proto.max_underground_distance or 10
+end
+
+local function pipe_gaps(surface,force,placed)
+  local out={}
+  for _,e in ipairs(placed) do
+    local rel,maxd=under_of(e.name)
+    if rel then
+      local dir=e.dir or 0
+      local v=DIRV[(dir+rel)%16]
+      if not v then
+        out[#out+1]={pipe={e.x,e.y},reason="diagonal-direction",dir=dir}
+      else
+        local found
+        for d=1,maxd do
+          local px,py=e.x+v[1]*d,e.y+v[2]*d
+          local other
+          for _,o in ipairs(placed) do
+            if o~=e and o.name==e.name and math.abs(o.x-px)<0.01 and math.abs(o.y-py)<0.01 then
+              other=o.dir or 0
+            end
+          end
+          if not other then
+            local hit=surface.find_entities_filtered{name=e.name,position={px,py},radius=0.1,force=force}[1]
+            if hit and hit.valid then other=hit.direction end
+          end
+          if other then found={d=d,dir=other,at={px,py}} break end
+        end
+        if not found then
+          out[#out+1]={pipe={e.x,e.y},dir=dir,reason="no-partner",within=maxd}
+        elseif found.dir~=(dir+8)%16 then
+          -- The first same-name underground down the ray is not facing back: it steals the
+          -- pairing, so saying "no partner" would send the agent looking in the wrong place.
+          out[#out+1]={pipe={e.x,e.y},dir=dir,reason="wrong-facing",at=found.at,
+            found_dir=found.dir,expected_dir=(dir+8)%16}
+        end
+      end
+    end
+  end
+  return out
+end
+
 local function placed_at(layout)
   local out={}
   for i,e in ipairs(layout) do out[i]={e.name,e.x,e.y,e.dir} end
@@ -803,6 +863,11 @@ function M.attach(ctx)
     local gaps=inserter_gaps(surface,force,placed,site.rotation)
     if #gaps>0 then
       return ctx.response(nonce,true,{state="blocked",error="inserter-unconnected",unconnected=gaps,
+        site=site_out,placed_at=placed_at(placed),materials=cost})
+    end
+    local pgaps=pipe_gaps(surface,force,placed)
+    if #pgaps>0 then
+      return ctx.response(nonce,true,{state="blocked",error="pipe-unconnected",unconnected=pgaps,
         site=site_out,placed_at=placed_at(placed),materials=cost})
     end
     if #locked>0 then table.sort(locked) end

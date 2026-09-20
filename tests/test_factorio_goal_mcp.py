@@ -157,6 +157,16 @@ class GoalMCPTest(unittest.IsolatedAsyncioTestCase):
                             self.assertEqual(0, p["candidates"][0]["direction"])
                             p = await call("achieve", {"goal": "recall", "area": [0, 0, 4, 4], "dry_run": True}, ["recall"])
                             self.assertEqual(("planned", 4, True), (p["state"], seen[-1]["x2"], seen[-1]["dry_run"]))
+                            # A run longer than the bridge's 64-tile cap is sliced here, not
+                            # by hand: one agent intent, one call, several bridge recalls.
+                            p = await call("achieve", {"goal": "recall", "area": [0, 0, 200, 10],
+                                                       "dry_run": True},
+                                           ["recall", "recall", "recall", "recall"])
+                            self.assertEqual((4, 4, "planned"),
+                                             (p["slices"], p["slices_done"], p["state"]))
+                            self.assertEqual([(0, 64), (64, 128), (128, 192), (192, 200)],
+                                             [(q["x1"], q["x2"]) for q in seen[-4:]])
+                            self.assertEqual({(0, 10)}, {(q["y1"], q["y2"]) for q in seen[-4:]})
                             p = await call("achieve", {"goal": "recall", "design": [{"name": "pipe", "x": 0.5, "y": 0.5}]}, ["recall"])
                             self.assertEqual("pipe", seen[-1]["entities"][0]["name"])
                             p = await call("observe", {"view": "research"}, ["research"])

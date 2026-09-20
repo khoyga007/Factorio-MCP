@@ -36,7 +36,7 @@ def main():
         run = subprocess.run([
             str(EXE), "--config", str(SANDBOX / "config.ini"),
             "--mod-directory", str(SANDBOX / "mods"),
-            "--benchmark", str(save), "--benchmark-ticks", "7200",
+            "--benchmark", str(save), "--benchmark-ticks", "12000",
             "--benchmark-runs", "1", "--benchmark-ignore-paused",
         ], stdout=output, stderr=subprocess.STDOUT, timeout=600)
     if not result.exists():

@@ -220,7 +220,7 @@ def blueprint_job(job_id: str) -> CallToolResult:
 
 @mcp.tool(annotations=READ)
 def ledger() -> CallToolResult:
-    """Base ledger: every executor/hand block with live status, declared feeds/eats and edges."""
+    """Base ledger: blocks with live status and measured throughput, plus declared/measured edges."""
     return invoke("ledger")
 
 

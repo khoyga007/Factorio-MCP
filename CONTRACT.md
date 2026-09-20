@@ -17,13 +17,18 @@ Job id `exec-N`; read with `report(job_id)` (action `blueprint_job`). Receipt + 
 ## Ledger (base memory, build `2026-09-19-ledger`)
 
 Stored in mod `storage` → travels with the save, survives restarts/handoffs. Only intent stored; live state recomputed per read.
-- `contract.block = {id?, name, role, feeds:[{item?,block?,via?}], eats:[...], notes}` (name/id ≤40, role ≤120, notes ≤400, ≤12 links, link needs ≥1 field). Bad → refused `invalid-block[-feeds|-eats]`, nothing built. Carried on job summary (`report.block`).
-- `observe(view="ledger")` → `blocks` [{id, name, role, feeds, eats, notes, status, box [x1,y1,x2,y2], n {entity: planned count}, missing?, error?, pattern_id, tick}] + `edges` [[producer, consumer, item]].
+- `contract.block = {id?, name, role, feeds:[{item?,block?,via?,per_minute?}], eats:[...], notes}` (name/id ≤40, role ≤120, notes ≤400, ≤12 links, link needs ≥1 field; `per_minute` = the rate the agent INTENDS that link to carry, >0 and <1e6). Bad → refused `invalid-block[-feeds|-eats]`, nothing built. Carried on job summary (`report.block`).
+- `observe(view="ledger")` → `blocks` [{id, name, role, feeds, eats, notes, status, box [x1,y1,x2,y2], n {entity: planned count}, missing?, error?, pattern_id, tick, flow?}] + `edges` [{from, to, item?, declared?, measured?}].
   - Job blocks: every exec job that placed anything. `status`: `verified` (audit passed), `unverified` (verified, no passing audit), `attention` (needs-attention OR any planned entity gone: `missing`=count), else raw job state.
   - Hand blocks `hand-N`: `status=declared`, `n` = live own-force entities in box (characters skipped).
-  - Edges from both sides: A.feeds{block=B} and B.eats{block=A} both give [A,B,item], deduped. "What breaks if I remove X" = every edge with X as producer.
+  - Edges from both sides: A.feeds{block=B} and B.eats{block=A} both give {from=A,to=B,item}, deduped. "What breaks if I remove X" = every edge with X as producer.
+  - `declared` = the link's `per_minute` (intent). `measured` = what the PRODUCER block actually finished in its last closed window, 0 when the window saw nothing. `declared` > `measured` is the starvation signal; both absent means nobody declared a rate and no window has closed yet.
+- Throughput (`flow`, build `2026-09-20-flow`): each block carries `{ticks, samples, made {item: per minute}, active {entity: percent of samples working}}` from its last CLOSED window (default 3600 ticks; `storage.ledger_flow_window` overrides, tests use 300). Absent until the first window closes.
+  - `made` is the delta of the engine's own `products_finished` over the window, mapped through each machine's current recipe — assembling machines, furnaces and silos only. A mining drill has NO per-entity counter, so a drill block reports `active` and never a `made` rate; read its output from the chest it fills, or from the machine downstream.
+  - Known distortions, all deliberate: a machine added or removed mid-window carries its lifetime count in or out (negative deltas are dropped, so a removal reads as a quiet window, never a negative rate); a furnace whose recipe changed mid-window attributes the whole window to the recipe it ends on.
+  - Sampling rides the 60-tick executor tick, ≤600 entities per tick across all blocks, resuming where the budget ran out so a big base cannot starve the last blocks in the list.
 - `achieve(goal="annotate", contract={block:{id,...}})` merges given fields into block `id` (exec or hand); unknown → `block-not-found`. No id + `area=[x1,y1,x2,y2]` → registers new hand block, returns id. Neither → `block-id-or-area-required`.
-- Engine PASS tests/verify_ledger_runtime.py: bad feeds refused; character in site → `character` reject; 2 jobs + eats → edge; note merges keep other fields; hand chest counted live + edge; chest destroyed → `attention` missing 1; report carries block.
+- Engine PASS tests/verify_ledger_runtime.py (25 checks): bad feeds refused; `per_minute=-3` refused; character in site → `character` reject; 2 jobs + eats → edge carrying `declared=30`; note merges keep other fields; hand chest counted live + edge; chest destroyed → `attention` missing 1; report carries block; fed furnace → window `{ticks 300, samples 6, made {iron-plate 12}, active {stone-furnace 83}}` and edge `measured=12` against `declared=30`.
 
 ## Agent-authored design (`build_design`)
 

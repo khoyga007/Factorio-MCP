@@ -4,7 +4,7 @@ return function(handlers,state,bp)
   local function check(v,name) assert(v,name) result.checks[#result.checks+1]=name end
   local function call(action,body) return handlers[action]("ledger-"..game.tick..":"..#result.checks,body) end
   local function find(led,id) for _,b in ipairs(led.blocks) do if b.id==id then return b end end end
-  local surface,a,b,phase,started,done,player
+  local surface,a,b,phase,started,done,player,flow_started
   local function run(x,block) return call("blueprint_run",{blueprint=bp,surface=surface.name,x=x,y=0,
     contract={site={mode="exact"},block=block}}) end
   local function busy(job)
@@ -30,6 +30,8 @@ return function(handlers,state,bp)
         bag.insert{name="wooden-chest",count=4} bag.insert{name="stone-furnace",count=2}
         local bad=run(0,{name="x",feeds={{}}})
         check(not bad.ok and bad.error=="invalid-block-feeds","bad-block-rejected:"..helpers.table_to_json(bad))
+        local badrate=run(0,{name="x",feeds={{item="iron-plate",per_minute=-3}}})
+        check(not badrate.ok and badrate.error=="invalid-block-feeds","bad-rate-rejected:"..helpers.table_to_json(badrate))
         -- Own character standing in the site is named, not reported as a generic collision.
         local named
         for x=27,33 do for y=27,33 do
@@ -42,12 +44,29 @@ return function(handlers,state,bp)
         phase="a"
         return
       end
-      if game.tick-started>6000 then error("timeout in "..phase) end
+      if game.tick-started>8000 then error("timeout in "..phase) end
       if phase=="a" then
         if busy(a.job_id) then return end
-        b=run(10,{name="consumer-b",eats={{item="iron-plate",block=a.job_id,via="inserter"}}})
+        b=run(10,{name="consumer-b",eats={{item="iron-plate",block=a.job_id,via="inserter",per_minute=30}}})
         check(b.ok and b.job_id,"job-b:"..helpers.table_to_json(b))
         phase="b"
+        return
+      end
+      if phase=="flow" then
+        local la2=find(call("ledger",{}),a.job_id)
+        local f=la2 and la2.flow
+        local got=(f and f.made and f.made["iron-plate"]) or 0
+        if got<=0 and game.tick-flow_started<3000 then return end
+        check(f and f.ticks>=300 and f.samples>0,"flow-window:"..helpers.table_to_json(f))
+        check((f.made["iron-plate"] or 0)>0,"flow-measured-plates:"..helpers.table_to_json(f.made))
+        check((f.active["stone-furnace"] or 0)>0,"flow-active-furnace:"..helpers.table_to_json(f.active))
+        local edge2
+        for _,e in ipairs(call("ledger",{}).edges) do
+          if e.from==a.job_id and e.to==b.job_id then edge2=e end
+        end
+        check(edge2 and edge2.declared==30 and (edge2.measured or 0)>0,
+          "edge-measured:"..helpers.table_to_json(edge2))
+        result.ok,done=true,true
         return
       end
       if busy(b.job_id) then return end
@@ -57,8 +76,11 @@ return function(handlers,state,bp)
       check(la.status=="verified" or la.status=="unverified","a-status:"..tostring(la.status))
       check(la.n["wooden-chest"]==1 and la.n["stone-furnace"]==1 and la.box,"a-live-counts")
       local edge
-      for _,e in ipairs(led.edges) do if e[1]==a.job_id and e[2]==b.job_id and e[3]=="iron-plate" then edge=true end end
+      for _,e in ipairs(led.edges) do
+        if e.from==a.job_id and e.to==b.job_id and e.item=="iron-plate" then edge=e end
+      end
       check(lb and edge,"edge-a-to-b:"..helpers.table_to_json(led.edges))
+      check(edge.declared==30,"edge-declared:"..helpers.table_to_json(edge))
       local n=call("ledger_note",{block={id=a.job_id,notes="feeds consumer-b"}})
       check(n.ok,"note-job:"..helpers.table_to_json(n))
       check(find(call("ledger",{}),a.job_id).notes=="feeds consumer-b","note-persisted")
@@ -74,7 +96,7 @@ return function(handlers,state,bp)
       local lh=find(led,h.id)
       check(lh.status=="declared" and lh.n["wooden-chest"]==1,"hand-live:"..helpers.table_to_json(lh))
       edge=nil
-      for _,e in ipairs(led.edges) do if e[1]==h.id and e[2]==b.job_id then edge=true end end
+      for _,e in ipairs(led.edges) do if e.from==h.id and e.to==b.job_id then edge=true end end
       check(edge,"hand-edge")
       -- Destroying part of block a turns it to attention with a missing count.
       local chest=surface.find_entities_filtered{name="wooden-chest",area={{-1,-1},{2,2}}}[1]
@@ -83,7 +105,15 @@ return function(handlers,state,bp)
       check(la.status=="attention" and la.missing==1,"a-attention:"..helpers.table_to_json(la))
       local rep=call("blueprint_job",{job_id=b.job_id})
       check(rep.block and rep.block.name=="consumer-b","report-carries-block")
-      result.ok,done=true,true
+      -- Throughput: give block a's furnace real ore and fuel, then read what the
+      -- closed window measured. Short window so one benchmark run covers it.
+      state().ledger_flow_window=300
+      local furnace=surface.find_entities_filtered{name="stone-furnace",area={{-2,-2},{9,9}}}[1]
+      check(furnace and furnace.valid,"furnace-found")
+      furnace.insert{name="coal",count=5}
+      furnace.insert{name="iron-ore",count=25}
+      flow_started,phase=game.tick,"flow"
+      return
     end)
     if not ok then result.error,done=tostring(err),true end
     if done then helpers.write_file("ledger-check.json",helpers.table_to_json(result),false) end

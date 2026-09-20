@@ -294,6 +294,7 @@ end
 -- Validate the agent's contract into a normalised table, or return an error.
 -- Ledger intent attached to a block (contract.block or note).
 local function text(v,n) return type(v)=="string" and v~="" and #v<=n and v or nil end
+local function rate(v) return type(v)=="number" and v==v and v>0 and v<1000000 and v or nil end
 local function parse_block(raw)
   if raw==nil then return nil end
   if type(raw)~="table" then return nil,"invalid-block" end
@@ -302,8 +303,10 @@ local function parse_block(raw)
     local l=list(raw[k])
     if #l>12 then return nil,"invalid-block-"..k end
     for i,e in ipairs(l) do
-      local x=type(e)=="table" and {item=text(e.item,60),block=text(e.block,40),via=text(e.via,80)}
+      local x=type(e)=="table" and {item=text(e.item,60),block=text(e.block,40),via=text(e.via,80),
+        per_minute=rate(e.per_minute)}
       if not x or not (x.item or x.block or x.via) then return nil,"invalid-block-"..k end
+      if e.per_minute~=nil and not x.per_minute then return nil,"invalid-block-"..k end
       b[k]=b[k] or {} b[k][i]=x
     end
   end
@@ -768,7 +771,10 @@ function M.attach(ctx)
     return guess.x+delta[1],guess.y+delta[2]
   end
 
+  local flow_tick
+
   function M.tick()
+    flow_tick()
     for _,j in pairs(jobs()) do
       if j.state=="preparing" or j.state=="building" or j.state=="settling" or j.state=="auditing" then
         local ok,err=pcall(function()
@@ -876,6 +882,116 @@ function M.attach(ctx)
     return out
   end
 
+  -- Edge throughput. Numbers come from the engine's own counters, never from
+  -- prototype arithmetic: `made` is the delta of products_finished over one closed
+  -- window, `active` is how often each machine was actually `working` when sampled.
+  -- A drill has no per-entity counter, so it reports activity only -- never a rate.
+  -- Caveats worth knowing before trusting a number: a machine added or removed
+  -- mid-window carries its own lifetime count in or out (negative deltas are dropped,
+  -- so a removal reads as a quiet window, not a negative rate), and a furnace whose
+  -- recipe changed mid-window attributes the whole window to the recipe it ends on.
+  local FLOW_WINDOW=3600        -- one game minute per closed window
+  local FLOW_ENTITY_BUDGET=600  -- entities examined per sampling tick, across all blocks
+  local function flow() local s=ctx.state() s.ledger_flow=s.ledger_flow or {} return s.ledger_flow end
+  local function flow_window() return ctx.state().ledger_flow_window or FLOW_WINDOW end
+
+  -- Every block that occupies ground right now, job or hand, as {id, surface, force, box}.
+  local function block_sites()
+    local out={}
+    for _,id in ipairs(sorted_keys(jobs())) do
+      local j=jobs()[id]
+      if j.placed or j.state=="building" or j.state=="settling" or j.state=="auditing" then
+        out[#out+1]={id=id,surface=j.surface,force=j.force,box=box_of(j.layout)}
+      end
+    end
+    for _,id in ipairs(sorted_keys(hands())) do
+      local h=hands()[id]
+      out[#out+1]={id=id,surface=h.surface,force=h.force,box=h.box}
+    end
+    return out
+  end
+
+  local function site_entities(site)
+    local surface=game.get_surface(site.surface)
+    if not surface then return {} end
+    return surface.find_entities_filtered{force=site.force,
+      area={{site.box[1],site.box[2]},{site.box[3],site.box[4]}}}
+  end
+
+  -- products_finished is a per-machine lifetime count of completed crafts; turn it into
+  -- item totals through the recipe each machine is running.
+  -- Reading products_finished off anything else is a hard error ("Entity is not
+  -- crafting-machine"), not nil, so the type gate comes first.
+  local CRAFTERS={["assembling-machine"]=true,furnace=true,["rocket-silo"]=true}
+  local function made_totals(es)
+    local t={}
+    for _,e in pairs(es) do
+      local n=e.valid and CRAFTERS[e.type] and e.products_finished
+      if n and n>0 then
+        local ok,recipe=pcall(function() return e.get_recipe() end)
+        for _,p in pairs(ok and recipe and recipe.products or {}) do
+          if p.type=="item" then
+            local amount=p.amount or ((p.amount_min or 0)+(p.amount_max or 0))/2
+            t[p.name]=(t[p.name] or 0)+n*amount*(p.probability or 1)
+          end
+        end
+      end
+    end
+    return t
+  end
+
+  local function flow_step(site,es)
+    local fl,now=flow(),made_totals(es)
+    local f=fl[site.id]
+    if not f then f={start=game.tick,base=now,samples=0,active={}} fl[site.id]=f end
+    f.samples=f.samples+1
+    for _,e in pairs(es) do
+      if e.valid and e.status==defines.entity_status.working then
+        f.active[e.name]=(f.active[e.name] or 0)+1
+      end
+    end
+    local ticks=game.tick-f.start
+    if ticks>=flow_window() then
+      local made,active={}, {}
+      for item,total in pairs(now) do
+        local d=total-(f.base[item] or 0)
+        if d>0 then made[item]=r1(d*3600/ticks) end
+      end
+      -- Whole percent, not a fraction: a double like 0.83 serialises to 17 digits and
+      -- every one of them costs the agent context for no extra truth.
+      for name,n in pairs(f.active) do active[name]=math.floor(n*100/math.max(f.samples,1)+0.5) end
+      f.last={ticks=ticks,samples=f.samples,made=made,active=active}
+      f.start,f.base,f.samples,f.active=game.tick,now,0,{}
+    end
+  end
+
+  -- Sample every block per call, resuming where the budget ran out last time so a
+  -- big base cannot starve the blocks at the end of the list.
+  function flow_tick()
+    local sites,s=block_sites(),ctx.state()
+    if #sites==0 then s.ledger_flow=nil return end
+    local start,budget=(s.ledger_flow_cursor or 0)%#sites,FLOW_ENTITY_BUDGET
+    local seen,covered={}, 0
+    for i=0,#sites-1 do
+      local site=sites[(start+i)%#sites+1]
+      if budget<=0 then s.ledger_flow_cursor=(start+i)%#sites break end
+      local es=site_entities(site)
+      budget=budget-math.max(#es,1)
+      flow_step(site,es)
+      seen[site.id],covered=true,covered+1
+    end
+    if covered==#sites then
+      s.ledger_flow_cursor=0
+      for id in pairs(flow()) do if not seen[id] then flow()[id]=nil end end
+    end
+  end
+
+  -- What one block measurably produced, for the block row and for its outgoing edges.
+  local function flow_of(id)
+    local f=flow()[id]
+    return f and f.last or nil
+  end
+
   function M.ledger(nonce,r)
     local out,edges,seen={}, {}, {}
     for _,id in ipairs(sorted_keys(jobs())) do
@@ -891,7 +1007,7 @@ function M.attach(ctx)
         if st=="needs-attention" or miss>0 then st="attention"
         elseif st=="verified" then st=j.audit and j.audit.status=="passed" and "verified" or "unverified" end
         out[#out+1]=entry(id,j.block,{status=st,box=box_of(j.layout),n=n,missing=miss>0 and miss or nil,
-          error=j.error,pattern_id=j.pattern_id,tick=j.last_mutation})
+          error=j.error,pattern_id=j.pattern_id,tick=j.last_mutation,flow=flow_of(id)})
       end
     end
     for _,id in ipairs(sorted_keys(hands())) do
@@ -902,9 +1018,11 @@ function M.attach(ctx)
         force=h.force} or {}) do
         if e.type~="character" then n[e.name]=(n[e.name] or 0)+1 end
       end
-      out[#out+1]=entry(id,h,{status="declared",box=h.box,n=n,tick=h.tick})
+      out[#out+1]=entry(id,h,{status="declared",box=h.box,n=n,tick=h.tick,flow=flow_of(id)})
     end
-    -- Directed edges producer -> consumer from both sides' declarations.
+    -- Directed edges producer -> consumer from both sides' declarations. `declared` is the
+    -- agent's own per_minute on the link; `measured` is what the producer block actually
+    -- finished in its last closed window, so the two can disagree and that is the point.
     for _,b in ipairs(out) do
       for _,k in ipairs{"feeds","eats"} do
         for _,l in ipairs(b[k] or {}) do
@@ -912,10 +1030,19 @@ function M.attach(ctx)
             local a,c=b.id,l.block
             if k=="eats" then a,c=c,a end
             local key=a..">"..c..">"..(l.item or "")
-            if not seen[key] then seen[key]=true edges[#edges+1]={a,c,l.item} end
+            local e=seen[key]
+            if not e then
+              e={from=a,to=c,item=l.item}
+              seen[key]=e edges[#edges+1]=e
+            end
+            e.declared=e.declared or l.per_minute
           end
         end
       end
+    end
+    for _,e in ipairs(edges) do
+      local f=flow_of(e.from)
+      if f and e.item then e.measured=f.made[e.item] or 0 end
     end
     return ctx.response(nonce,true,{blocks=out,edges=edges})
   end

@@ -1,7 +1,7 @@
 # Factorio Engineer MCP
 
 `factorio_goal_mcp.py` dùng FastMCP trong official Python SDK (`mcp` 1.x).
-Codex chỉ thấy 3 tool: `observe`, `achieve`, `report`. 26 action chi tiết vẫn có
+Codex chỉ thấy 3 tool: `observe`, `achieve`, `report`. 25 action chi tiết vẫn có
 trong CLI và `factorio_mcp.py` để chẩn đoán, nhưng không chiếm catalog tool của
 agent cấp chiến lược. Các kiểm tra vật tư, công nghệ và va chạm nằm trong Lua
 ngay trước khi thao tác.
@@ -27,8 +27,6 @@ nhận ra cặp máy đã có, nạp 1 coal từ kho thật và đo thêm 5 iron
 nạp lại Codex.
 
 Schema cache (19/09 live): after adding a param (e.g. `design`, observe `pattern_id`/`offset`) server restart serves it, but a client's cached tool description/schema may stay stale until the client session restarts; the call is still accepted. Check CONTRACT.md, not the cached description.
-
-`first_iron_plates`/`first_copper_plates` = legacy bootstrap: no hand-craft (bag must hold drill+furnace), fuel ≤5 per burner (was 1 → drill starved ~26 s), site = first ore match (may sit on patch edge). For anything else prefer `build_design` (executor crafts + searches resource cover).
 
 Nguồn: [MCP Python SDK 1.27.1](https://github.com/modelcontextprotocol/python-sdk/tree/v1.27.1),
 [đăng ký MCP trong Codex](https://developers.openai.com/codex/mcp#configure-with-the-cli).
@@ -57,7 +55,7 @@ Nguồn: [MCP Python SDK 1.27.1](https://github.com/modelcontextprotocol/python-
 3. Research: `observe(view="research")`, `achieve(goal="research", tech)`.
    Chụp layout đã xây: `achieve(goal="capture", area=[x1,y1,x2,y2])`. Spec:
    `CONTRACT.md` §Research.
-4. Ledger: `observe(view="ledger")` = every block (exec job / hand area) with live status + `edges` [[producer, consumer, item]]. Declare intent via `contract.block` on build, or `achieve(goal="annotate", contract={block}, area?)`. Spec + executor cheat sheet: `CONTRACT.md` §Ledger, §Executor rules.
+4. Ledger: `observe(view="ledger")` = every block (exec job / hand area) with live status, throughput `flow` (items/min đo thật từ `products_finished`, cộng % thời gian máy chạy) + `edges` [{from,to,item,declared,measured}] — `declared` là ý đồ agent khai (`per_minute` trên link), `measured` là sản lượng thật của block nguồn ở cửa sổ vừa đóng. Declare intent via `contract.block` on build, or `achieve(goal="annotate", contract={block}, area?)`. Spec + executor cheat sheet: `CONTRACT.md` §Ledger, §Executor rules.
 5. `report(job_id)` đọc audit của job `exec-N`. Blueprint và receipt chi tiết
    nằm trong `script-output/executor/`.
 
@@ -89,19 +87,19 @@ guardrail mới ngoài luồng hiện có chưa nằm trong đợt này.
 python -m unittest discover -q -s tests -t .
 python contract_check.py
 python tests/verify_executor_runtime.py --player-save .runtime-test/saves/replica-player.zip
-python tests/verify_coal_runtime.py --player-save .runtime-test/saves/replica-player.zip
+python tests/verify_ledger_runtime.py --player-save .runtime-test/saves/replica-player.zip
 python tests/verify_steam_runtime.py --player-save .runtime-test/saves/replica-player.zip
 python tests/verify_holdout_fail_runtime.py --player-save .runtime-test/saves/replica-player.zip
 ```
 
 Lệnh cuối sao chép save vào `.runtime-test` để kiểm tra chuyển đồ với một player
 có inventory; không ghi vào save gốc. Fixture chỉ được chèn vào mod thử nghiệm.
-50 test Python (gồm 3 tool MCP và lớp chi tiết 26 action), 28 kiểm tra bản sửa,
-74 kiểm tra nung dãy và 20 kiểm tra planner đầu game trong engine đã qua. Ở fixture,
-planner sắt và đồng đều dùng 2 lượt gọi (khởi động + kết quả) và tạo 7 plate
-trong cửa sổ đo. Không cài `test_*runtime.lua` vào mod thật.
+66 test Python (gồm 3 tool MCP và lớp chi tiết 25 action) + `contract_check.py` xanh.
+Engine 20/09: 10/11 bài verify_*_runtime.py PASS; `verify_economy_runtime.py` FAIL vì
+save nguồn đã ăn bản sửa một-lần coal-demo 18/09, hỏng y hệt trước khi refactor.
+Không cài `test_*runtime.lua` vào mod thật.
 
 Schema của 23 tool cũ dài 15.208 byte; 3 tool mới dài 2.581 byte (giảm 83%,
-đo từ `list_tools` JSON cùng SDK). Đây là kích thước mô tả tool, không phải số
-token/quota tài khoản đo trực tiếp. Giao diện mục tiêu hiện hỗ trợ năm goal ở
-trên; các dây chuyền khác cần pattern đã thử engine trước khi thêm.
+đo từ `list_tools` JSON cùng SDK), rồi 3.669 khi thêm design/ledger/recall và
+3.285 sau khi gỡ 4 goal hard-code (20/09). Đây là kích thước mô tả tool, không
+phải token/quota tài khoản đo trực tiếp.

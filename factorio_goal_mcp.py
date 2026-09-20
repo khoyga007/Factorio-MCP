@@ -65,8 +65,9 @@ def observe(view: str = "situation",
             radius: Annotated[float, Field(ge=1, le=2048, allow_inf_nan=False)] = 16,
             resource: str | None = None, pattern_id: str | None = None,
             offset: Annotated[int, Field(ge=0)] = 0) -> CallToolResult:
-    """situation|deposits|nearby(issues,machines,runs,poles)|entities(raw)|water|research|ledger(blocks,
-    edges)|patterns(+pattern_id). offset pages. water radius<=2048, others<=32."""
+    """situation|deposits|nearby(issues,machines,runs,poles)|entities(raw)|water|research|ledger(blocks
+    +flow, edges +declared/measured per min)|patterns(+pattern_id). offset pages. water radius<=2048,
+    others<=32."""
     if (x is None) != (y is None):
         return _result({"ok": False, "error": "x-and-y-required-together"}, True)
     if view not in {"situation", "deposits", "nearby", "entities", "patterns", "water", "research", "ledger"}:

@@ -50,7 +50,9 @@ return function(handlers,state,blueprint,contract_json)
         base.dry_run=nil
         job=call("blueprint_run",base)
         check(job.ok and job.state=="preparing" and job.job_id,"one-call-start:"..helpers.table_to_json(job))
-        check(call("blueprint_run",base).job_id==job.job_id,"active-job-is-reused")
+        -- Several plans may be alive since 2026-09-20-multi-job, but the SAME plan at the
+        -- SAME anchor still hands back the live job: polling must not stack duplicates.
+        check(call("blueprint_run",base).job_id==job.job_id,"same-plan-same-spot-is-one-job")
         return
       end
       local status=call("blueprint_job",{job_id=job.job_id})

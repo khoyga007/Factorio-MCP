@@ -5,7 +5,7 @@ return function(handlers,state,bp)
   local function check(v,name) assert(v,name) result.checks[#result.checks+1]=name end
   local function call(action,body) return handlers[action]("ghostbuild-"..game.tick..":"..#result.checks,body) end
   local surface,stock,job,job2,job3,phase,mark,done,blocker,parked=nil,nil,nil,nil,nil,0,0,false,nil,nil
-  local job4,feeder,bystander=nil,nil,nil
+  local job4,feeder,bystander,job5,job6=nil,nil,nil,nil,nil
   local CONTRACT={site={mode="exact",rotations={0}},build={mode="ghost"}}
   script.on_event(defines.events.on_tick,function()
     if done then return end
@@ -191,6 +191,33 @@ return function(handlers,state,bp)
         check(bystander.get_inventory(defines.inventory.chest).get_item_count("small-electric-pole")==1,
           "undeclared-chest-untouched:"
           ..tostring(bystander.get_inventory(defines.inventory.chest).get_item_count("small-electric-pole")))
+        -- Several plans parked at once. A live job used to swallow the next call and hand
+        -- its own summary back instead of starting anything.
+        stock.clear()
+        -- Away from (30.5,30.5): the test player stands there, and a tile under a
+        -- character is `standing`, which waits forever by design.
+        job5=call("blueprint_run",{blueprint=bp.pole,surface=surface.name,x=30,y=34,contract=CONTRACT})
+        job6=call("blueprint_run",{blueprint=bp.pole,surface=surface.name,x=34,y=34,contract=CONTRACT})
+        check(job5.ok and job6.ok and job6.job_id and job6.job_id~=job5.job_id,
+          "second-plan-parks-beside-the-first:"..tostring(job5.job_id)..":"..tostring(job6.job_id))
+        -- Ghosts do not collide, so only the reservation keeps a DIFFERENT plan off job5
+        -- tiles. (The same plan at the same anchor is the same job, checked elsewhere.)
+        -- This one spans 28.5..32.5 x 34.5..35.5, over job5 pole at (30.5,34.5).
+        local clash=call("blueprint_run",{blueprint=bp.plan,surface=surface.name,x=28,y=34,
+          contract=CONTRACT})
+        check(clash.state=="blocked" and clash.rejects and clash.rejects.job==1,
+          "tiles-of-a-live-job-are-not-a-site:"..tostring(clash.state)..":"
+          ..helpers.table_to_json(clash.rejects or {}))
+        stock.insert{name="small-electric-pole",count=2}
+        mark=game.tick phase=9
+      elseif phase==9 and game.tick-mark>=180 then
+        local s5=call("blueprint_job",{job_id=job5.job_id})
+        local s6=call("blueprint_job",{job_id=job6.job_id})
+        check(s5.state=="verified" and s6.state=="verified",
+          "both-parked-plans-finished:"..tostring(s5.state)..":"..tostring(s6.state))
+        check(surface.find_entity("small-electric-pole",{30.5,34.5})~=nil
+          and surface.find_entity("small-electric-pole",{34.5,34.5})~=nil,
+          "both-poles-on-the-ground")
         result.ok=true done=true
       end
     end)

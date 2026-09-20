@@ -139,6 +139,19 @@ Unknown keys ignored (notes: `source`). Contract errors (refused, nothing built)
   `detail:true` (bridge + `--detail` on `blueprint-run`/`blueprint-job`), and the artifact
   receipt on disk always holds the full rows. The MCP `report` tool has no `detail` flag: the
   three-tool schema sits 2 bytes under its 4000-byte budget, so read the receipt instead.
+- Several live jobs, build `2026-09-20-multi-job`: `blueprint_run` no longer hands back
+  whatever job is running. Up to `MAX_LIVE_JOBS` = 8 jobs may be preparing/building/
+  settling/auditing at once, so parked ghost plans do not block the next build.
+  - Same blueprint + same surface + same requested x,y as a live job = that job's summary,
+    not a second one. Polling `blueprint_run` is still safe; a different anchor is a
+    different build.
+  - Tiles a live job's layout claims are not a site: `check_site` rejects them (`rejects.job`),
+    so a search finds another spot and an exact site comes back `blocked`. Ghosts do not
+    collide, so nothing else would have caught two plans overlapping.
+  - Over the cap: `state=blocked, error=too-many-live-jobs, jobs=[ids], max`.
+  - A job that revived nothing on its pass is re-scanned every `SCAN_TICKS` = 60 instead of
+    every tick (it is waiting on materials, not on CPU); that also stops 8 parked jobs from
+    rewriting 8 receipt files 60 times a second.
 - `supply` [{x,y}] (max 8), build `2026-09-20-supply-chests`: the chests a job may take from.
   - `prepare()` gathers from THESE chests only when the list is set; with no list it keeps
     scanning every container/furnace/assembling-machine inside `radius` (default 192).

@@ -350,8 +350,26 @@ local function layout_digest(layout)
   return {count=#layout,entities=names,bbox={x1,y1,x2,y2}}
 end
 
+-- Every whole tile an entity covers, as "x:y" keys. Used to keep two parked plans off
+-- each other: ghosts do not collide, so can_place_entity says nothing about a tile another
+-- job has already claimed.
+local function tile_keys(e,into)
+  local t=into or {}
+  for x=math.floor(e.x-e.w/2),math.ceil(e.x+e.w/2)-1 do
+    for y=math.floor(e.y-e.h/2),math.ceil(e.y+e.h/2)-1 do t[x..":"..y]=true end
+  end
+  return t
+end
+
 local function check_site(surface,force,c,placed,rejects)
   local function no(reason) rejects[reason]=(rejects[reason] or 0)+1 return false end
+  if c.reserved then
+    for _,e in ipairs(placed) do
+      for k in pairs(tile_keys(e)) do
+        if c.reserved[k] then return no("job") end
+      end
+    end
+  end
   local fed  -- layout poles that reach a live grid, computed once and only if power matters
   local x1,y1,x2,y2=math.huge,math.huge,-math.huge,-math.huge
   for _,e in ipairs(placed) do
@@ -880,6 +898,14 @@ function M.attach(ctx)
     end
   end
 
+  -- How many jobs may be alive at once. Each parked job walks its own layout on its scan
+  -- tick, so this bounds the per-tick cost and the size of the saved state.
+  local MAX_LIVE_JOBS=8
+  -- A job that built nothing last pass is waiting on materials, not on CPU: re-scan it
+  -- once a second instead of every tick. This also stops 8 parked jobs from writing 8
+  -- receipt files 60 times a second.
+  local SCAN_TICKS=60
+
   function M.start(nonce,r)
     local base,err=decode(r.blueprint)
     if not base then return ctx.response(nonce,false,{error=err}) end
@@ -908,12 +934,35 @@ function M.attach(ctx)
       if n==0 then return ctx.response(nonce,false,{error="primer-entity-not-in-blueprint",entity=p.entity}) end
       cost[p.item]=(cost[p.item] or 0)+p.count*n
     end
+    -- Parked plans are the point of ghost mode (maintainer 20/09), so a live job no longer
+    -- swallows the call: several plans wait at once. Two guards replace the old one --
+    -- a cap on how many run, and tiles another live job already claims are not a site.
+    local live,reserved,ids=0,{},{}
     for _,j in pairs(jobs()) do
       if j.state=="preparing" or j.state=="building" or j.state=="settling" or j.state=="auditing" then
-        return ctx.response(nonce,true,summary(j,r.detail))
+        -- The same plan asked for at the same spot is the SAME job, not a second one:
+        -- an agent polling blueprint_run must not quietly stack duplicates. A different
+        -- anchor is a different build and gets its own job.
+        if j.blueprint==r.blueprint and j.surface==surface.name
+          and j.request and j.request.x==r.x and j.request.y==r.y then
+          return ctx.response(nonce,true,summary(j,r.detail))
+        end
+        live=live+1 ids[#ids+1]=j.id
+        for _,e in ipairs(j.layout or {}) do
+          if j.surface==surface.name then tile_keys(e,reserved) end
+        end
       end
     end
+    if live>=MAX_LIVE_JOBS then
+      table.sort(ids)
+      return ctx.response(nonce,true,{state="blocked",error="too-many-live-jobs",jobs=ids,
+        max=MAX_LIVE_JOBS,materials=cost})
+    end
+    c.reserved=reserved
     local site,rejects,checks,why=find_site(surface,force,c,base)
+    -- Never stored on the job: it is a snapshot of OTHER jobs at this moment, and
+    -- check_site runs again from tick() with the job's own saved contract.
+    c.reserved=nil
     if not site then
       return ctx.response(nonce,true,{state="blocked",error=why,rejects=rejects,checks=checks,materials=cost})
     end
@@ -949,6 +998,7 @@ function M.attach(ctx)
     local state=ctx.state() state.executor_seq=(state.executor_seq or 0)+1
     local id="exec-"..state.executor_seq
     local j={id=id,pattern_id=r.pattern_id,blueprint=r.blueprint,contract_raw=r.contract,
+      request={x=r.x,y=r.y},
       surface=surface.name,force=force.name,player=owner.index,site=site_out,
       layout=place_list(site.shape,site.x,site.y),contract=c,metrics=c.metrics,
       feeds=c.feeds,max_windows=c.max_windows,materials=cost,steps=steps,step=1,
@@ -1009,8 +1059,10 @@ function M.attach(ctx)
   -- ghost that vanished unbuilt is noticed and re-placed: this API build exposes no
   -- ghost-expiry field, so its lifetime is not something to rely on.
   -- Returns true while work is left (job stays in `building`).
+  -- Returns (work_left, built_this_pass).
   local function drain(j,surface,force,stock)
     local waiting,blocked,done,pending={},{},0,0
+    local built_now=0
     local standing={}  -- tiles a character is parked on: waiting, not blocked
     local budget=GHOST_PER_TICK
     local function one(e)
@@ -1082,6 +1134,7 @@ function M.attach(ctx)
         recipe_lost=(not okr2) and e.recipe or nil
       end
       e.ours,e.pre=true,nil
+      built_now=built_now+1
       j.receipts[#j.receipts+1]={ok=true,action="revive",name=e.name,x=e.x,y=e.y,
         item=item.name,count=item.count,recipe_lost=recipe_lost,
         wires=built.type=="electric-pole" and ctx.wire and ctx.wire(built) or nil}
@@ -1102,7 +1155,7 @@ function M.attach(ctx)
     j.waiting=next(waiting) and waiting or nil
     j.blocked=#blocked>0 and blocked or nil
     j.standing=#standing>0 and standing or nil
-    return pending>0
+    return pending>0,built_now
   end
 
   local function aim(j,surface,force)
@@ -1241,8 +1294,17 @@ function M.attach(ctx)
             -- Stays in `building` while ghosts remain: no new state, so every guard,
             -- ledger row and report path that already knows `building` keeps working.
             if j.contract.ghost then
+              -- A plan parked on materials is re-read once a second, not 60 times: with
+              -- several jobs alive that is the difference between a background wait and a
+              -- per-tick walk of every layout plus a receipt file each.
+              if j.scan_at and game.tick<j.scan_at then return end
               restock(j,surface,force)
-              if drain(j,surface,force,stock) then save(j) return end
+              local left,built_now=drain(j,surface,force,stock)
+              if left then
+                j.scan_at=built_now>0 and nil or game.tick+SCAN_TICKS
+                save(j) return
+              end
+              j.scan_at=nil
               -- Nothing left waiting, but tiles the engine refused are still refused: name
               -- them and stop. Free the tile, then report(resume=true) picks up from here.
               if j.blocked then error("blueprint-blocked:"..#j.blocked) end

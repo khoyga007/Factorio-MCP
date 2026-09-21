@@ -104,7 +104,7 @@ return function(handlers,state,bp)
         -- cluster membership is a partition, so the per-cluster counts have to add back up.
         local roll=call("ledger",{})
         check(roll.detail=="roll" and roll.blocks==#led3.blocks and not roll.blocks_rows,
-          "roll-counts:"..helpers.table_to_json(roll.blocks))
+          "roll-counts:"..tostring(roll.blocks).."/"..tostring(#led3.blocks))
         local sum,named=0,true
         for _,c in ipairs(roll.clusters) do
           sum=sum+c.blocks
@@ -113,7 +113,7 @@ return function(handlers,state,bp)
         check(sum==roll.blocks and named,"clusters-partition:"..helpers.table_to_json(roll.clusters))
         local tally=0
         for _,c in pairs(roll.by_status) do tally=tally+c end
-        check(tally==roll.blocks,"status-tally:"..helpers.table_to_json(roll.by_status))
+        check(tally==roll.blocks,"status-tally:"..helpers.table_to_json(roll.by_status or {}))
         check(roll.edges.total>0,"roll-edge-total:"..helpers.table_to_json(roll.edges))
         -- Drill-down: one filter, one block, and the links that touch it.
         local one=call("ledger",{detail="one",only={id=b.job_id}})
@@ -122,7 +122,7 @@ return function(handlers,state,bp)
         check(not miss1.ok and miss1.error=="block-not-found","one-unknown-rejected")
         local filtered=call("ledger",{detail="rows",only={cluster=roll.clusters[1].id}})
         check(filtered.total>0 and filtered.total<=roll.blocks,
-          "cluster-filter:"..helpers.table_to_json(filtered.total))
+          "cluster-filter:"..tostring(filtered.total))
         result.ok,done=true,true
         return
       end

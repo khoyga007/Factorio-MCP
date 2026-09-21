@@ -208,7 +208,7 @@ def observe(view: str = "situation",
             query: str | None = None,
             offset: Annotated[int, Field(ge=0)] = 0) -> CallToolResult:
     """situation|deposits|nearby(issues,machines,runs,poles)|entities|water|research|ledger(roll;
-query=exec-N|status:|cluster:|item:)|patterns(+pattern_id)|references(human-made).
+query=exec-N|status:|cluster:|item:)|patterns(+pattern_id)|references(human).
 query+offset page. water r<=2048, else 32."""
     if (x is None) != (y is None):
         return _result({"ok": False, "error": "x-and-y-required-together"}, True)
@@ -362,15 +362,17 @@ def achieve(goal: str,
             tech: str | None = None) -> CallToolResult:
     """Goals (CONTRACT.md; area=[x1,y1,x2,y2]): reuse_blueprint(pattern_id),
 build_design(design=[{name,x,y,direction?}] centers, dir 0N4E8S12W),
-recall(area|design=[{name,x,y}]->bag; force_active beats job),
-capture(area->catalog), research(tech), annotate(contract.block; new needs area),
+recall(area|design->bag; force_active beats job),
+capture(area->catalog+site), build_ghosts(area; builds ghosts on ground),
+research(tech), annotate(contract.block; new needs area),
 set_recipe(design=[{x,y,recipe}]; empty asm), craft|collect|insert
 (design=[{name,count,x?,y?,source?}]<=8; craft queues),
 import(pattern_id=bp string->reference)."""
     if (x is None) != (y is None):
         return _result({"ok": False, "error": "coordinate-pairs-required"}, True)
     if goal not in {"reuse_blueprint", "build_design", "recall", "capture", "research",
-                    "annotate", "set_recipe", "craft", "collect", "insert", "import"}:
+                    "annotate", "set_recipe", "craft", "collect", "insert", "import",
+                    "build_ghosts"}:
         return _result({"ok": False, "error": "unknown-goal"}, True)
     if (tech is not None) != (goal == "research"):
         return _result({"ok": False, "error": "tech-only-for-research"}, True)
@@ -419,8 +421,54 @@ import(pattern_id=bp string->reference)."""
                                      contract=contract)
         except (OSError, ValueError, KeyError, TimeoutError, json.JSONDecodeError) as exc:
             return _result({"ok": False, "error": str(exc)}, True)
+        # `site` is the anchor to hand straight back to reuse_blueprint with
+        # site.mode="exact". Without it the caller had to guess the frame from a
+        # centre-based bbox, and a 3x3 drill and a 2x2 furnace floor to different tiles.
         return _result({"ok": True, "goal": goal, **saved,
+                        **({"site": p["anchor"]} if p.get("anchor") else {}),
                         "layout": _digest(pattern_entities(p["blueprint"]))})
+    if goal == "build_ghosts":
+        # Ghosts a human pasted had no goal that would build them. The workaround was
+        # capture -> reuse_blueprint, which re-derived the frame and (21/09, exec-21..24)
+        # laid a SECOND ghost set one tile off the first. Here the frame is never
+        # re-derived: the export hands back the exact anchor of the entities it captured,
+        # so every layout row lands on the ghost that is already there and drain() adopts
+        # it instead of creating one.
+        if area is None or len(area) != 4:
+            return _result({"ok": False, "error": "area-is-x1-y1-x2-y2"}, True)
+        try:
+            p = request({"action": "blueprint_export", "surface": surface, "force": force,
+                         "x1": area[0], "y1": area[1], "x2": area[2], "y2": area[3]},
+                        host=os.environ.get("FACTORIO_HOST", DEFAULT_HOST),
+                        port=int(os.environ.get("FACTORIO_PORT", DEFAULT_PORT)), timeout=5)
+            if not p.get("ok"):
+                return _result({"ok": False, **_fields(p, "error", "entities")}, True)
+            if not p.get("anchor"):
+                return _result({"ok": False, "error": "no-anchor-in-export"}, True)
+            saved = record_blueprint(p["blueprint"], state="captured", source="build_ghosts",
+                                     contract=contract)
+        except (OSError, ValueError, KeyError, TimeoutError, json.JSONDecodeError) as exc:
+            return _result({"ok": False, "error": str(exc)}, True)
+        deal = dict(contract or {})
+        deal["site"] = {"mode": "exact"}
+        deal["build"] = {"mode": "ghost"}
+        body = {"action": "blueprint_run", "blueprint": p["blueprint"],
+                "pattern_id": saved["pattern_id"], "contract": deal, "surface": surface,
+                "force": force, "radius": radius, "dry_run": dry_run,
+                "x": p["anchor"]["x"], "y": p["anchor"]["y"]}
+        try:
+            run = request(body, host=os.environ.get("FACTORIO_HOST", DEFAULT_HOST),
+                          port=int(os.environ.get("FACTORIO_PORT", DEFAULT_PORT)), timeout=15)
+        except (OSError, ValueError, TimeoutError) as exc:
+            return _result({"ok": False, "error": str(exc),
+                            "pattern_id": saved["pattern_id"]}, True)
+        return _result({"ok": run.get("ok", False), "goal": goal,
+                        "pattern_id": saved["pattern_id"], "site_requested": p["anchor"],
+                        "ghosts_captured": p.get("entities"),
+                        **_fields(run, "job_id", "state", "site", "site_validated",
+                                  "materials", "missing", "locked", "steps", "rejects",
+                                  "checks", "unconnected", "plan", "error")},
+                       not run.get("ok", False))
     if goal == "recall":
         if pattern_id or contract or x is not None:
             return _result({"ok": False, "error": "recall-takes-area-or-design-only"}, True)
@@ -438,7 +486,8 @@ import(pattern_id=bp string->reference)."""
             return _result({"ok": False, "error": "area-or-design-required"}, True)
         return _send(body, 15)
     if area is not None or force_active:
-        return _result({"ok": False, "error": "area-only-for-recall-or-capture"}, True)
+        return _result({"ok": False, "error": "area-only-for-recall-capture-build-ghosts"},
+                       True)
     if (design is not None) != (goal == "build_design"):
         return _result({"ok": False, "error": "design-only-for-build-design"}, True)
     if goal == "build_design":
@@ -486,9 +535,8 @@ import(pattern_id=bp string->reference)."""
 
 @mcp.tool(annotations=READ)
 def report(job_id: str, resume: bool = False) -> CallToolResult:
-    """One goal's audit, progress, blocker, block, artifact path.
-resume=True restarts a built job once its blocker is fixed; never re-imports
-or re-primes the ground."""
+    """One goal's audit, progress, blockers, block, artifact.
+resume=True restarts a built job after its blocker clears; never re-imports."""
     if not job_id.startswith("exec-"):
         return _result({"ok": False, "error": "unknown-job-id"}, True)
     p = _read(invoke("blueprint-job", job_id=job_id, resume=resume or None))
@@ -499,6 +547,11 @@ or re-primes the ground."""
                     "pattern_id": p.get("pattern_id") or (p.get("pattern") or {}).get("pattern_id"),
                     **_fields(p, "state", "site", "step", "steps", "placed", "materials", "feed",
                               "missing", "audit", "cleared", "blasted", "filled", "ground", "plan", "placed_at",
+                              # A blocked job used to arrive as "blueprint-blocked:23" and
+                              # nothing else: the executor knew WHICH tiles and what stood
+                              # on them, the whitelist here dropped every one of them.
+                              "blocked", "pending", "waiting", "standing", "built", "existing",
+                              "replaced", "replaced_at", "drift",
                               "block", "error", "artifact")},
                    not p.get("ok", False))
 

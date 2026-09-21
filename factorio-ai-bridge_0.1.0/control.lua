@@ -1,5 +1,5 @@
 local BRIDGE_VERSION = 1
-local BRIDGE_BUILD = "2026-09-21-ledger-zoom"
+local BRIDGE_BUILD = "2026-09-21-exact-anchor"
 local MAX_PACKET_BYTES = 32768
 local MAX_RADIUS = 32
 local MAX_ENTITIES = 64
@@ -1474,12 +1474,35 @@ local function handle_blueprint_export(nonce, request)
   local stack = inventory[1]
   local ok, result = pcall(function()
     stack.set_stack {name = "blueprint", count = 1}
-    stack.create_blueprint {
+    -- create_blueprint hands back the blueprint-index -> source-entity mapping, so the
+    -- anchor below is computed from EXACTLY the entities the blueprint holds, ghosts
+    -- included. Anything else (re-scanning the area, reading the blueprint's own local
+    -- coordinates) is a second guess at the same frame, and a guess is what drifted.
+    local mapping = stack.create_blueprint {
       surface = surface, force = force, area = {{x1, y1}, {x2, y2}},
       always_include_tiles = false, include_fuel = false,
     }
+    -- The executor anchors a layout at the TOP-LEFT TILE EDGE of its footprint, never at
+    -- an entity centre: a 3x3 drill centres on .5 and a 2x2 furnace on an integer, so any
+    -- floor() of a centre is off by half a footprint for one of them. Measured 21/09: the
+    -- peer session read the centre-based bbox, floored it, and every rebuilt ghost landed
+    -- one tile east of the ghosts a human had placed.
+    local ax, ay = math.huge, math.huge
+    for _, entity in pairs(mapping or {}) do
+      if entity.valid then
+        local name = entity.type == "entity-ghost" and entity.ghost_name or entity.name
+        local proto = prototypes.entity[name]
+        if proto then
+          local w, h = proto.tile_width, proto.tile_height
+          if (entity.direction or 0) % 8 ~= 0 then w, h = h, w end
+          ax = math.min(ax, entity.position.x - w / 2)
+          ay = math.min(ay, entity.position.y - h / 2)
+        end
+      end
+    end
     local count = stack.get_blueprint_entity_count()
-    return {count = count, value = count > 0 and stack.export_stack() or nil}
+    return {count = count, value = count > 0 and stack.export_stack() or nil,
+            anchor = ax < math.huge and {x = ax, y = ay} or nil}
   end)
   inventory.destroy()
   if not ok then return response(nonce, false, {error = "blueprint-export-failed", detail = tostring(result)}) end
@@ -1489,7 +1512,7 @@ local function handle_blueprint_export(nonce, request)
   end
   return response(nonce, true, {
     action = "blueprint_export", surface = surface.name,
-    entities = result.count, blueprint = result.value,
+    entities = result.count, blueprint = result.value, anchor = result.anchor,
   })
 end
 

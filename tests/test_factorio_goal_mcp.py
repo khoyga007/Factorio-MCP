@@ -40,7 +40,8 @@ class GoalMCPTest(unittest.IsolatedAsyncioTestCase):
                 elif action == "research":
                     reply.update(current=body.get("name"), queue=[], labs={"working": 1})
                 elif action == "blueprint_export":
-                    reply.update(entities=10, blueprint=(Path(__file__).parent.parent / "blueprints"
+                    reply.update(entities=10, anchor={"x": -90.0, "y": 4.0},
+                                 blueprint=(Path(__file__).parent.parent / "blueprints"
                                  / "coal-line-v1.blueprint.txt").read_text().strip())
                 elif action == "water_sites":
                     reply.update(candidates=[{"x": 1.5, "y": 2, "direction": 0}])
@@ -191,6 +192,20 @@ class GoalMCPTest(unittest.IsolatedAsyncioTestCase):
                             refused = await session.call_tool(
                                 "observe", {"view": "ledger", "query": "colour:red"})
                             self.assertTrue(refused.isError)
+                            # Ghosts a human placed are built where they stand: the export's
+                            # own anchor is handed straight to the run, so the job adopts
+                            # those ghosts instead of laying a second set beside them.
+                            p = await call("achieve", {"goal": "build_ghosts",
+                                                       "area": [-92, 2, -80, 14]},
+                                           ["blueprint_export", "blueprint_run"])
+                            self.assertEqual({"x": -90.0, "y": 4.0}, p["site_requested"])
+                            self.assertEqual((-90.0, 4.0), (seen[-1]["x"], seen[-1]["y"]))
+                            self.assertEqual({"mode": "exact"}, seen[-1]["contract"]["site"])
+                            self.assertEqual({"mode": "ghost"}, seen[-1]["contract"]["build"])
+                            p = await call("achieve", {"goal": "capture",
+                                                       "area": [-92, 2, -80, 14]},
+                                           ["blueprint_export"])
+                            self.assertEqual({"x": -90.0, "y": 4.0}, p["site"])
                             p = await call("observe", {"view": "water", "x": 5, "y": 6, "radius": 300}, ["water_sites"])
                             self.assertEqual((300, 5), (seen[-1]["radius"], seen[-1]["x"]))
                             self.assertEqual(0, p["candidates"][0]["direction"])

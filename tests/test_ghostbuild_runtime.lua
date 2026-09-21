@@ -25,6 +25,35 @@ return function(handlers,state,bp)
           game.forces.player.recipes[name].enabled=true
         end
 
+        -- Ghosts a human pasted, of three different footprints: a 3x3 drill centres on
+        -- .5, a 2x2 furnace on an integer, a 1x1 pole on .5. Any anchor taken from entity
+        -- CENTRES is off by half a footprint for at least one of them, which is how a
+        -- rebuilt set landed one tile east of the original (21/09, exec-24). The export's
+        -- anchor is the top-left TILE EDGE, the same frame the executor plans in.
+        for _,g in ipairs{{"electric-mining-drill",-27.5,-9.5,0},{"stone-furnace",-24,-6,0},
+          {"small-electric-pole",-21.5,-9.5,0}} do
+          surface.create_entity{name="entity-ghost",inner_name=g[1],position={g[2],g[3]},
+            direction=g[4],force="player"}
+        end
+        local ex=call("blueprint_export",{surface=surface.name,x1=-30,y1=-12,x2=-18,y2=-2})
+        check(ex.ok and ex.entities==3,"ghost-export:"..tostring(ex.entities)..":"..tostring(ex.error))
+        check(ex.anchor and ex.anchor.x==-29 and ex.anchor.y==-11,
+          "export-anchor-is-tile-edge:"..helpers.table_to_json(ex.anchor))
+        -- Handing that anchor straight back must reproduce the SOURCE geometry: same
+        -- site, same bbox. A drift of one tile shows up here as a bbox one tile off.
+        local back=call("blueprint_run",{blueprint=ex.blueprint,surface=surface.name,
+          x=ex.anchor.x,y=ex.anchor.y,contract=CONTRACT,dry_run=true})
+        check(back.ok and back.site.x==ex.anchor.x and back.site.y==ex.anchor.y,
+          "anchor-round-trips:"..helpers.table_to_json(back.site))
+        -- plan.bbox is measured in entity CENTRES while the anchor is a tile EDGE: the
+        -- two frames differ by half a footprint and reading one as the other is the whole
+        -- bug. Centres are what must come back unchanged -- the drill centre, and the pole
+        -- centre, exactly where the human's ghosts stand.
+        check(back.plan.bbox[1]==-27.5 and back.plan.bbox[2]==-9.5 and back.plan.bbox[3]==-21.5
+          and back.plan.bbox[4]==-6,"planned-centres-match-ghosts:"..helpers.table_to_json(back.plan.bbox))
+        for _,g in pairs(surface.find_entities_filtered{type="entity-ghost",
+          area={{-30,-12},{-18,-2}}}) do g.destroy() end
+
         -- A blueprint bigger than the old hand-cut limit is now one paste.
         local big=call("blueprint_run",{blueprint=bp.wide,surface=surface.name,x=0,y=20,
           contract=CONTRACT,dry_run=true})

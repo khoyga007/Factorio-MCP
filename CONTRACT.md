@@ -144,7 +144,9 @@ Unknown keys ignored (notes: `source`). Contract errors (refused, nothing built)
 
 ## Site
 
-- Anchor = top-left tile of the rotated blueprint footprint. `exact`: anchor = `floor(x), floor(y)`. `search`: x,y = search center (default treasury player position), `radius` limit.
+- Anchor = top-left TILE EDGE of the rotated blueprint footprint (`min(entity.x - tile_width/2)`), NOT an entity centre. `exact`: anchor = `floor(x), floor(y)`. `search`: x,y = search center (default treasury player position), `radius` limit.
+  - Two frames, build `2026-09-21-exact-anchor`: every `bbox` the bridge reports (`plan.bbox`, a pattern's `layout.bbox`) is measured in entity CENTRES, while the anchor is a tile EDGE. They differ by half a footprint, and the half differs per prototype: a 3x3 drill centres on `.5`, a 2x2 furnace on an integer, a 1x1 pole on `.5`. So NO floor() of a bbox is the anchor. Measured 21/09 (exec-21..24): a peer session floored the centre bbox, every rebuilt row landed one tile east of the ghosts a human had placed, and the job revived its own second set.
+  - `capture(area)` and `build_ghosts(area)` therefore return `site {x,y}` — the exact anchor, computed in Lua from `create_blueprint`'s blueprint-index -> source-entity mapping, so it covers exactly the entities the blueprint holds, ghosts included. Hand that back to `reuse_blueprint` with `site.mode="exact"`; never re-derive it. Engine PASS tests/verify_ghostbuild_runtime.py: three mixed footprints (drill 3x3 at `.5`, furnace 2x2 at integer, pole 1x1 at `.5`) export anchor `(-29,-11)`, the anchor round-trips through `blueprint_run`, and the planned centres come back exactly where the ghosts stand.
 - Rotations 16-way units, default `[0]`. `exact` needs exactly ONE rotation (agent placed water/pole for that orientation; spinning would miss them). Rotation turns every entity position AND direction; W/H swap for east/west entities.
 - Candidates, nearest first: with a resource rule → every anchor putting the rule's first matching entity's top-left tile on an ore tile; else square scan ≤64 tiles. Budget `max_checks` (≤20000) → `search-budget-exhausted`.
 - Per candidate, reject reason counted: `out-of-area`, `occupied` (own-force entity inside SOME entity's own tiles + `clearance` — NOT the design bounding box: a layout whose pole run reaches 10 tiles away does not claim the base in between; the bbox is only a fast path, one count query, and only a non-zero count triggers the per-entity pass), `character` (only own characters there: player in the way), `enemies` (within `enemy_radius`), `collision` (`can_place_entity` manual check, every entity; a failure whose footprint holds only trees/rocks passes if a `forced` blueprint_ghost check passes → clearable), `cliff` (cliff inside footprint AND no explosives in bag, recipe locked), `water` (fluid tile under footprint AND no landfill in bag, recipe locked), `foreign-resource`, `resource-cover`, `resource-reserve`.
@@ -268,6 +270,14 @@ Re-check site + stock right before build. Then trees/rocks inside any entity foo
 
 ## Ghost build (`build.mode="ghost"`, build `2026-09-20-ghost-build`)
 
+`achieve(goal="build_ghosts", area=[x1,y1,x2,y2])` builds the ghosts that are ALREADY on the
+ground (build `2026-09-21-exact-anchor`). Ghosts a human pasted had no goal that adopted them;
+the workaround was `capture` then `reuse_blueprint`, which re-derived the frame and laid a
+second ghost set beside the first. This goal exports the area, hands the export's own anchor
+straight back to the run with `site.mode="exact"` + `build.mode="ghost"`, so every layout row
+lands on the ghost already there and drain() adopts it. Returns `site_requested` and
+`ghosts_captured`. Normal ghost-mode payment rules apply: nothing is built free.
+
 The plan goes on the ground first and pays for itself as stock arrives, instead of being
 refused for what is missing at the moment it is submitted.
 
@@ -286,6 +296,16 @@ refused for what is missing at the moment it is submitted.
   {item: count}, `blocked` [{name,x,y}], `replaced`.
 - Nothing pending but something blocked → `needs-attention`, `error=blueprint-blocked:<n>`, the
   tiles named. Free the tile, `report(resume=true)` continues from there.
+  - `blocked` rows carry `by` (build `2026-09-21-exact-anchor`): the names of what actually
+    stands on that tile, deduped. `blueprint-blocked:23` and nothing else made the caller list
+    ghosts by hand to find out (21/09, exec-24, where the blocker was the job's OWN drill).
+  - `report` passes through what the executor already knew and the MCP whitelist used to drop:
+    `blocked`, `pending`, `waiting`, `standing`, `built`, `existing`, `replaced`, `replaced_at`,
+    `drift`. Adding a field in Lua is half the change; the Python whitelist is the other half.
+  - `drift` (≤8 rows `{name,x,y,found_x,found_y}`): a ghost of the same name sits within a tile
+    of a planned row but not ON it, and this job did not put it there. That means the layout is
+    anchored off by that much and the job is about to lay a second ghost set beside someone
+    else's. It is reported, not silently merged.
 - A blueprint entity's `recipe` rides through decode → orient → place_list → ghost, and is set
   again after revive if the ghost lost it (receipt `recipe_lost` when even that fails).
 - Ghost report counts, measured in `tests/verify_ghostbuild_runtime.py`: `placed` = tiles that

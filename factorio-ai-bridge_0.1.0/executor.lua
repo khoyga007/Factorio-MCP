@@ -646,7 +646,7 @@ function M.attach(ctx)
       -- placed = tiles that hold the right entity now; built = the ones THIS job revived
       -- and paid for; existing = the ones that were already standing.
       built=j.built,existing=j.existing,replaced=j.replaced,replaced_at=j.replaced_at,
-      skipped=j.skipped,restocked=j.restocked,
+      skipped=j.skipped,restocked=j.restocked,drift=j.drift,
       blasted=(j.blasted or 0)>0 and j.blasted or nil,filled=(j.filled or 0)>0 and j.filled or nil,
       ground=j.ground,
       plan=layout_digest(j.layout),
@@ -1134,6 +1134,23 @@ function M.attach(ctx)
       if live and live.valid then if not e.ours then e.pre=true end return "done" end
       local g=surface.find_entity("entity-ghost",{e.x,e.y})
       if not (g and g.valid and g.ghost_name==e.name) then
+        -- Drift alarm. A ghost of this very name one tile away, that this job did not put
+        -- there, means the layout is anchored off by that much: the job is about to lay a
+        -- SECOND ghost set beside a human's and revive the wrong one. Measured 21/09 on
+        -- exec-24, where every row landed +1 x. Name it on the job instead of letting the
+        -- two sets look like one crowded site.
+        for _,near in pairs(surface.find_entities_filtered{type="entity-ghost",force=force,
+          area={{e.x-1.5,e.y-1.5},{e.x+1.5,e.y+1.5}}}) do
+          if near.valid and near.ghost_name==e.name
+              and (math.abs(near.position.x-e.x)>0.01 or math.abs(near.position.y-e.y)>0.01) then
+            j.drift=j.drift or {}
+            if #j.drift<8 then
+              j.drift[#j.drift+1]={name=e.name,x=e.x,y=e.y,
+                found_x=near.position.x,found_y=near.position.y}
+            end
+            break
+          end
+        end
         local function ghost_at(recipe)
           local okg,made=pcall(function()
             return surface.create_entity{name="entity-ghost",inner_name=e.name,
@@ -1160,10 +1177,16 @@ function M.attach(ctx)
         -- Except when the only thing on the tile is a character: it moves, so naming it
         -- a blocker would fail a job that is about to succeed on its own.
         local only_character=#in_footprint(surface,e,"character")>0
+        local by,seen={},{}
         for _,o in pairs(in_footprint(surface,e,nil)) do
-          if o.type~="character" and o.name~="entity-ghost" then only_character=false end
+          if o.type~="character" and o.name~="entity-ghost" then
+            only_character=false
+            -- WHAT is on the tile, not just that something is: a count alone made the
+            -- caller list ghosts by hand to find out (21/09, exec-24).
+            if not seen[o.name] then seen[o.name]=true by[#by+1]=o.name end
+          end
         end
-        if not only_character then return "blocked" end
+        if not only_character then return "blocked",table.concat(by,"+") end
         -- Named on the receipt anyway: a player who parks there forever would otherwise
         -- leave the job "pending" with nothing saying why.
         if #standing<8 then standing[#standing+1]={e.name,e.x,e.y} end
@@ -1202,10 +1225,10 @@ function M.attach(ctx)
       return "done"
     end
     for _,e in ipairs(j.layout) do
-      local verdict=one(e)
+      local verdict,why=one(e)
       if verdict=="done" then done=done+1
       elseif verdict=="pending" then pending=pending+1
-      else blocked[#blocked+1]={name=e.name,x=e.x,y=e.y} end
+      else blocked[#blocked+1]={name=e.name,x=e.x,y=e.y,by=why~="" and why or nil} end
     end
     local built_here,already=0,0
     for _,e in ipairs(j.layout) do

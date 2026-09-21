@@ -224,7 +224,8 @@ end
 local RECEIVERS={"transport-belt","underground-belt","splitter","loader","loader-1x1","linked-belt",
   "container","logistic-container","infinity-container","furnace","assembling-machine","lab",
   "mining-drill","boiler","burner-generator","reactor","rocket-silo","ammo-turret","artillery-turret",
-  "car","cargo-wagon","locomotive","artillery-wagon","spider-vehicle","agricultural-tower"}
+  "car","cargo-wagon","locomotive","artillery-wagon","spider-vehicle","agricultural-tower",
+  "roboport"}
 local RECEIVER={} for _,t in ipairs(RECEIVERS) do RECEIVER[t]=true end
 local function turn(x,y,q) for _=1,q%4 do x,y=-y,x end return x,y end
 local function covers(e,px,py) return math.abs(px-e.x)<e.w/2 and math.abs(py-e.y)<e.h/2 end

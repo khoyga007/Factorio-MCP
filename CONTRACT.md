@@ -328,6 +328,8 @@ refused for what is missing at the moment it is submitted.
     connected (it will exist). This is what lets a feed layer build while its skipped
     assembling-machine-2 ghosts wait. Nothing planned, nothing standing, no ghost → still
     `inserter-unconnected`. Blocked replies carry `skipped_locked` too.
+  - `roboport` is a receiver type (inserter ends), and `insert` into a roboport routes robots to
+    `roboport_robot` (slot "robot") and repair-tool items to `roboport_material` (slot "material").
 - A blueprint entity's `recipe` rides through decode → orient → place_list → ghost, and is set
   again after revive if the ghost lost it (receipt `recipe_lost` when even that fails).
 - Ghost report counts, measured in `tests/verify_ghostbuild_runtime.py`: `placed` = tiles that

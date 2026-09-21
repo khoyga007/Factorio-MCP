@@ -1,5 +1,5 @@
 local BRIDGE_VERSION = 1
-local BRIDGE_BUILD = "2026-09-21-ghost-receivers"
+local BRIDGE_BUILD = "2026-09-21-roboport"
 local MAX_PACKET_BYTES = 32768
 local MAX_RADIUS = 32
 local MAX_ENTITIES = 64
@@ -1297,6 +1297,14 @@ local function handle_insert(nonce, request)
     index, slot = defines.inventory.turret_ammo, "input"
   elseif entity.type == "furnace" and request.source then
     index, slot = defines.inventory.furnace_source, "source"
+  elseif entity.type == "roboport" then
+    -- Robots go in the robot slots, repair packs in the material slots (21/09: 10
+    -- construction robots had no way in short of maintainer loading them by hand).
+    if prototypes.item[request.item].type == "repair-tool" then
+      index, slot = defines.inventory.roboport_material, "material"
+    else
+      index, slot = defines.inventory.roboport_robot, "robot"
+    end
   elseif entity.type == "container" or entity.type == "logistic-container"
     or entity.type == "linked-container" then
     index, slot = defines.inventory.chest, "chest"

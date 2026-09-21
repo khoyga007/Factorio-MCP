@@ -435,6 +435,25 @@ return function(handlers,state,bp)
         check(surface.find_entity("wooden-chest",{-31.5,39.5}),"feed-chest-built")
         local g=surface.find_entity("entity-ghost",{-31.5,37.5})
         check(g and g.ghost_name=="iron-chest","receiver-ghost-still-waiting")
+        -- Roboport (21/09 peer): robots and repair packs go in by `insert`, and an inserter
+        -- dropping into a built roboport is a connected end.
+        check(surface.can_place_entity{name="roboport",position={20,-30},force="player"},"roboport-site-free")
+        local port=surface.create_entity{name="roboport",position={20,-30},force="player"}
+        stock.insert{name="construction-robot",count=3} stock.insert{name="repair-pack",count=2}
+        local bots=call("insert",{surface=surface.name,x=20,y=-30,item="construction-robot",count=3})
+        local packs=call("insert",{surface=surface.name,x=20,y=-30,item="repair-pack",count=2})
+        check(bots.ok and bots.slot=="robot"
+          and port.get_inventory(defines.inventory.roboport_robot).get_item_count("construction-robot")==3,
+          "robots-into-roboport:"..tostring(bots.error)..":"..tostring(bots.slot))
+        check(packs.ok and packs.slot=="material"
+          and port.get_inventory(defines.inventory.roboport_material).get_item_count("repair-pack")==2,
+          "repair-packs-into-roboport:"..tostring(packs.error)..":"..tostring(packs.slot))
+        game.forces.player.recipes["burner-inserter"].enabled=true
+        stock.insert{name="burner-inserter",count=1} stock.insert{name="wooden-chest",count=1}
+        local feed=call("blueprint_run",{blueprint=bp.feed,surface=surface.name,x=22,y=-30,
+          contract=CONTRACT,dry_run=true})
+        check(feed.state=="planned","inserter-into-roboport-is-connected:"..tostring(feed.state)
+          ..":"..tostring(feed.error)..":"..helpers.table_to_json(feed.unconnected or {}))
         result.ok=true done=true
       end
     end)

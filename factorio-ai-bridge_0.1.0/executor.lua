@@ -243,7 +243,10 @@ local function gaps_of(surface,force,placed)
         for _,e in ipairs(placed) do
           if e~=ins and receives(e) and covers(e,px,py) then hit=true break end
         end
-        if not hit and surface.count_entities_filtered{position={px,py},force=force,type=RECEIVERS,limit=1}==0 then
+        -- A standing ghost of a receiver counts: it WILL exist. skip_locked (peer 21/09) keeps
+        -- exactly those ghosts, e.g. every assembling-machine-2 a feed layer's inserters face.
+        if not hit and surface.count_entities_filtered{position={px,py},force=force,type=RECEIVERS,limit=1}==0
+          and surface.count_entities_filtered{position={px,py},force=force,ghost_type=RECEIVERS,limit=1}==0 then
           out[#out+1]={ins=ins,side=side,px=px,py=py}
         end
       end
@@ -1068,13 +1071,13 @@ function M.attach(ctx)
     local steps,missing=prepare(surface,force,c.center,c.radius,stock,cost,c.supply)
     local gaps=inserter_gaps(surface,force,placed,site.rotation)
     if #gaps>0 then
-      return ctx.response(nonce,true,{state="blocked",error="inserter-unconnected",unconnected=gaps,
+      return ctx.response(nonce,true,{state="blocked",error="inserter-unconnected",unconnected=gaps,skipped_locked=skipped_locked,
         site=site_out,plan=layout_digest(placed),
         placed_at=r.detail and placed_at(placed) or nil,materials=cost})
     end
     local pgaps=pipe_gaps(surface,force,placed)
     if #pgaps>0 then
-      return ctx.response(nonce,true,{state="blocked",error="pipe-unconnected",unconnected=pgaps,
+      return ctx.response(nonce,true,{state="blocked",error="pipe-unconnected",unconnected=pgaps,skipped_locked=skipped_locked,
         site=site_out,plan=layout_digest(placed),
         placed_at=r.detail and placed_at(placed) or nil,materials=cost})
     end

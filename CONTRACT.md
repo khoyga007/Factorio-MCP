@@ -324,6 +324,10 @@ refused for what is missing at the moment it is submitted.
     rows cause, so kept rows land on their own tiles (engine: locked chest as left-most row, the
     un-moved anchor built a wooden chest OVER the human's iron-chest ghost). build_ghosts passes
     the caller's `contract.build` options through; only `mode` is forced to ghost.
+  - Inserter-ends check: a standing own-force GHOST of a receiver type on the end tile counts as
+    connected (it will exist). This is what lets a feed layer build while its skipped
+    assembling-machine-2 ghosts wait. Nothing planned, nothing standing, no ghost → still
+    `inserter-unconnected`. Blocked replies carry `skipped_locked` too.
 - A blueprint entity's `recipe` rides through decode → orient → place_list → ghost, and is set
   again after revive if the ghost lost it (receipt `recipe_lost` when even that fails).
 - Ghost report counts, measured in `tests/verify_ghostbuild_runtime.py`: `placed` = tiles that

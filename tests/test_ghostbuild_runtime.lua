@@ -6,7 +6,7 @@ return function(handlers,state,bp)
   local function call(action,body) return handlers[action]("ghostbuild-"..game.tick..":"..#result.checks,body) end
   local surface,stock,job,job2,job3,phase,mark,done,blocker,parked=nil,nil,nil,nil,nil,0,0,false,nil,nil
   local job4,feeder,bystander,job5,job6,job7,job8,cliff=nil,nil,nil,nil,nil,nil,nil,nil
-  local dropA,dropB,skipjob=nil,nil,nil
+  local dropA,dropB,skipjob,feedjob=nil,nil,nil,nil
   local CONTRACT={site={mode="exact",rotations={0}},build={mode="ghost"}}
   script.on_event(defines.events.on_tick,function()
     if done then return end
@@ -414,6 +414,27 @@ return function(handlers,state,bp)
         local n=#surface.find_entities_filtered{area={{-40,35},{-30,38}},type="entity-ghost"}
         check(n==1,"no-second-ghost-set:"..n)
         check(stock.get_item_count("wooden-chest")==0,"kept-rows-paid-for")
+        -- An inserter whose end is a SKIPPED locked receiver: that ghost stays standing, and a
+        -- standing receiver ghost is a connected end. Vertical, so either pickup/drop
+        -- convention hits a chest; the locked chest is the top row, so the anchor moves in y.
+        game.forces.player.recipes["burner-inserter"].enabled=true
+        stock.insert{name="wooden-chest",count=1} stock.insert{name="burner-inserter",count=1}
+        for _,g in ipairs{{"iron-chest",37.5},{"burner-inserter",38.5},{"wooden-chest",39.5}} do
+          surface.create_entity{name="entity-ghost",inner_name=g[1],position={-31.5,g[2]},force="player"}
+        end
+        local ex2=call("blueprint_export",{surface=surface.name,x1=-33,y1=37,x2=-31,y2=40})
+        check(ex2.ok and ex2.entities==3,"feed-set-export:"..tostring(ex2.entities))
+        local SKIP={site={mode="exact",rotations={0}},build={mode="ghost",skip_locked=true}}
+        feedjob=call("blueprint_run",{blueprint=ex2.blueprint,surface=surface.name,x=ex2.anchor.x,
+          y=ex2.anchor.y,contract=SKIP})
+        check(feedjob.ok and feedjob.job_id,"inserter-facing-a-skipped-ghost-is-connected:"
+          ..tostring(feedjob.error)..":"..helpers.table_to_json(feedjob.unconnected or {}))
+        phase,mark=15,game.tick
+      elseif phase==15 and game.tick-mark>=240 then
+        check(surface.find_entity("burner-inserter",{-31.5,38.5}),"feed-inserter-built")
+        check(surface.find_entity("wooden-chest",{-31.5,39.5}),"feed-chest-built")
+        local g=surface.find_entity("entity-ghost",{-31.5,37.5})
+        check(g and g.ghost_name=="iron-chest","receiver-ghost-still-waiting")
         result.ok=true done=true
       end
     end)

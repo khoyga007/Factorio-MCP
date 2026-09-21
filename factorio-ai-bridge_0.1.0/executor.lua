@@ -1688,14 +1688,18 @@ function M.attach(ctx)
   local CARRIER={["transport-belt"]=true,["underground-belt"]=true,["splitter"]=true,
     ["electric-pole"]=true,["pipe"]=true,["pipe-to-ground"]=true,["rail"]=true,
     ["straight-rail"]=true,["curved-rail"]=true,["rail-ramp"]=true,["rail-support"]=true}
+  -- Dominance, not purity: measured 21/09, a 194-belt spine carrying TWO burner inserters
+  -- read as a site and stretched its cluster box across 160 tiles. Two machines do not
+  -- make a factory; nine in ten entities being carrier decides what the block is.
+  local CARRIER_SHARE=0.9
   local function is_carrier(b)
-    local any=false
-    for name in pairs(b.n or {}) do
+    local carry,total=0,0
+    for name,c in pairs(b.n or {}) do
       local proto=prototypes.entity[name]
-      if not (proto and CARRIER[proto.type]) then return false end
-      any=true
+      if proto and CARRIER[proto.type] then carry=carry+c end
+      total=total+c
     end
-    return any
+    return total>0 and carry/total>=CARRIER_SHARE
   end
   local function box_gap(a,b)
     local dx=math.max(a[1]-b[3],b[1]-a[3],0)

@@ -1681,37 +1681,82 @@ function M.attach(ctx)
     return a[1]-CLUSTER_GAP<=b[3] and b[1]-CLUSTER_GAP<=a[3]
        and a[2]-CLUSTER_GAP<=b[4] and b[2]-CLUSTER_GAP<=a[4]
   end
-  -- Union-find on boxes: an industrial cluster is whatever touches, so the agent never has
-  -- to declare one. A declared block name inside the group names the group.
+  -- A block made of nothing but belts, pipes and poles is connective tissue, not a site.
+  -- Measured 21/09: clustering on geometry alone put 13 of 14 blocks in ONE cluster,
+  -- because a 160-tile belt spine touches everything it serves. So carriers never merge
+  -- two clusters; they attach to the nearest one and are counted apart.
+  local CARRIER={["transport-belt"]=true,["underground-belt"]=true,["splitter"]=true,
+    ["electric-pole"]=true,["pipe"]=true,["pipe-to-ground"]=true,["rail"]=true,
+    ["straight-rail"]=true,["curved-rail"]=true,["rail-ramp"]=true,["rail-support"]=true}
+  local function is_carrier(b)
+    local any=false
+    for name in pairs(b.n or {}) do
+      local proto=prototypes.entity[name]
+      if not (proto and CARRIER[proto.type]) then return false end
+      any=true
+    end
+    return any
+  end
+  local function box_gap(a,b)
+    local dx=math.max(a[1]-b[3],b[1]-a[3],0)
+    local dy=math.max(a[2]-b[4],b[2]-a[4],0)
+    return dx+dy
+  end
+  -- Union-find over the SITE blocks only: a cluster is where machines stand, so the agent
+  -- never has to declare one. A declared block name inside the group names the group.
   local function clusters_of(out)
+    local sites,carriers={},{}
+    for _,b in ipairs(out) do
+      if is_carrier(b) then carriers[#carriers+1]=b else sites[#sites+1]=b end
+    end
     local parent={}
     local function find(i) while parent[i]~=i do parent[i]=parent[parent[i]] i=parent[i] end return i end
-    for i=1,#out do parent[i]=i end
-    for i=1,#out do for k=i+1,#out do
-      if near_box(out[i].box,out[k].box) then
+    for i=1,#sites do parent[i]=i end
+    for i=1,#sites do for k=i+1,#sites do
+      if near_box(sites[i].box,sites[k].box) then
         local a,b=find(i),find(k)
         if a~=b then parent[b]=a end
       end
     end end
     local by,list={},{}
-    for i=1,#out do
-      local b,root=out[i],find(i)
+    local function group(b,root)
       local g=by[root]
       if not g then
         g={box={b.box[1],b.box[2],b.box[3],b.box[4]},blocks=0,attention=0,makes={},n={},members={}}
         by[root]=g list[#list+1]=g
       end
+      return g
+    end
+    local function absorb(g,b,widen)
       g.blocks=g.blocks+1
       if b.status=="attention" then g.attention=g.attention+1 end
       if b.name and not g.name then g.name=b.name end
-      g.box[1]=math.min(g.box[1],b.box[1]) g.box[2]=math.min(g.box[2],b.box[2])
-      g.box[3]=math.max(g.box[3],b.box[3]) g.box[4]=math.max(g.box[4],b.box[4])
-      for name,c in pairs(b.n or {}) do g.n[name]=(g.n[name] or 0)+c end
+      if widen then
+        g.box[1]=math.min(g.box[1],b.box[1]) g.box[2]=math.min(g.box[2],b.box[2])
+        g.box[3]=math.max(g.box[3],b.box[3]) g.box[4]=math.max(g.box[4],b.box[4])
+        for name,c in pairs(b.n or {}) do g.n[name]=(g.n[name] or 0)+c end
+      end
       local f=b.flow
       if f and (f.counted or 0)>0 then
         for item,c in pairs(f.made or {}) do g.makes[item]=(g.makes[item] or 0)+c end
       end
       g.members[#g.members+1]=b
+    end
+    for i=1,#sites do absorb(group(sites[i],find(i)),sites[i],true) end
+    -- Carriers attach to the nearest site cluster. Their box does NOT widen the cluster:
+    -- a spine that crosses the base would otherwise make every cluster box the whole map.
+    for _,b in ipairs(carriers) do
+      local best,gap=nil,math.huge
+      for _,g in ipairs(list) do
+        local d=box_gap(b.box,g.box)
+        if d<gap then best,gap=g,d end
+      end
+      if best then
+        absorb(best,b,false)
+        best.carriers=(best.carriers or 0)+1
+      else
+        absorb(group(b,"carrier-"..b.id),b,true)
+      end
     end
     for _,g in ipairs(list) do
       g.id="c@"..g.box[1]..","..g.box[2]
@@ -1813,7 +1858,7 @@ function M.attach(ctx)
       for _,g in ipairs(groups) do
         cl[#cl+1]={id=g.id,name=g.name,box=g.box,blocks=g.blocks,
           attention=g.attention>0 and g.attention or nil,
-          makes=keep(g.makes),machines=keep(g.n)}
+          carriers=g.carriers,makes=keep(g.makes),machines=keep(g.n)}
       end
       for _,e in ipairs(edges) do
         if e.missing_block or e.uncounted

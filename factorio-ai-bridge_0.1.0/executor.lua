@@ -552,6 +552,13 @@ local function parse_contract(raw,r)
   -- in the belts that feed them. Locked items leave the plan instead of blocking it; their
   -- ghosts stay standing for after the research.
   c.skip_locked=build.skip_locked==true
+  -- Bots mode (peer 21/09): the ghosts are the whole job. No bag gathering, no revive, no
+  -- debit: construction robots build them from the logistic network, and the job only
+  -- watches its layout fill in. Ghost mode only.
+  if build.revive==false then
+    if not c.ghost then return nil,"revive-false-needs-ghost-mode" end
+    c.bots=true
+  end
   c.clearance=tonumber(site.clearance) or 0
   c.enemy_radius=tonumber(site.enemy_radius) or 16
   c.max_checks=math.min(tonumber(site.max_checks) or MAX_CHECKS,MAX_CHECKS)
@@ -654,7 +661,7 @@ function M.attach(ctx)
       -- placed = tiles that hold the right entity now; built = the ones THIS job revived
       -- and paid for; existing = the ones that were already standing.
       built=j.built,existing=j.existing,replaced=j.replaced,replaced_at=j.replaced_at,
-      skipped=j.skipped,skipped_locked=j.skipped_locked,restocked=j.restocked,drift=j.drift,
+      skipped=j.skipped,skipped_locked=j.skipped_locked,bots=j.bots,uncovered=j.uncovered,restocked=j.restocked,drift=j.drift,
       blasted=(j.blasted or 0)>0 and j.blasted or nil,filled=(j.filled or 0)>0 and j.filled or nil,
       ground=j.ground,
       plan=layout_digest(j.layout),
@@ -1069,7 +1076,27 @@ function M.attach(ctx)
     -- counts in `cost`, prepare() collects and crafts them alongside the entities.
     if blast>0 then cost["cliff-explosives"]=(cost["cliff-explosives"] or 0)+blast site_out.blast=blast end
     if fill>0 then cost["landfill"]=(cost["landfill"] or 0)+fill site_out.fill=fill end
-    local steps,missing=prepare(surface,force,c.center,c.radius,stock,cost,c.supply)
+    local steps,missing
+    if c.bots then steps,missing={},{} else
+      steps,missing=prepare(surface,force,c.center,c.radius,stock,cost,c.supply)
+    end
+    -- Bots only reach ghosts inside a roboport's construction area. Uncovered rows are a
+    -- warning, not a refusal: a roboport may be about to go down.
+    local uncovered=nil
+    if c.bots then
+      local cells={}
+      for _,port in pairs(surface.find_entities_filtered{type="roboport",force=force}) do
+        local okc,rad=pcall(function() return port.logistic_cell.construction_radius end)
+        if okc and rad and rad>0 then cells[#cells+1]={x=port.position.x,y=port.position.y,r=rad} end
+      end
+      for _,e in ipairs(placed) do
+        local hit=false
+        for _,cell in ipairs(cells) do
+          if math.abs(e.x-cell.x)<=cell.r and math.abs(e.y-cell.y)<=cell.r then hit=true break end
+        end
+        if not hit then uncovered=(uncovered or 0)+1 end
+      end
+    end
     local gaps=inserter_gaps(surface,force,placed,site.rotation)
     if #gaps>0 then
       return ctx.response(nonce,true,{state="blocked",error="inserter-unconnected",unconnected=gaps,skipped_locked=skipped_locked,
@@ -1091,7 +1118,8 @@ function M.attach(ctx)
       return ctx.response(nonce,true,{state=(short or #locked>0) and "blocked" or "planned",
         site=site_out,site_validated=true,materials=cost,missing=missing,
         plan=layout_digest(placed),placed_at=r.detail and placed_at(placed) or nil,
-        locked=#locked>0 and locked or nil,skipped_locked=skipped_locked,steps=#steps,rejects=rejects})
+        locked=#locked>0 and locked or nil,skipped_locked=skipped_locked,steps=#steps,rejects=rejects,
+        bots=c.bots or nil,uncovered=uncovered})
     end
     local state=ctx.state() state.executor_seq=(state.executor_seq or 0)+1
     local id="exec-"..state.executor_seq
@@ -1100,7 +1128,8 @@ function M.attach(ctx)
       surface=surface.name,force=force.name,player=owner.index,site=site_out,
       layout=place_list(site.shape,site.x,site.y),contract=c,metrics=c.metrics,
       feeds=c.feeds,max_windows=c.max_windows,materials=cost,steps=steps,step=1,
-      receipts={},feed={},state="preparing",block=block,skipped_locked=skipped_locked,artifact="executor/"..id,deadline=game.tick+18000}
+      receipts={},feed={},state="preparing",block=block,skipped_locked=skipped_locked,
+      bots=c.bots or nil,uncovered=uncovered,artifact="executor/"..id,deadline=game.tick+18000}
     jobs()[id]=j save(j)
     return ctx.response(nonce,true,summary(j,r.detail))
   end
@@ -1168,7 +1197,13 @@ function M.attach(ctx)
       -- `done` is not `built`: a tile the blueprint wants may already hold the right
       -- entity from an earlier session. Mark which is which so the report cannot pass
       -- off a base that was already standing as work this job paid for.
-      if live and live.valid then if not e.ours then e.pre=true end return "done" end
+      if live and live.valid then
+        -- Bots mode: a tile that held this job's ghost and now holds the entity was built
+        -- by the robots for this job, not found standing.
+        if e.ghosted and not e.ours then e.ours,e.ghosted=true,nil end
+        if not e.ours then e.pre=true end
+        return "done"
+      end
       local g=surface.find_entity("entity-ghost",{e.x,e.y})
       if not (g and g.valid and g.ghost_name==e.name) then
         -- Drift alarm. A ghost of this very name one tile away, that this job did not put
@@ -1212,6 +1247,7 @@ function M.attach(ctx)
         end
         j.replaced_at=j.replaced_at or {}
         if #j.replaced_at<8 then j.replaced_at[#j.replaced_at+1]={e.name,e.x,e.y} end
+        if j.contract.bots then e.ghosted=true end
         return "pending"
       end
       -- A ghost may be SET over an occupied tile - ghosts do not collide - but it can
@@ -1237,6 +1273,7 @@ function M.attach(ctx)
         if #standing<8 then standing[#standing+1]={e.name,e.x,e.y} end
         return "pending"
       end
+      if j.contract.bots then e.ghosted=true return "pending" end
       if budget<=0 then return "pending" end
       local item=prototypes.entity[e.name].items_to_place_this[1]
       if stock.get_item_count{name=item.name,quality="normal"}<item.count then
@@ -1498,7 +1535,7 @@ function M.attach(ctx)
               -- several jobs alive that is the difference between a background wait and a
               -- per-tick walk of every layout plus a receipt file each.
               if j.scan_at and game.tick<j.scan_at then return end
-              restock(j,surface,force)
+              if not j.contract.bots then restock(j,surface,force) end
               local left,built_now=drain(j,surface,force,stock)
               if left then
                 j.scan_at=built_now>0 and nil or game.tick+SCAN_TICKS

@@ -7,6 +7,7 @@ return function(handlers,state,bp)
   local surface,stock,job,job2,job3,phase,mark,done,blocker,parked=nil,nil,nil,nil,nil,0,0,false,nil,nil
   local job4,feeder,bystander,job5,job6,job7,job8,cliff=nil,nil,nil,nil,nil,nil,nil,nil
   local dropA,dropB,skipjob,feedjob=nil,nil,nil,nil
+  local botjob,bagpoles=nil,nil
   local CONTRACT={site={mode="exact",rotations={0}},build={mode="ghost"}}
   script.on_event(defines.events.on_tick,function()
     if done then return end
@@ -454,6 +455,35 @@ return function(handlers,state,bp)
           contract=CONTRACT,dry_run=true})
         check(feed.state=="planned","inserter-into-roboport-is-connected:"..tostring(feed.state)
           ..":"..tostring(feed.error)..":"..helpers.table_to_json(feed.unconnected or {}))
+        -- Bots mode (revive=false). Outside the roboport's reach on purpose: the job must
+        -- warn `uncovered`, lay the ghost, take nothing from the bag and wait. The test then
+        -- plays the robot and revives the ghost; the job must count it as built by the job.
+        stock.insert{name="small-electric-pole",count=1}
+        bagpoles=stock.get_item_count("small-electric-pole")
+        local BOTS={site={mode="exact",rotations={0}},build={mode="ghost",revive=false}}
+        local bad=call("blueprint_run",{blueprint=bp.pole,surface=surface.name,x=-39,y=34,
+          contract={site={mode="exact",rotations={0}},build={revive=false}}})
+        check(not bad.ok and bad.error=="revive-false-needs-ghost-mode","revive-false-needs-ghost:"..tostring(bad.error))
+        botjob=call("blueprint_run",{blueprint=bp.pole,surface=surface.name,x=-39,y=34,contract=BOTS})
+        check(botjob.ok and botjob.job_id and botjob.bots and botjob.uncovered==1,
+          "bots-job-warns-uncovered:"..tostring(botjob.error)..":"..tostring(botjob.uncovered))
+        phase,mark=16,game.tick
+      elseif phase==16 and game.tick-mark>=180 then
+        local sb=call("blueprint_job",{job_id=botjob.job_id})
+        check(sb.state=="building","bots-job-waits:"..tostring(sb.state)..":"..tostring(sb.error))
+        local g=surface.find_entity("entity-ghost",{-38.5,34.5})
+        check(g and g.valid and g.ghost_name=="small-electric-pole","bots-ghost-left-standing")
+        check(stock.get_item_count("small-electric-pole")==bagpoles,"bots-mode-takes-nothing-from-bag")
+        g.revive{raise_revive=true}
+        phase,mark=17,game.tick
+      elseif phase==17 and game.tick-mark>=180 then
+        local sb=call("blueprint_job",{job_id=botjob.job_id})
+        check(sb.state=="verified" and sb.built==1 and sb.existing==0,
+          "bot-built-row-counts-as-built:"..tostring(sb.state)..":"..tostring(sb.built)..":"..tostring(sb.existing))
+        local near=call("blueprint_run",{blueprint=bp.pole,surface=surface.name,x=15,y=-20,dry_run=true,
+          contract={site={mode="exact",rotations={0}},build={mode="ghost",revive=false}}})
+        check(near.state=="planned" and near.uncovered==nil and near.steps==0,
+          "inside-roboport-reach-no-warning:"..tostring(near.state)..":"..tostring(near.uncovered)..":"..tostring(near.steps))
         result.ok=true done=true
       end
     end)

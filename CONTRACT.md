@@ -330,6 +330,12 @@ refused for what is missing at the moment it is submitted.
     `inserter-unconnected`. Blocked replies carry `skipped_locked` too.
   - `roboport` is a receiver type (inserter ends), and `insert` into a roboport routes robots to
     `roboport_robot` (slot "robot") and repair-tool items to `roboport_material` (slot "material").
+  - Bots mode: `contract.build={"mode":"ghost","revive":false}` (also through build_ghosts). The job
+    lays/adopts ghosts and NEVER revives: no preparing steps (`steps:0`), no restock, no bag debit.
+    Construction robots build from the logistic network; the job stays `building` until every row
+    holds its entity, then audits as usual. A row whose ghost this job saw and that now holds the
+    entity counts as `built`, not `existing`. `uncovered` = planned rows outside every roboport's
+    construction area (warning only). `revive:false` without ghost mode → `revive-false-needs-ghost-mode`.
 - A blueprint entity's `recipe` rides through decode → orient → place_list → ghost, and is set
   again after revive if the ghost lost it (receipt `recipe_lost` when even that fails).
 - Ghost report counts, measured in `tests/verify_ghostbuild_runtime.py`: `placed` = tiles that

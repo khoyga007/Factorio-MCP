@@ -6,7 +6,7 @@ return function(handlers,state,bp)
   local function call(action,body) return handlers[action]("ghostbuild-"..game.tick..":"..#result.checks,body) end
   local surface,stock,job,job2,job3,phase,mark,done,blocker,parked=nil,nil,nil,nil,nil,0,0,false,nil,nil
   local job4,feeder,bystander,job5,job6,job7,job8,cliff=nil,nil,nil,nil,nil,nil,nil,nil
-  local dropA,dropB=nil,nil
+  local dropA,dropB,skipjob=nil,nil,nil
   local CONTRACT={site={mode="exact",rotations={0}},build={mode="ghost"}}
   script.on_event(defines.events.on_tick,function()
     if done then return end
@@ -379,6 +379,41 @@ return function(handlers,state,bp)
         end
         local again=call("blueprint_job",{job_id=dropA.job_id,resume=true})
         check(not again.ok and again.error=="job-ghosts-dropped","dropped-job-cannot-resume:"..tostring(again.error))
+        -- skip_locked. A human set whose LEFT-most ghost is a locked item: the locked row is
+        -- the one that sets the plan's min corner, so dropping it must move the exact anchor
+        -- or every kept row lands one tile off.
+        game.forces.player.recipes["iron-chest"].enabled=false
+        stock.insert{name="wooden-chest",count=2}
+        for _,g in ipairs{{"iron-chest",-37.5},{"wooden-chest",-36.5},{"wooden-chest",-35.5}} do
+          surface.create_entity{name="entity-ghost",inner_name=g[1],position={g[2],36.5},force="player"}
+        end
+        local ex=call("blueprint_export",{surface=surface.name,x1=-39,y1=35,x2=-34,y2=38})
+        check(ex.ok and ex.entities==3 and ex.anchor.x==-38 and ex.anchor.y==36,
+          "locked-set-export:"..tostring(ex.entities)..":"..helpers.table_to_json(ex.anchor or {}))
+        local all=call("blueprint_run",{blueprint=ex.blueprint,surface=surface.name,x=ex.anchor.x,
+          y=ex.anchor.y,contract=CONTRACT,dry_run=true})
+        check(all.state=="blocked" and all.locked and all.locked[1]=="iron-chest",
+          "locked-blocks-whole-plan:"..tostring(all.state))
+        local SKIP={site={mode="exact",rotations={0}},build={mode="ghost",skip_locked=true}}
+        skipjob=call("blueprint_run",{blueprint=ex.blueprint,surface=surface.name,x=ex.anchor.x,
+          y=ex.anchor.y,contract=SKIP})
+        check(skipjob.ok and skipjob.job_id and skipjob.skipped_locked
+          and skipjob.skipped_locked["iron-chest"]==1,
+          "skip-locked-starts:"..tostring(skipjob.error)..":"..helpers.table_to_json(skipjob.skipped_locked or {}))
+        phase,mark=14,game.tick
+      elseif phase==14 and game.tick-mark>=240 then
+        local sj=call("blueprint_job",{job_id=skipjob.job_id})
+        check(sj.state=="verified" and sj.skipped_locked and sj.skipped_locked["iron-chest"]==1,
+          "skip-locked-finished:"..tostring(sj.state)..":"..tostring(sj.error))
+        for _,x in ipairs{-36.5,-35.5} do
+          local e=surface.find_entity("wooden-chest",{x,36.5})
+          check(e and e.valid,"kept-row-built-on-its-own-tile:"..x)
+        end
+        local g=surface.find_entity("entity-ghost",{-37.5,36.5})
+        check(g and g.valid and g.ghost_name=="iron-chest","locked-ghost-left-standing")
+        local n=#surface.find_entities_filtered{area={{-40,35},{-30,38}},type="entity-ghost"}
+        check(n==1,"no-second-ghost-set:"..n)
+        check(stock.get_item_count("wooden-chest")==0,"kept-rows-paid-for")
         result.ok=true done=true
       end
     end)

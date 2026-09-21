@@ -204,6 +204,13 @@ class GoalMCPTest(unittest.IsolatedAsyncioTestCase):
                             self.assertEqual((-90.0, 4.0), (seen[-1]["x"], seen[-1]["y"]))
                             self.assertEqual({"mode": "exact"}, seen[-1]["contract"]["site"])
                             self.assertEqual({"mode": "ghost"}, seen[-1]["contract"]["build"])
+                            # The caller's build options survive the forced ghost mode.
+                            p = await call("achieve", {"goal": "build_ghosts",
+                                                       "area": [-92, 2, -80, 14],
+                                                       "contract": {"build": {"skip_locked": True}}},
+                                           ["blueprint_export", "blueprint_run"])
+                            self.assertEqual({"mode": "ghost", "skip_locked": True},
+                                             seen[-1]["contract"]["build"])
                             p = await call("achieve", {"goal": "capture",
                                                        "area": [-92, 2, -80, 14]},
                                            ["blueprint_export"])

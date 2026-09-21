@@ -544,6 +544,10 @@ local function parse_contract(raw,r)
   local build=type(raw.build)=="table" and raw.build or {}
   if build.mode~=nil and build.mode~="ghost" and build.mode~="direct" then return nil,"invalid-build-mode" end
   c.ghost=build.mode=="ghost"
+  -- Partial unlock (peer 21/09): a pasted base with assembling-machine-2 ghosts interleaved
+  -- in the belts that feed them. Locked items leave the plan instead of blocking it; their
+  -- ghosts stay standing for after the research.
+  c.skip_locked=build.skip_locked==true
   c.clearance=tonumber(site.clearance) or 0
   c.enemy_radius=tonumber(site.enemy_radius) or 16
   c.max_checks=math.min(tonumber(site.max_checks) or MAX_CHECKS,MAX_CHECKS)
@@ -646,7 +650,7 @@ function M.attach(ctx)
       -- placed = tiles that hold the right entity now; built = the ones THIS job revived
       -- and paid for; existing = the ones that were already standing.
       built=j.built,existing=j.existing,replaced=j.replaced,replaced_at=j.replaced_at,
-      skipped=j.skipped,restocked=j.restocked,drift=j.drift,
+      skipped=j.skipped,skipped_locked=j.skipped_locked,restocked=j.restocked,drift=j.drift,
       blasted=(j.blasted or 0)>0 and j.blasted or nil,filled=(j.filled or 0)>0 and j.filled or nil,
       ground=j.ground,
       plan=layout_digest(j.layout),
@@ -976,6 +980,35 @@ function M.attach(ctx)
       local recipe=force.recipes[name]
       if recipe and not recipe.enabled then locked[#locked+1]=name end
     end
+    local skipped_locked=nil
+    if c.skip_locked and #locked>0 then
+      local drop={} for _,name in ipairs(locked) do drop[name]=true end
+      local kept,first={},nil
+      for i,e in ipairs(base) do
+        if drop[e.item] then
+          skipped_locked=skipped_locked or {}
+          skipped_locked[e.name]=(skipped_locked[e.name] or 0)+1
+        else
+          kept[#kept+1]=e first=first or i
+        end
+      end
+      if #kept==0 then
+        table.sort(locked)
+        return ctx.response(nonce,true,{state="blocked",error="nothing-unlocked",locked=locked,
+          skipped_locked=skipped_locked})
+      end
+      -- orient() shifts the min corner to (0,0), so dropping the entities that set that
+      -- corner moves every kept row. An exact anchor is the FULL plan's corner: move it by
+      -- the same shift so each kept row still lands on its own tile.
+      if c.exact then
+        local full=orient(base,c.rotations[1])
+        local part=orient(kept,c.rotations[1])
+        r.x=r.x+full[first].x-part[1].x r.y=r.y+full[first].y-part[1].y
+        c.center={x=r.x,y=r.y}
+      end
+      base,locked,cost=kept,{},{}
+      for _,e in ipairs(base) do cost[e.item]=(cost[e.item] or 0)+e.count end
+    end
     for _,p in ipairs(c.primer) do
       local n=0 for _,e in ipairs(base) do if e.name==p.entity then n=n+1 end end
       if n==0 then return ctx.response(nonce,false,{error="primer-entity-not-in-blueprint",entity=p.entity}) end
@@ -1054,7 +1087,7 @@ function M.attach(ctx)
       return ctx.response(nonce,true,{state=(short or #locked>0) and "blocked" or "planned",
         site=site_out,site_validated=true,materials=cost,missing=missing,
         plan=layout_digest(placed),placed_at=r.detail and placed_at(placed) or nil,
-        locked=#locked>0 and locked or nil,steps=#steps,rejects=rejects})
+        locked=#locked>0 and locked or nil,skipped_locked=skipped_locked,steps=#steps,rejects=rejects})
     end
     local state=ctx.state() state.executor_seq=(state.executor_seq or 0)+1
     local id="exec-"..state.executor_seq
@@ -1063,7 +1096,7 @@ function M.attach(ctx)
       surface=surface.name,force=force.name,player=owner.index,site=site_out,
       layout=place_list(site.shape,site.x,site.y),contract=c,metrics=c.metrics,
       feeds=c.feeds,max_windows=c.max_windows,materials=cost,steps=steps,step=1,
-      receipts={},feed={},state="preparing",block=block,artifact="executor/"..id,deadline=game.tick+18000}
+      receipts={},feed={},state="preparing",block=block,skipped_locked=skipped_locked,artifact="executor/"..id,deadline=game.tick+18000}
     jobs()[id]=j save(j)
     return ctx.response(nonce,true,summary(j,r.detail))
   end

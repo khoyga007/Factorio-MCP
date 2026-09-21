@@ -317,6 +317,13 @@ refused for what is missing at the moment it is submitted.
     `building` job is fine. Reply: `removed`, `removed_by_name`, `removed_at` (≤40), `kept_foreign`
     (adopted human ghosts left alone), `ownership`, `floor`. After a real drop the job is
     `needs-attention`/`ghosts-dropped` and `resume` answers `job-ghosts-dropped`. Always dry_run first.
+  - `contract.build.skip_locked=true`: items whose recipe is not unlocked leave the plan instead of
+    blocking it (default still: any locked item → `blocked`, nothing debited). Their ghosts stay
+    standing, untouched; reply + report carry `skipped_locked {entity:n}`. All locked → `blocked`
+    `nothing-unlocked`. With an exact site the anchor is moved by the min-corner shift the dropped
+    rows cause, so kept rows land on their own tiles (engine: locked chest as left-most row, the
+    un-moved anchor built a wooden chest OVER the human's iron-chest ghost). build_ghosts passes
+    the caller's `contract.build` options through; only `mode` is forced to ghost.
 - A blueprint entity's `recipe` rides through decode → orient → place_list → ghost, and is set
   again after revive if the ghost lost it (receipt `recipe_lost` when even that fails).
 - Ghost report counts, measured in `tests/verify_ghostbuild_runtime.py`: `placed` = tiles that

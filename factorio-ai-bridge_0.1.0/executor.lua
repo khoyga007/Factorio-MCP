@@ -1669,6 +1669,75 @@ function M.attach(ctx)
     return f and f.last or nil
   end
 
+  -- Macro layer. One read used to mean every block at full detail: fine at 14 blocks
+  -- (~390 B each), unreadable at 150 (~58 kB against a ~64 kB datagram ceiling). So the read
+  -- zooms. "roll" is fixed-size however big the base gets, "rows" pages filtered blocks,
+  -- "one" opens a single block whole. Filtering lives here, not in the caller, because the
+  -- packet is the thing being protected.
+  local CLUSTER_GAP=8   -- tiles of slack between two boxes that still counts as one cluster
+  local ROWS_PAGE=12
+  local function keep(t) return next(t) and t or nil end
+  local function near_box(a,b)
+    return a[1]-CLUSTER_GAP<=b[3] and b[1]-CLUSTER_GAP<=a[3]
+       and a[2]-CLUSTER_GAP<=b[4] and b[2]-CLUSTER_GAP<=a[4]
+  end
+  -- Union-find on boxes: an industrial cluster is whatever touches, so the agent never has
+  -- to declare one. A declared block name inside the group names the group.
+  local function clusters_of(out)
+    local parent={}
+    local function find(i) while parent[i]~=i do parent[i]=parent[parent[i]] i=parent[i] end return i end
+    for i=1,#out do parent[i]=i end
+    for i=1,#out do for k=i+1,#out do
+      if near_box(out[i].box,out[k].box) then
+        local a,b=find(i),find(k)
+        if a~=b then parent[b]=a end
+      end
+    end end
+    local by,list={},{}
+    for i=1,#out do
+      local b,root=out[i],find(i)
+      local g=by[root]
+      if not g then
+        g={box={b.box[1],b.box[2],b.box[3],b.box[4]},blocks=0,attention=0,makes={},n={},members={}}
+        by[root]=g list[#list+1]=g
+      end
+      g.blocks=g.blocks+1
+      if b.status=="attention" then g.attention=g.attention+1 end
+      if b.name and not g.name then g.name=b.name end
+      g.box[1]=math.min(g.box[1],b.box[1]) g.box[2]=math.min(g.box[2],b.box[2])
+      g.box[3]=math.max(g.box[3],b.box[3]) g.box[4]=math.max(g.box[4],b.box[4])
+      for name,c in pairs(b.n or {}) do g.n[name]=(g.n[name] or 0)+c end
+      local f=b.flow
+      if f and (f.counted or 0)>0 then
+        for item,c in pairs(f.made or {}) do g.makes[item]=(g.makes[item] or 0)+c end
+      end
+      g.members[#g.members+1]=b
+    end
+    for _,g in ipairs(list) do
+      g.id="c@"..g.box[1]..","..g.box[2]
+      for _,b in ipairs(g.members) do b.cluster=g.id end
+    end
+    return list
+  end
+  local function has_item(b,item)
+    for _,k in ipairs{"feeds","eats"} do
+      for _,l in ipairs(b[k] or {}) do if l.item==item then return true end end
+    end
+    local f=b.flow
+    if f and (f.made or {})[item] then return true end
+    return (b.n or {})[item]~=nil
+  end
+  -- Trim the boilerplate, not the meaning: `counted` stays even at 0, because 0 counted is
+  -- "this block has no machine that can count", which is not the same fact as no flow at
+  -- all. Window length is one number for the whole reply, never one per block.
+  local function thin(b)
+    local f=b.flow
+    if f then
+      b.flow={made=keep(f.made or {}),active=keep(f.active or {}),
+              counted=f.counted,samples=f.samples}
+    end
+    return b
+  end
   function M.ledger(nonce,r)
     local out,edges,seen={}, {}, {}
     for _,id in ipairs(sorted_keys(jobs())) do
@@ -1730,7 +1799,56 @@ function M.attach(ctx)
         else e.uncounted=true end
       end
     end
-    return ctx.response(nonce,true,{blocks=out,edges=edges})
+    local groups=clusters_of(out)
+    local detail=r.detail or "roll"
+    local only=r.only or {}
+    if detail=="roll" then
+      local by_status,bad,cl,eprob={},{},{},{}
+      for _,b in ipairs(out) do
+        by_status[b.status]=(by_status[b.status] or 0)+1
+        if b.status=="attention" then
+          bad[#bad+1]={id=b.id,cluster=b.cluster,error=b.error,missing=b.missing}
+        end
+      end
+      for _,g in ipairs(groups) do
+        cl[#cl+1]={id=g.id,name=g.name,box=g.box,blocks=g.blocks,
+          attention=g.attention>0 and g.attention or nil,
+          makes=keep(g.makes),machines=keep(g.n)}
+      end
+      for _,e in ipairs(edges) do
+        if e.missing_block or e.uncounted
+            or (e.declared and e.measured and e.measured<e.declared*0.5) then
+          eprob[#eprob+1]=e
+        end
+      end
+      return ctx.response(nonce,true,{detail="roll",blocks=#out,by_status=by_status,
+        clusters=cl,attention=bad,edges={total=#edges,problems=keep(eprob)},
+        flow_ticks=flow_window()})
+    end
+    local pick={}
+    for _,b in ipairs(out) do
+      if (not only.id or b.id==only.id)
+          and (not only.status or b.status==only.status)
+          and (not only.cluster or b.cluster==only.cluster)
+          and (not only.item or has_item(b,only.item)) then pick[#pick+1]=b end
+    end
+    if detail=="one" then
+      local b=pick[1]
+      if not b then return ctx.response(nonce,false,{error="block-not-found"}) end
+      local mine={}
+      for _,e in ipairs(edges) do if e.from==b.id or e.to==b.id then mine[#mine+1]=e end end
+      return ctx.response(nonce,true,{detail="one",block=b,edges=mine,flow_ticks=flow_window()})
+    end
+    local off=math.max(0,math.floor(tonumber(r.offset) or 0))
+    local page,on={},{}
+    for i=off+1,math.min(off+ROWS_PAGE,#pick) do
+      page[#page+1]=thin(pick[i]) on[pick[i].id]=true
+    end
+    -- Only the links that touch this page: a filtered read must not drag the whole graph.
+    local mine={}
+    for _,e in ipairs(edges) do if on[e.from] or on[e.to] then mine[#mine+1]=e end end
+    return ctx.response(nonce,true,{detail="rows",total=#pick,blocks=page,edges=keep(mine),
+      next_offset=(off+#page<#pick) and (off+#page) or nil,flow_ticks=flow_window()})
   end
 
   -- Update intent of a block (job or hand), or register a hand-built area as a new block.

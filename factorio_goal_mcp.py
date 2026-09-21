@@ -207,8 +207,8 @@ def observe(view: str = "situation",
             resource: str | None = None, pattern_id: str | None = None,
             query: str | None = None,
             offset: Annotated[int, Field(ge=0)] = 0) -> CallToolResult:
-    """situation|deposits|nearby(issues,machines,runs,poles)|entities|water|research|ledger(blocks
-+flow, edges +declared/measured/min)|patterns(+pattern_id)|references(human-made).
+    """situation|deposits|nearby(issues,machines,runs,poles)|entities|water|research|ledger(roll;
+query=exec-N|status:|cluster:|item:)|patterns(+pattern_id)|references(human-made).
 query+offset page. water r<=2048, else 32."""
     if (x is None) != (y is None):
         return _result({"ok": False, "error": "x-and-y-required-together"}, True)
@@ -216,7 +216,20 @@ query+offset page. water r<=2048, else 32."""
                     "water", "research", "ledger"}:
         return _result({"ok": False, "error": "unknown-view"}, True)
     if view == "ledger":
-        return _send({"action": "ledger"}, 5)
+        # Default is the roll-up: the whole base in a fixed number of bytes. A filter or a
+        # block id is what opens rows; nothing returns every block at full detail any more.
+        body = {"action": "ledger", "detail": "roll", "offset": offset}
+        q = (query or "").strip()
+        if q:
+            key, _, value = q.partition(":")
+            if not value:
+                body.update(detail="one", only={"id": key})
+            elif key in LEDGER_FILTERS:
+                body.update(detail="rows", only={key: value})
+            else:
+                return _result({"ok": False, "error": "ledger-query-is-exec-N-or-"
+                                + "|".join(sorted(LEDGER_FILTERS)) + ":value"}, True)
+        return _send(body, 5)
     if view == "research":
         return _send({"action": "research", "surface": surface, "available": True}, 5)
     if view == "water":
@@ -275,6 +288,7 @@ query+offset page. water r<=2048, else 32."""
                    not p.get("ok", False))
 
 
+LEDGER_FILTERS = {"status", "cluster", "item"}
 PATTERN_PAGE = 40  # layout rows per observe(patterns, pattern_id) page
 NEARBY_MAX_PAGES = 16  # x64 rows per Lua page
 

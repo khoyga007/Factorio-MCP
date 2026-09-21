@@ -62,6 +62,10 @@ class GoalMCPTest(unittest.IsolatedAsyncioTestCase):
                 elif action == "insert":
                     reply.update(item=body["item"], count=body["count"],
                                  slot="source" if body.get("source") else "fuel", remaining=3)
+                elif action == "ledger":
+                    reply.update(detail=body.get("detail"), only=body.get("only"),
+                                 offset=body.get("offset"), blocks=2,
+                                 by_status={"attention": 1, "verified": 1})
                 elif action == "blueprint_job":
                     reply.update(state="verified", feed={"coal": 4},
                                  audit={"status": "passed", "windows": [{"index": 1}]})
@@ -172,6 +176,21 @@ class GoalMCPTest(unittest.IsolatedAsyncioTestCase):
                             self.assertEqual(own, seen[-1]["contract"])
                             saved = json.loads((Path(catalog_dir) / (p["pattern_id"] + ".json")).read_text())
                             self.assertEqual(("designed", own), (saved["state"], saved["contract"]))
+                            # Macro zoom: the default read never asks for block rows, so the
+                            # reply stays one size whether the base has 14 blocks or 140.
+                            p = await call("observe", {"view": "ledger"}, ["ledger"])
+                            self.assertEqual("roll", seen[-1]["detail"])
+                            self.assertIsNone(seen[-1].get("only"))
+                            p = await call("observe", {"view": "ledger", "query": "status:attention",
+                                                       "offset": 12}, ["ledger"])
+                            self.assertEqual(("rows", {"status": "attention"}, 12),
+                                             (seen[-1]["detail"], seen[-1]["only"], seen[-1]["offset"]))
+                            p = await call("observe", {"view": "ledger", "query": "exec-1"}, ["ledger"])
+                            self.assertEqual(("one", {"id": "exec-1"}),
+                                             (seen[-1]["detail"], seen[-1]["only"]))
+                            refused = await session.call_tool(
+                                "observe", {"view": "ledger", "query": "colour:red"})
+                            self.assertTrue(refused.isError)
                             p = await call("observe", {"view": "water", "x": 5, "y": 6, "radius": 300}, ["water_sites"])
                             self.assertEqual((300, 5), (seen[-1]["radius"], seen[-1]["x"]))
                             self.assertEqual(0, p["candidates"][0]["direction"])

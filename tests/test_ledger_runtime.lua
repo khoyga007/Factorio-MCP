@@ -53,15 +53,17 @@ return function(handlers,state,bp)
         return
       end
       if phase=="flow" then
-        local la2=find(call("ledger",{}),a.job_id)
+        local led1=call("ledger",{detail="rows"})
+        local la2=find(led1,a.job_id)
         local f=la2 and la2.flow
         local got=(f and f.made and f.made["iron-plate"]) or 0
         if got<=0 and game.tick-flow_started<3000 then return end
-        check(f and f.ticks>=300 and f.samples>0,"flow-window:"..helpers.table_to_json(f))
+        -- window length is a reply-level number now, not a per-block one
+        check(led1.flow_ticks>=300 and f and f.samples>0,"flow-window:"..helpers.table_to_json(f))
         check((f.made["iron-plate"] or 0)>0,"flow-measured-plates:"..helpers.table_to_json(f.made))
         check((f.active["stone-furnace"] or 0)>0,"flow-active-furnace:"..helpers.table_to_json(f.active))
         local edge2
-        for _,e in ipairs(call("ledger",{}).edges) do
+        for _,e in ipairs(call("ledger",{detail="rows"}).edges) do
           if e.from==a.job_id and e.to==b.job_id then edge2=e end
         end
         check(edge2 and edge2.declared==30 and (edge2.measured or 0)>0,
@@ -72,7 +74,7 @@ return function(handlers,state,bp)
       end
       if phase=="hands" then
         -- Hand blocks start their first window later than the job blocks, so wait for it.
-        local led2=call("ledger",{})
+        local led2=call("ledger",{detail="rows"})
         local lh,lp=find(led2,hand),find(led2,pair)
         if not (lh and lh.flow and lp and lp.flow) then return end
         -- A chest-only block cannot measure anything: products_finished exists on no
@@ -92,17 +94,40 @@ return function(handlers,state,bp)
         return
       end
       if phase=="gone" then
-        local led3=call("ledger",{})
+        local led3=call("ledger",{detail="rows"})
         check(not find(led3,a.job_id),"dead-block-dropped")
         local e3
         for _,e in ipairs(led3.edges) do if e.from==a.job_id then e3=e end end
         check(e3 and e3.missing_block,"dead-edge-flagged:"..helpers.table_to_json(e3))
         check(find(led3,b.job_id),"live-block-kept")
+        -- Macro zoom. The roll must account for every live block without carrying one row:
+        -- cluster membership is a partition, so the per-cluster counts have to add back up.
+        local roll=call("ledger",{})
+        check(roll.detail=="roll" and roll.blocks==#led3.blocks and not roll.blocks_rows,
+          "roll-counts:"..helpers.table_to_json(roll.blocks))
+        local sum,named=0,true
+        for _,c in ipairs(roll.clusters) do
+          sum=sum+c.blocks
+          if not (c.id and c.box and c.machines) then named=false end
+        end
+        check(sum==roll.blocks and named,"clusters-partition:"..helpers.table_to_json(roll.clusters))
+        local tally=0
+        for _,c in pairs(roll.by_status) do tally=tally+c end
+        check(tally==roll.blocks,"status-tally:"..helpers.table_to_json(roll.by_status))
+        check(roll.edges.total>0,"roll-edge-total:"..helpers.table_to_json(roll.edges))
+        -- Drill-down: one filter, one block, and the links that touch it.
+        local one=call("ledger",{detail="one",only={id=b.job_id}})
+        check(one.block and one.block.id==b.job_id and one.edges,"one-block:"..helpers.table_to_json(one.block))
+        local miss1=call("ledger",{detail="one",only={id="exec-nope"}})
+        check(not miss1.ok and miss1.error=="block-not-found","one-unknown-rejected")
+        local filtered=call("ledger",{detail="rows",only={cluster=roll.clusters[1].id}})
+        check(filtered.total>0 and filtered.total<=roll.blocks,
+          "cluster-filter:"..helpers.table_to_json(filtered.total))
         result.ok,done=true,true
         return
       end
       if busy(b.job_id) then return end
-      local led=call("ledger",{})
+      local led=call("ledger",{detail="rows"})
       local la,lb=find(led,a.job_id),find(led,b.job_id)
       check(la and la.name=="smelter-a" and la.role=="iron plates","a-intent:"..helpers.table_to_json(la))
       check(la.status=="verified" or la.status=="unverified","a-status:"..tostring(la.status))
@@ -115,8 +140,8 @@ return function(handlers,state,bp)
       check(edge.declared==30,"edge-declared:"..helpers.table_to_json(edge))
       local n=call("ledger_note",{block={id=a.job_id,notes="feeds consumer-b"}})
       check(n.ok,"note-job:"..helpers.table_to_json(n))
-      check(find(call("ledger",{}),a.job_id).notes=="feeds consumer-b","note-persisted")
-      check(find(call("ledger",{}),a.job_id).role=="iron plates","note-keeps-other-intent")
+      check(find(call("ledger",{detail="rows"}),a.job_id).notes=="feeds consumer-b","note-persisted")
+      check(find(call("ledger",{detail="rows"}),a.job_id).role=="iron plates","note-keeps-other-intent")
       local miss=call("ledger_note",{block={id="exec-nope",notes="x"}})
       check(not miss.ok and miss.error=="block-not-found","unknown-id-rejected")
       local noarea=call("ledger_note",{block={name="loose"}})
@@ -135,7 +160,7 @@ return function(handlers,state,bp)
       local hp=call("ledger_note",{block={name="hand-furnaces"},surface=surface.name,force="player",x1=23,y1=-1,x2=28,y2=2})
       check(hp.ok and hp.id,"hand-pair-registered:"..helpers.table_to_json(hp))
       pair=hp.id
-      led=call("ledger",{})
+      led=call("ledger",{detail="rows"})
       local lh=find(led,h.id)
       check(lh.status=="declared" and lh.n["wooden-chest"]==1,"hand-live:"..helpers.table_to_json(lh))
       edge=nil
@@ -144,7 +169,7 @@ return function(handlers,state,bp)
       -- Destroying part of block a turns it to attention with a missing count.
       local chest=surface.find_entities_filtered{name="wooden-chest",area={{-1,-1},{2,2}}}[1]
       chest.destroy()
-      la=find(call("ledger",{}),a.job_id)
+      la=find(call("ledger",{detail="rows"}),a.job_id)
       check(la.status=="attention" and la.missing==1,"a-attention:"..helpers.table_to_json(la))
       local rep=call("blueprint_job",{job_id=b.job_id})
       check(rep.block and rep.block.name=="consumer-b","report-carries-block")

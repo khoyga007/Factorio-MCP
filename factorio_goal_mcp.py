@@ -250,7 +250,8 @@ query+offset page. water r<=2048, else 32."""
     if view == "situation":
         p = _read(invoke("brief", surface=surface, x=x, y=y, radius=radius))
         return _result({"ok": p.get("ok", False), "view": view, **_fields(p,
-            "center", "counts", "issue_total", "issues", "enemy_total",
+            "center", "counts", "ghost_total", "ghost_counts", "ghost_box",
+            "issue_total", "issues", "enemy_total",
             "nearest_enemies", "ore_total", "ore_patches", "treasury", "error")},
             not p.get("ok", False))
     if view == "deposits":
@@ -268,7 +269,8 @@ query+offset page. water r<=2048, else 32."""
                 for e in rows if isinstance(e, dict)]
     return _result({"ok": p.get("ok", False), "view": view,
                     **_fields(p, "center", "resources", "entities_total",
-                              "entities_next_offset", "obstacles_total", "obstacles",
+                              "entities_next_offset", "ghosts", "ghosts_total",
+                              "ghosts_next_offset", "obstacles_total", "obstacles",
                               "ground_items", "error"), "entities": entities},
                    not p.get("ok", False))
 
@@ -279,7 +281,7 @@ NEARBY_MAX_PAGES = 16  # x64 rows per Lua page
 
 def _nearby(surface, x, y, radius) -> CallToolResult:
     """Pull every snapshot page, then compress in Python (Lua stays a cheap fact dump)."""
-    rows, offset, head = [], 0, None
+    rows, ghosts, offset, head = [], [], 0, None
     for _ in range(NEARBY_MAX_PAGES):
         p = _read(invoke("snapshot", surface=surface, x=x, y=y, radius=radius,
                          offset=offset, limit=64, tiles=False, name=None, obstacles=offset == 0))
@@ -287,11 +289,18 @@ def _nearby(surface, x, y, radius) -> CallToolResult:
             return _result({"ok": False, "view": "nearby", **_fields(p, "error")}, True)
         head = head or p
         rows += [e for e in p.get("entities") or [] if isinstance(e, dict)]
-        offset = p.get("entities_next_offset")
+        ghosts += [g for g in p.get("ghosts") or [] if isinstance(g, dict)]
+        # The two lists share one offset but not one length: keep paging while EITHER
+        # has more, or a field of ghosts hides behind a short entity list.
+        offset, more_ghosts = p.get("entities_next_offset"), p.get("ghosts_next_offset")
+        if offset is None:
+            offset = more_ghosts
         if offset is None:
             break
     data = {"ok": True, "view": "nearby", **_fields(head, "center", "entities_total"),
             **summarize(rows)}
+    if ghosts:
+        data["ghosts"] = _digest(ghosts)
     if offset is not None:
         data["truncated_at"] = len(rows)
     data["resources"] = [[r.get("name"), r.get("x"), r.get("y"), r.get("amount")]

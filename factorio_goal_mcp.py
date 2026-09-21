@@ -13,8 +13,9 @@ from pydantic import Field, FiniteFloat
 from factorio_mcp import invoke
 from perception import ground, natural, summarize
 from factorio_ai import DEFAULT_HOST, DEFAULT_PORT, request, self_sustaining
-from blueprint_library import (encode_blueprint, list_patterns, load_pattern,
-                               pattern_entities, pattern_id_for, record_blueprint)
+from blueprint_library import (encode_blueprint, import_reference, list_patterns,
+                               load_pattern, pattern_entities, pattern_id_for,
+                               record_blueprint)
 
 
 READ = ToolAnnotations(readOnlyHint=True, destructiveHint=False, openWorldHint=False)
@@ -172,6 +173,28 @@ def _recall_area(body: dict, area: list) -> CallToolResult:
     return _result(out)
 
 
+def _digest(rows: list) -> dict:
+    """Same shape a build reply's `plan` uses: count, per-name tally, bbox.
+
+    A 500-entity layout is ~15k chars of rows nobody reads in chat; the catalog file
+    on disk keeps every row (`blueprint_library.pattern_entities`), so nothing is lost.
+    No `detail` flag: the tool schema is ~4 bytes under its 4000-byte budget.
+    """
+    names: dict = {}
+    box = None
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        name = row.get("name", "unknown")
+        names[name] = names.get(name, 0) + 1
+        x, y = row.get("x"), row.get("y")
+        if x is None or y is None:
+            continue
+        box = ([x, y, x, y] if box is None else
+               [min(box[0], x), min(box[1], y), max(box[2], x), max(box[3], y)])
+    return {"count": len(rows), "entities": names, "bbox": box}
+
+
 def _fields(source: dict, *names: str) -> dict:
     return {name: source[name] for name in names if name in source}
 
@@ -184,10 +207,9 @@ def observe(view: str = "situation",
             resource: str | None = None, pattern_id: str | None = None,
             query: str | None = None,
             offset: Annotated[int, Field(ge=0)] = 0) -> CallToolResult:
-    """situation|deposits|nearby(issues,machines,runs,poles)|entities(raw)|water|research|ledger(blocks
-    +flow, edges +declared/measured/min)|patterns(+pattern_id)
-    |references(imported human work). query+offset page both. water radius<=2048,
-    others<=32."""
+    """situation|deposits|nearby(issues,machines,runs,poles)|entities|water|research|ledger(blocks
++flow, edges +declared/measured/min)|patterns(+pattern_id)|references(human-made).
+query+offset page. water r<=2048, else 32."""
     if (x is None) != (y is None):
         return _result({"ok": False, "error": "x-and-y-required-together"}, True)
     if view not in {"situation", "deposits", "nearby", "entities", "patterns", "references",
@@ -209,9 +231,18 @@ def observe(view: str = "situation",
             pattern = load_pattern(pattern_id)
         except (OSError, ValueError, KeyError, json.JSONDecodeError) as exc:
             return _result({"ok": False, "error": str(exc)}, True)
+        # Headline digest + ONE page of rows. A 533-entity reference used to arrive as
+        # 533 rows; the rows still have to be reachable, because reading a pattern,
+        # editing it and re-submitting it as `build_design` is the only way an agent
+        # derives a layout from an existing one. `offset` pages them like references.
+        rows = pattern_entities(pattern["blueprint_string"])
+        page = rows[offset:offset + PATTERN_PAGE]
         return _result({"ok": True, "view": view, "pattern_id": pattern_id,
                         "state": pattern.get("state"), "contract": pattern.get("contract"),
-                        "entities": pattern_entities(pattern["blueprint_string"])})
+                        "layout": _digest(rows), "entities": page,
+                        "entities_offset": offset,
+                        "entities_next_offset": (offset + len(page)
+                                                 if offset + len(page) < len(rows) else None)})
     if view in {"patterns", "references"}:
         return _result({"ok": True, "view": view,
                         **list_patterns(reference=view == "references", query=query,
@@ -242,6 +273,7 @@ def observe(view: str = "situation",
                    not p.get("ok", False))
 
 
+PATTERN_PAGE = 40  # layout rows per observe(patterns, pattern_id) page
 NEARBY_MAX_PAGES = 16  # x64 rows per Lua page
 
 
@@ -310,14 +342,31 @@ build_design(design=[{name,x,y,direction?}] centers, dir 0N4E8S12W),
 recall(area|design=[{name,x,y}]->bag; force_active beats job),
 capture(area->catalog), research(tech), annotate(contract.block; new needs area),
 set_recipe(design=[{x,y,recipe}]; empty asm), craft|collect|insert
-(design=[{name,count,x?,y?,source?}]<=8; craft queues)."""
+(design=[{name,count,x?,y?,source?}]<=8; craft queues),
+import(pattern_id=bp string->reference)."""
     if (x is None) != (y is None):
         return _result({"ok": False, "error": "coordinate-pairs-required"}, True)
     if goal not in {"reuse_blueprint", "build_design", "recall", "capture", "research",
-                    "annotate", "set_recipe", "craft", "collect", "insert"}:
+                    "annotate", "set_recipe", "craft", "collect", "insert", "import"}:
         return _result({"ok": False, "error": "unknown-goal"}, True)
     if (tech is not None) != (goal == "research"):
         return _result({"ok": False, "error": "tech-only-for-research"}, True)
+    if goal == "import":
+        # A blueprint string a human pasted has no other way in: the catalog only ever
+        # grew from `capture`. It lands as a REFERENCE (no contract, never auto-built),
+        # the same door `import_reference` already gives the CLI. `pattern_id` carries the
+        # string rather than a new parameter: the three schemas have 26 bytes of headroom.
+        if not pattern_id:
+            return _result({"ok": False, "error": "pattern_id-carries-the-blueprint-string"},
+                           True)
+        try:
+            saved = import_reference(pattern_id, note=(contract or {}).get("note"))
+        except (OSError, ValueError, KeyError, json.JSONDecodeError) as exc:
+            return _result({"ok": False, "error": str(exc)}, True)
+        return _result({"ok": True, "goal": goal,
+                        **{k: saved[k] for k in ("pattern_id", "state", "entity_count",
+                                                 "over_build_limit") if k in saved},
+                        "layout": _digest(pattern_entities(pattern_id))})
     if goal == "set_recipe":
         return _set_recipe(design, surface, force)
     if goal in HAND:
@@ -348,7 +397,7 @@ set_recipe(design=[{x,y,recipe}]; empty asm), craft|collect|insert
         except (OSError, ValueError, KeyError, TimeoutError, json.JSONDecodeError) as exc:
             return _result({"ok": False, "error": str(exc)}, True)
         return _result({"ok": True, "goal": goal, **saved,
-                        "layout": pattern_entities(p["blueprint"])})
+                        "layout": _digest(pattern_entities(p["blueprint"]))})
     if goal == "recall":
         if pattern_id or contract or x is not None:
             return _result({"ok": False, "error": "recall-takes-area-or-design-only"}, True)
@@ -415,10 +464,8 @@ set_recipe(design=[{x,y,recipe}]; empty asm), craft|collect|insert
 @mcp.tool(annotations=READ)
 def report(job_id: str, resume: bool = False) -> CallToolResult:
     """One goal's audit, progress, blocker, block, artifact path.
-
-    resume=True restarts a built job stopped on a blocker, once fixed; never
-    re-imports or re-primes what is on the ground.
-    """
+resume=True restarts a built job once its blocker is fixed; never re-imports
+or re-primes the ground."""
     if not job_id.startswith("exec-"):
         return _result({"ok": False, "error": "unknown-job-id"}, True)
     p = _read(invoke("blueprint-job", job_id=job_id, resume=resume or None))

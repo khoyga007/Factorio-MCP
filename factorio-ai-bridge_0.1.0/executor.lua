@@ -748,12 +748,26 @@ function M.attach(ctx)
     return steps,missing
   end
 
+  -- The paste landed where it was planned, or it did not. Two refinements over a bare
+  -- index (20/09, exec-10 came back `import-geometry-mismatch:1` and the index alone said
+  -- nothing about what was wrong):
+  --  * the reason carries the numbers -- name, tile, planned dir, what stands there;
+  --  * an entity whose prototype does not support direction (electric poles) is compared
+  --    on presence only. The engine drops the direction such a prototype cannot hold, so
+  --    a rotated layout plans dir 4 and the ground honestly reports 0. Position, name and
+  --    every directional entity stay strict: this is the guard against a bad paste.
   local function built_entities(j)
     local surface=game.get_surface(j.surface)
     local out={}
     for i,e in ipairs(j.layout) do
       local found=surface.find_entity(e.name,{e.x,e.y})
-      if not found or not found.valid or found.direction~=e.dir then return nil,i end
+      if not found or not found.valid then
+        return nil,i,string.format("%s@%s,%s missing",e.name,e.x,e.y)
+      end
+      local directional=found.prototype.supports_direction
+      if directional and found.direction~=e.dir then
+        return nil,i,string.format("%s@%s,%s dir %s built %s",e.name,e.x,e.y,e.dir,found.direction)
+      end
       out[i]=found
     end
     return out
@@ -1427,8 +1441,8 @@ function M.attach(ctx)
               -- them and stop. Free the tile, then report(resume=true) picks up from here.
               if j.blocked then error("blueprint-blocked:"..#j.blocked) end
             end
-            local es,bad=built_entities(j)
-            if not es then error("import-geometry-mismatch:"..bad) end
+            local es,bad,why=built_entities(j)
+            if not es then error("import-geometry-mismatch:"..bad..":"..(why or "")) end
             -- Stamp identity while we still know which entities are ours. Belts, pipes and
             -- rails carry no unit_number; those rows keep the coordinate fallback.
             for i,e in ipairs(es) do j.layout[i].unit=e.unit_number end
@@ -1465,8 +1479,8 @@ function M.attach(ctx)
             end
             save(j) return
           end
-          local es,bad=built_entities(j)
-          if not es then error("layout-broken:"..bad) end
+          local es,bad,why=built_entities(j)
+          if not es then error("layout-broken:"..bad..":"..(why or "")) end
           run_feeds(j,es)
           if j.state=="settling" then
             if game.tick<j.settle_until then return end

@@ -153,6 +153,10 @@ class GoalMCPTest(unittest.IsolatedAsyncioTestCase):
                             self.assertEqual(4, p["feed"]["coal"])
                             self.assertTrue(p["self_sustaining"])
                             p = await call("observe", {"view": "patterns", "pattern_id": pattern_id}, [])
+                            # digest up front, rows still reachable (paged) so a pattern
+                            # can be read, edited and re-submitted as build_design
+                            self.assertEqual(10, p["layout"]["count"])
+                            self.assertIsNone(p["entities_next_offset"])
                             design = p["entities"]
                             self.assertIn("wooden-chest", {e["name"] for e in design})
                             p = await call("achieve", {"goal": "build_design", "design": design,
@@ -253,9 +257,31 @@ class GoalMCPTest(unittest.IsolatedAsyncioTestCase):
                                 self.assertTrue(refused_hand.isError)
                                 self.assertEqual(why, json.loads(
                                     refused_hand.content[0].text)["error"])
+                            # A pasted blueprint string reaches the catalog through
+                            # `import`, carried by pattern_id (no schema room for a
+                            # parameter of its own). It lands as an unbuildable reference.
+                            pasted = encode_blueprint([{"name": "wooden-chest", "x": 2, "y": 2},
+                                                       {"name": "stone-furnace", "x": 4, "y": 2}])
+                            p = await call("achieve", {"goal": "import", "pattern_id": pasted}, [])
+                            self.assertEqual(("reference", 2), (p["state"], p["layout"]["count"]))
+                            self.assertEqual({"wooden-chest": 1, "stone-furnace": 1},
+                                             p["layout"]["entities"])
+                            imported_id = p["pattern_id"]
+                            refused_build = await session.call_tool(
+                                "achieve", {"goal": "reuse_blueprint", "pattern_id": imported_id})
+                            self.assertTrue(refused_build.isError)
+                            self.assertEqual("reference-pattern-needs-contract", json.loads(
+                                refused_build.content[0].text)["error"])
+                            refused_import = await session.call_tool("achieve", {"goal": "import"})
+                            self.assertTrue(refused_import.isError)
+                            self.assertEqual("pattern_id-carries-the-blueprint-string",
+                                             json.loads(refused_import.content[0].text)["error"])
                             p = await call("achieve", {"goal": "capture", "area": [0, 0, 9, 9]}, ["blueprint_export"])
                             self.assertEqual((pattern_id, "built"), (p["pattern_id"], p["state"]))
-                            self.assertEqual(10, len(p["layout"]))
+                            # capture answers with the digest, not a row per entity
+                            self.assertEqual(10, p["layout"]["count"])
+                            self.assertEqual({"count", "entities", "bbox"}, set(p["layout"]))
+                            self.assertEqual(10, sum(p["layout"]["entities"].values()))
                             for name, args in [
                                 ("achieve", {"goal": "unknown-goal"}),
                                 ("achieve", {"goal": "reuse_blueprint", "x": 1}),

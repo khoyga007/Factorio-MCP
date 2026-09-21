@@ -1,5 +1,5 @@
 local BRIDGE_VERSION = 1
-local BRIDGE_BUILD = "2026-09-20-clear-ground"
+local BRIDGE_BUILD = "2026-09-20-ghosts-visible"
 local MAX_PACKET_BYTES = 32768
 local MAX_RADIUS = 32
 local MAX_ENTITIES = 64
@@ -253,6 +253,36 @@ local function entity_data(entity)
     }
   end
   return data
+end
+
+-- A ghost is a plan, not a machine: it answers ghost_name/ghost_type and nothing
+-- else entity_data reads, so it gets its own shape. `ghost = true` marks it in any
+-- list that mixes the two.
+local function ghost_data(entity)
+  local box = entity.bounding_box
+  return {
+    ghost = true,
+    name = entity.ghost_name,
+    type = entity.ghost_type,
+    unit_number = entity.unit_number,
+    x = entity.position.x,
+    y = entity.position.y,
+    direction = entity.direction,
+    bounding_box = {
+      left_top = {x = box.left_top.x, y = box.left_top.y},
+      right_bottom = {x = box.right_bottom.x, y = box.right_bottom.y},
+    },
+  }
+end
+
+local function find_ghosts(surface, area, force)
+  local found = surface.find_entities_filtered {area = area, type = "entity-ghost", force = force}
+  table.sort(found, function(a, b)
+    if a.position.x ~= b.position.x then return a.position.x < b.position.x end
+    if a.position.y ~= b.position.y then return a.position.y < b.position.y end
+    return (a.ghost_name or "") < (b.ghost_name or "")
+  end)
+  return found
 end
 
 local function handle_mine(nonce, request)
@@ -599,6 +629,11 @@ local function handle_snapshot(nonce, request)
     entities[#entities + 1] = entity_data(found[i])
   end
 
+  local ghosts, found_ghosts = {}, find_ghosts(surface, area, force)
+  for i = offset + 1, math.min(#found_ghosts, offset + limit) do
+    ghosts[#ghosts + 1] = ghost_data(found_ghosts[i])
+  end
+
   local ground_items = {}
   for _, entity in pairs(surface.find_entities_filtered {area = area, type = "item-entity"}) do
     local stack = entity.stack
@@ -664,6 +699,9 @@ local function handle_snapshot(nonce, request)
     entities_total = #found,
     entities_offset = offset,
     entities_next_offset = offset + #entities < #found and offset + #entities or nil,
+    ghosts = ghosts,
+    ghosts_total = #found_ghosts,
+    ghosts_next_offset = offset + #ghosts < #found_ghosts and offset + #ghosts or nil,
     ground_items = ground_items,
     obstacles = obstacles,
     obstacles_total = obstacles_total,
@@ -722,6 +760,22 @@ local function handle_brief(nonce, request)
   local issue_total = #issues
   while #issues > 20 do table.remove(issues) end
   for _, issue in pairs(issues) do issue.distance_squared = nil end
+
+  -- Ghosts are what someone PLANNED here. Counted apart from built machines and
+  -- summarised (count + extent per name): a pasted blueprint is hundreds of rows.
+  local ghost_counts, ghost_total, ghost_box = {}, 0, nil
+  for _, g in pairs(find_ghosts(surface, area, force)) do
+    local name = g.ghost_name or "unknown"
+    ghost_counts[name] = (ghost_counts[name] or 0) + 1
+    ghost_total = ghost_total + 1
+    local p = g.position
+    if not ghost_box then
+      ghost_box = {x1 = p.x, y1 = p.y, x2 = p.x, y2 = p.y}
+    else
+      ghost_box.x1, ghost_box.y1 = math.min(ghost_box.x1, p.x), math.min(ghost_box.y1, p.y)
+      ghost_box.x2, ghost_box.y2 = math.max(ghost_box.x2, p.x), math.max(ghost_box.y2, p.y)
+    end
+  end
 
   local enemy_force = game.forces.enemy
   local enemies = enemy_force and surface.find_entities_filtered {
@@ -801,6 +855,7 @@ local function handle_brief(nonce, request)
     action = "brief", tick = game.tick, surface = surface.name,
     center = center, radius = radius,
     owned_total = #owned, counts = counts,
+    ghost_total = ghost_total, ghost_counts = ghost_counts, ghost_box = ghost_box,
     issue_total = issue_total, issues = issues,
     enemy_total = #enemies, nearest_enemies = nearest_enemies,
     ore_total = ore_total, ore_patches = ore_patches,

@@ -158,6 +158,26 @@ Unknown keys ignored (notes: `source`). Contract errors (refused, nothing built)
   `detail:true` (bridge + `--detail` on `blueprint-run`/`blueprint-job`), and the artifact
   receipt on disk always holds the full rows. The MCP `report` tool has no `detail` flag: the
   three-tool schema is ~4 bytes under its 4000-byte budget, so read the receipt instead.
+- Direct build caps at 64 entities (`control.lua:1571`, `direct-blueprint-too-large`,
+  `{entities, limit}`); ghost mode caps at 1000. A 194-belt run is four direct jobs — that
+  cap is a reason to PREFER `build.mode="ghost"`, not a reason to hand-cut a plan.
+- An exact site needs `x,y` on `achieve` AND `site.mode="exact"`. Without x,y the executor
+  searches and the design lands somewhere else entirely (measured 20/09: a dry run moved a
+  site to (-8,82)). Pass `x,y = floor(min x), floor(min y)` of the intended layout.
+- Ghosts in reads, build `2026-09-20-ghosts-visible`: ghosts are plans, not machines, and
+  `ENTITY_TYPES` never listed them — a pasted blueprint read back as an empty field (20/09:
+  maintainer pasted one, `observe` returned 0 entities, only `capture(area)` saw it). Now
+  `observe(view="entities")` carries `ghosts` / `ghosts_total` / `ghosts_next_offset`
+  (rows `{ghost=true, name, type, x, y, direction, bounding_box}`, paged like entities) and
+  `observe(view="nearby"|"situation")` carries `ghost_total`, `ghost_counts` (per name) and
+  `ghost_box`. Built machines stay in `counts`; the two are never mixed.
+- Geometry check, build `2026-09-20-ghosts-visible`: `import-geometry-mismatch:<i>:<why>`
+  and `layout-broken:<i>:<why>` now name the row — `name@x,y missing` or
+  `name@x,y dir D built E`. An index alone sent the agent hunting (exec-10). An entity
+  whose prototype has `supports_direction=false` (electric poles) is compared on presence
+  only: the engine drops a direction that prototype cannot hold, so a rotated layout plans
+  dir 4 and the ground honestly reports 0. Position, name and every directional entity stay
+  strict — this check is still the guard against a bad paste.
 - Several live jobs, build `2026-09-20-multi-job`: `blueprint_run` no longer hands back
   whatever job is running. Up to `MAX_LIVE_JOBS` = 8 jobs may be preparing/building/
   settling/auditing at once, so parked ghost plans do not block the next build.

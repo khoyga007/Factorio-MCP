@@ -1165,6 +1165,14 @@ function M.attach(ctx)
         -- Named, not just counted: "replaced: 3" says nothing about WHICH tile lost its
         -- ghost. This is a re-placement of a missing ghost, never an upgrade in place.
         j.replaced=(j.replaced or 0)+1
+        -- Ownership by unit_number: a job's ghost and a human's ghost look identical on the
+        -- ground, and removing "the job's ghosts" by position alone also removes a human's
+        -- wherever the two sets coincide (a belt run shifted along its own axis coincides
+        -- everywhere but its ends).
+        if made.unit_number then
+          j.ghost_units=j.ghost_units or {}
+          j.ghost_units[tostring(made.unit_number)]=true
+        end
         j.replaced_at=j.replaced_at or {}
         if #j.replaced_at<8 then j.replaced_at[#j.replaced_at+1]={e.name,e.x,e.y} end
         return "pending"
@@ -1955,6 +1963,9 @@ function M.attach(ctx)
     -- done are not repeated, and the holdout clock restarts. Recall + rebuild is the only
     -- other way out, and it pays for the block twice.
     if r.resume then
+      if j.dropped then
+        return ctx.response(nonce,false,{error="job-ghosts-dropped",state=j.state})
+      end
       if j.state~="needs-attention" then
         return ctx.response(nonce,false,{error="job-not-resumable",state=j.state})
       end
@@ -1966,6 +1977,72 @@ function M.attach(ctx)
       save(j)
     end
     return ctx.response(nonce,true,summary(j,r.detail))
+  end
+
+  -- Remove the ghosts THIS job laid, leave everyone else's. Built entities are untouched:
+  -- that is recall's job, and recall pays the items back. Ghosts cost nothing, so there is
+  -- nothing to refund here.
+  -- Ownership, in order of trust:
+  --   ghost_units -- unit_numbers recorded as the job laid each ghost (jobs from
+  --                  build 2026-09-21-drop-ghosts on).
+  --   legacy floor -- older jobs recorded only the first 8 positions they laid (replaced_at).
+  --                  unit_numbers are handed out in creation order, so the lowest unit still
+  --                  standing on one of those positions is a floor: a ghost on a layout row
+  --                  at or above it was laid by this job, one below it was already there.
+  --                  Measured 21/09 exec-24: human ghosts 2739..2813, job ghosts 6165+.
+  -- Either way only a ghost on one of the job's own layout rows is ever a candidate.
+  function M.drop_ghosts(nonce,r)
+    local j=jobs()[r.job_id]
+    if not j then return ctx.response(nonce,false,{error="executor-job-not-found"}) end
+    -- A plan parked on materials sits in `building` forever, and cancelling one is half of
+    -- what this is for. Mid-gather and mid-audit are refused: those are doing work.
+    if j.state=="preparing" or j.state=="settling" or j.state=="auditing" then
+      return ctx.response(nonce,false,{error="job-still-live",state=j.state})
+    end
+    local surface=game.get_surface(j.surface)
+    if not surface then return ctx.response(nonce,false,{error="surface-not-found"}) end
+    local function ghost_on(name,x,y)
+      local g=surface.find_entity("entity-ghost",{x,y})
+      return g and g.valid and g.ghost_name==name and g or nil
+    end
+    local owned,floor=j.ghost_units,nil
+    if (j.replaced or 0)==0 then
+      return ctx.response(nonce,true,{job_id=j.id,removed=0,kept_foreign=0,
+        detail="this job laid no ghosts of its own"})
+    end
+    if not owned then
+      for _,at in ipairs(j.replaced_at or {}) do
+        local g=ghost_on(at[1],at[2],at[3])
+        if g and g.unit_number and (not floor or g.unit_number<floor) then floor=g.unit_number end
+      end
+      if not floor then
+        return ctx.response(nonce,false,{error="ghost-ownership-unknown",
+          detail="no recorded units and none of replaced_at still stands"})
+      end
+    end
+    local removed,kept,byname={},0,{}
+    for _,e in ipairs(j.layout or {}) do
+      local g=ghost_on(e.name,e.x,e.y)
+      if g then
+        local mine
+        if owned then mine=owned[tostring(g.unit_number)]
+        else mine=g.unit_number and g.unit_number>=floor end
+        if mine then
+          if not r.dry_run then g.destroy() end
+          removed[#removed+1]={e.name,e.x,e.y}
+          byname[e.name]=(byname[e.name] or 0)+1
+        else kept=kept+1 end
+      end
+    end
+    if not r.dry_run then
+      -- Resuming would lay the same rows again, so the job is closed, not just emptied.
+      j.dropped=true
+      j.state,j.error="needs-attention","ghosts-dropped"
+      save(j)
+    end
+    return ctx.response(nonce,true,{job_id=j.id,dry_run=r.dry_run or nil,
+      removed=#removed,removed_by_name=byname,removed_at=#removed<=40 and removed or nil,
+      kept_foreign=kept,ownership=owned and "recorded" or "legacy-floor",floor=floor})
   end
   return M
 end

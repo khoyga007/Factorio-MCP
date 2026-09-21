@@ -218,6 +218,12 @@ def blueprint_job(job_id: str) -> CallToolResult:
     return invoke("blueprint-job", **locals())
 
 
+@mcp.tool(annotations=WRITE)
+def drop_ghosts(job_id: str, dry_run: bool = False) -> CallToolResult:
+    """Remove the ghosts one job laid, never anyone else's; closes the job."""
+    return invoke("drop-ghosts", **locals())
+
+
 @mcp.tool(annotations=READ)
 def ledger() -> CallToolResult:
     """Base ledger: blocks with live status and measured throughput, plus declared/measured edges."""

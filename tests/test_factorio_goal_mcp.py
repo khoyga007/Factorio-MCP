@@ -63,6 +63,8 @@ class GoalMCPTest(unittest.IsolatedAsyncioTestCase):
                 elif action == "insert":
                     reply.update(item=body["item"], count=body["count"],
                                  slot="source" if body.get("source") else "fuel", remaining=3)
+                elif action == "drop_ghosts":
+                    reply.update(job_id=body["job_id"], removed=3, kept_foreign=2)
                 elif action == "ledger":
                     reply.update(detail=body.get("detail"), only=body.get("only"),
                                  offset=body.get("offset"), blocks=2,
@@ -206,6 +208,12 @@ class GoalMCPTest(unittest.IsolatedAsyncioTestCase):
                                                        "area": [-92, 2, -80, 14]},
                                            ["blueprint_export"])
                             self.assertEqual({"x": -90.0, "y": 4.0}, p["site"])
+                            p = await call("achieve", {"goal": "drop_ghosts", "pattern_id": "exec-24",
+                                                       "dry_run": True}, ["drop_ghosts"])
+                            self.assertEqual(("exec-24", True), (seen[-1]["job_id"], seen[-1]["dry_run"]))
+                            refused = await session.call_tool(
+                                "achieve", {"goal": "drop_ghosts", "pattern_id": "bp-123"})
+                            self.assertTrue(refused.isError)
                             p = await call("observe", {"view": "water", "x": 5, "y": 6, "radius": 300}, ["water_sites"])
                             self.assertEqual((300, 5), (seen[-1]["radius"], seen[-1]["x"]))
                             self.assertEqual(0, p["candidates"][0]["direction"])

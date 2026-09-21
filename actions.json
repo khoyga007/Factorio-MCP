@@ -87,6 +87,16 @@
       ],
       "note": "executor job state + every holdout window; resume restarts a built job that needs attention"
     },
+    "drop_ghosts": {
+      "client": "drop-ghosts",
+      "required": [
+        "job_id"
+      ],
+      "optional": [
+        "dry_run"
+      ],
+      "note": "remove the ghosts THIS job laid (recorded unit_numbers, or a unit floor for older jobs), keep everyone else's; closes the job"
+    },
     "ledger": {
       "required": [],
       "optional": [],

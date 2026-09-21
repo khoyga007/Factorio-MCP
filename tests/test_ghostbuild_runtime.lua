@@ -6,6 +6,7 @@ return function(handlers,state,bp)
   local function call(action,body) return handlers[action]("ghostbuild-"..game.tick..":"..#result.checks,body) end
   local surface,stock,job,job2,job3,phase,mark,done,blocker,parked=nil,nil,nil,nil,nil,0,0,false,nil,nil
   local job4,feeder,bystander,job5,job6,job7,job8,cliff=nil,nil,nil,nil,nil,nil,nil,nil
+  local dropA,dropB=nil,nil
   local CONTRACT={site={mode="exact",rotations={0}},build={mode="ghost"}}
   script.on_event(defines.events.on_tick,function()
     if done then return end
@@ -329,6 +330,55 @@ return function(handlers,state,bp)
         check(not (cliff and cliff.valid),"cliff-is-gone")
         check(stock.get_item_count("cliff-explosives")==0,"explosives-were-paid-for")
         check(s8.state=="verified","cliff-site-finished:"..tostring(s8.state)..":"..tostring(s8.error))
+        -- drop_ghosts. Two rows of three human chest ghosts, each overlaid by a job plan of
+        -- the same three chests anchored ONE TILE EAST (the exec-24 drift): two tiles coincide
+        -- and get adopted, one is the job's own. Row A keeps the recorded unit_numbers; row
+        -- B has them wiped to stand in for a job from before they were recorded.
+        game.forces.player.recipes["iron-chest"].enabled=true
+        stock.remove{name="iron-chest",count=1000}
+        for _,y in ipairs{30.5,33.5} do
+          for _,x in ipairs{-37.5,-36.5,-35.5} do
+            surface.create_entity{name="entity-ghost",inner_name="iron-chest",position={x,y},force="player"}
+          end
+        end
+        dropA=call("blueprint_run",{blueprint=bp.chests,surface=surface.name,x=-37,y=30,contract=CONTRACT})
+        dropB=call("blueprint_run",{blueprint=bp.chests,surface=surface.name,x=-37,y=33,contract=CONTRACT})
+        check(dropA.ok and dropA.job_id and dropB.ok and dropB.job_id,
+          "drift-plans-parked:"..tostring(dropA.error)..":"..tostring(dropB.error))
+        phase,mark=13,game.tick
+      elseif phase==13 and game.tick-mark>=180 then
+        local function row(y)
+          local n=0
+          for _,g in pairs(surface.find_entities_filtered{type="entity-ghost",area={{-39,y-0.5},{-30,y+0.5}}}) do
+            if g.ghost_name=="iron-chest" then n=n+1 end
+          end
+          return n
+        end
+        check(row(30.5)==4 and row(33.5)==4,"two-sets-on-the-ground:"..row(30.5).."/"..row(33.5))
+        local sA=call("blueprint_job",{job_id=dropA.job_id})
+        check(sA.replaced==1,"job-laid-one-of-its-own:"..tostring(sA.replaced)..":"..tostring(sA.state))
+        -- Row B becomes a legacy job: no recorded units, only replaced_at.
+        state().executor_jobs[dropB.job_id].ghost_units=nil
+        local dryA=call("drop_ghosts",{job_id=dropA.job_id,dry_run=true})
+        check(dryA.ok and dryA.removed==1 and dryA.kept_foreign==2 and dryA.ownership=="recorded",
+          "dry-run-counts-recorded:"..helpers.table_to_json(dryA))
+        check(row(30.5)==4,"dry-run-removes-nothing:"..row(30.5))
+        local dA=call("drop_ghosts",{job_id=dropA.job_id})
+        local dB=call("drop_ghosts",{job_id=dropB.job_id})
+        check(dA.ok and dA.removed==1 and dA.kept_foreign==2,"recorded-drop:"..helpers.table_to_json(dA))
+        check(dB.ok and dB.removed==1 and dB.kept_foreign==2 and dB.ownership=="legacy-floor",
+          "legacy-floor-drop:"..helpers.table_to_json(dB))
+        -- What is left is exactly the human's three, at the human's tiles.
+        for _,y in ipairs{30.5,33.5} do
+          check(row(y)==3,"human-set-intact:"..y..":"..row(y))
+          for _,x in ipairs{-37.5,-36.5,-35.5} do
+            local g=surface.find_entity("entity-ghost",{x,y})
+            check(g and g.valid and g.ghost_name=="iron-chest","human-ghost-kept:"..x..","..y)
+          end
+          check(not surface.find_entity("entity-ghost",{-34.5,y}),"job-ghost-gone:"..y)
+        end
+        local again=call("blueprint_job",{job_id=dropA.job_id,resume=true})
+        check(not again.ok and again.error=="job-ghosts-dropped","dropped-job-cannot-resume:"..tostring(again.error))
         result.ok=true done=true
       end
     end)

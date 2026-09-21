@@ -1,5 +1,5 @@
 local BRIDGE_VERSION = 1
-local BRIDGE_BUILD = "2026-09-21-exact-anchor"
+local BRIDGE_BUILD = "2026-09-21-drop-ghosts"
 local MAX_PACKET_BYTES = 32768
 local MAX_RADIUS = 32
 local MAX_ENTITIES = 64
@@ -1899,6 +1899,7 @@ local function handle_water_sites(nonce, request) return field.water(nonce, requ
 local function handle_recall(nonce, request) return field.recall(nonce, request) end
 local function handle_blueprint_run(nonce, request) return executor.start(nonce, request) end
 local function handle_blueprint_job(nonce, request) return executor.status(nonce, request) end
+local function handle_drop_ghosts(nonce, request) return executor.drop_ghosts(nonce, request) end
 local function handle_ledger(nonce, request) return executor.ledger(nonce, request) end
 local function handle_ledger_note(nonce, request) return executor.note(nonce, request) end
 
@@ -1910,6 +1911,7 @@ HANDLERS = {
   blueprint_import = handle_blueprint_import,
   blueprint_run = handle_blueprint_run,
   blueprint_job = handle_blueprint_job,
+  drop_ghosts = handle_drop_ghosts,
   ledger = handle_ledger,
   ledger_note = handle_ledger_note,
   collect = handle_collect,

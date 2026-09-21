@@ -306,6 +306,17 @@ refused for what is missing at the moment it is submitted.
     of a planned row but not ON it, and this job did not put it there. That means the layout is
     anchored off by that much and the job is about to lay a second ghost set beside someone
     else's. It is reported, not silently merged.
+  - `achieve(goal="drop_ghosts", pattern_id="exec-N", dry_run?)` / action `drop_ghosts {job_id, dry_run?}`
+    removes the ghosts THIS job laid and nothing else. Ownership: `ghost_units` (unit_number of
+    every ghost drain() placed, recorded since build 2026-09-21-drop-ghosts) → `ownership:"recorded"`;
+    older jobs → `ownership:"legacy-floor"`, floor = lowest unit_number still standing at the job's
+    `replaced_at` tiles, and a ghost at a planned tile with the planned name counts as the job's
+    when unit >= floor (unit numbers rise with creation, a human's earlier ghosts stay below).
+    No recorded units and nothing standing at `replaced_at` → `ghost-ownership-unknown`, nothing
+    touched. Refuses a live job (preparing/settling/auditing) with `job-still-live`; a parked
+    `building` job is fine. Reply: `removed`, `removed_by_name`, `removed_at` (≤40), `kept_foreign`
+    (adopted human ghosts left alone), `ownership`, `floor`. After a real drop the job is
+    `needs-attention`/`ghosts-dropped` and `resume` answers `job-ghosts-dropped`. Always dry_run first.
 - A blueprint entity's `recipe` rides through decode → orient → place_list → ghost, and is set
   again after revive if the ghost lost it (receipt `recipe_lost` when even that fails).
 - Ghost report counts, measured in `tests/verify_ghostbuild_runtime.py`: `placed` = tiles that

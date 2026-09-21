@@ -209,7 +209,7 @@ def observe(view: str = "situation",
             offset: Annotated[int, Field(ge=0)] = 0) -> CallToolResult:
     """situation|deposits|nearby(issues,machines,runs,poles)|entities|water|research|ledger(roll;
 query=exec-N|status:|cluster:|item:)|patterns(+pattern_id)|references(human).
-query+offset page. water r<=2048, else 32."""
+query+offset page; water r<=2048 else 32."""
     if (x is None) != (y is None):
         return _result({"ok": False, "error": "x-and-y-required-together"}, True)
     if view not in {"situation", "deposits", "nearby", "entities", "patterns", "references",
@@ -363,7 +363,8 @@ def achieve(goal: str,
     """Goals (CONTRACT.md; area=[x1,y1,x2,y2]): reuse_blueprint(pattern_id),
 build_design(design=[{name,x,y,direction?}] centers, dir 0N4E8S12W),
 recall(area|design->bag; force_active beats job),
-capture(area->catalog+site), build_ghosts(area; builds ghosts on ground),
+capture(area->catalog+site), build_ghosts(area),
+drop_ghosts(pattern_id=exec-N),
 research(tech), annotate(contract.block; new needs area),
 set_recipe(design=[{x,y,recipe}]; empty asm), craft|collect|insert
 (design=[{name,count,x?,y?,source?}]<=8; craft queues),
@@ -372,7 +373,7 @@ import(pattern_id=bp string->reference)."""
         return _result({"ok": False, "error": "coordinate-pairs-required"}, True)
     if goal not in {"reuse_blueprint", "build_design", "recall", "capture", "research",
                     "annotate", "set_recipe", "craft", "collect", "insert", "import",
-                    "build_ghosts"}:
+                    "build_ghosts", "drop_ghosts"}:
         return _result({"ok": False, "error": "unknown-goal"}, True)
     if (tech is not None) != (goal == "research"):
         return _result({"ok": False, "error": "tech-only-for-research"}, True)
@@ -427,6 +428,12 @@ import(pattern_id=bp string->reference)."""
         return _result({"ok": True, "goal": goal, **saved,
                         **({"site": p["anchor"]} if p.get("anchor") else {}),
                         "layout": _digest(pattern_entities(p["blueprint"]))})
+    if goal == "drop_ghosts":
+        # A job id rides in pattern_id, the same way `import` carries its string: the three
+        # schemas have no room for another parameter.
+        if not (pattern_id or "").startswith("exec-"):
+            return _result({"ok": False, "error": "pattern_id-carries-the-job-id"}, True)
+        return _send({"action": "drop_ghosts", "job_id": pattern_id, "dry_run": dry_run}, 10)
     if goal == "build_ghosts":
         # Ghosts a human pasted had no goal that would build them. The workaround was
         # capture -> reuse_blueprint, which re-derived the frame and (21/09, exec-21..24)

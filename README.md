@@ -15,9 +15,16 @@ factorio_goal_mcp.py ── blueprint_library.py (catalog, encode thiết kế �
    │  UDP localhost:34198
    ▼
 Mod factorio-ai-bridge (Lua, chạy trong game)
-   ├─ control.lua   cổng action, kho vật tư, research
+   ├─ control.lua   cổng UDP + bảng HANDLERS (điều phối, không logic)
+   ├─ core.lua      state, response, parse request, kho vật tư, entity view
+   ├─ items.lua     mine / craft / collect / insert / autofuel (đồ thật)
+   ├─ survey.lua    snapshot / brief / spec / audit / index / flow / supply (chỉ đọc)
+   ├─ build.lua     recipe / research / launch / place / blueprint import-export
    ├─ executor.lua  executor blueprint dùng chung: tìm chỗ → gom/craft đồ → xây → nạp → audit
-   └─ field.lua     tìm chỗ đặt bơm nước, thu hồi công trình
+   │   ├─ site.lua      hình học layout, kiểm điện/ống/inserter, tìm site
+   │   ├─ contract.lua  parse contract + block
+   │   └─ ledger.lua    sổ cái: block, edge, đo flow, cluster
+   └─ field.lua     tìm chỗ đặt bơm nước, thu hồi công trình, route
 ```
 
 **Agent thiết kế, tool thực thi.** Agent tự tính layout (kích thước máy, vùng đào, tầm inserter, tỉ lệ) và khai báo một *contract*: cách tìm chỗ, yêu cầu mỏ, điện/nước, đồ nạp ban đầu, và chỉ số nghiệm thu. Executor kiểm tra, xây, rồi chạy **holdout audit**: đo theo từng cửa sổ thời gian, và window cuối phải đạt. Chỉ layout **tự duy trì** (window cuối không cần executor tiếp liệu) mới được lên `verified` trong catalog.

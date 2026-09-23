@@ -27,9 +27,9 @@ def load_actions() -> dict[str, Any]:
 
 
 def handlers_in_lua() -> set[str]:
-    # HANDLERS = { audit = handle_audit, ... } — one action per line.
+    # HANDLERS = { audit = survey.handle_audit, ... } — one action per line.
     text = LUA.read_text(encoding="utf-8")
-    return set(re.findall(r"^\s{2}(\w+) = handle_\w+,?$", text, flags=re.M))
+    return set(re.findall(r"^\s{2}(\w+) = (?:\w+\.)?handle_\w+,?$", text, flags=re.M))
 
 
 def client_commands() -> set[str]:

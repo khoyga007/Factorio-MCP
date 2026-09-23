@@ -31,7 +31,7 @@ Job id `exec-N`; read with `report(job_id)` (action `blueprint_job`). Receipt + 
 - Landfill is read back off the ground. Tiles still fluid after `set_tiles` are refunded; a fill that moved NOTHING raises `landfill-refused:N` (a surface that cannot take landfill never becomes buildable, so waiting on it would not end).
 - A short bag **parks** a ghost job (`ground` = {item: needed}, re-scan every `SCAN_TICKS`); a direct job fails with `ground-not-clear`.
 - Report fields: `blasted`, `filled` (counts, omitted when 0), `ground` (what the clear step is short of).
-- Water detection is `tile.prototype.fluid`, same as `control.lua fluid_tile_names` and `field.lua:84`. `decode` still refuses a blueprint that CARRIES tiles (`executor.lua:25`) — a plan over water no longer needs one.
+- Water detection is `tile.prototype.fluid`, same as `survey.lua fluid_tile_names` and `field.lua:84`. `decode` still refuses a blueprint that CARRIES tiles (`executor.lua:25`) — a plan over water no longer needs one.
 - Own-force entities are still never mined. maintainer 20/09: clearing means nature, not the base.
 - Engine PASS tests/verify_ghostbuild_runtime.py (63 checks): pond under plan + landfill recipe locked → `water` reject; unlocked → `site.fill=1`, `materials.landfill=1`, job parks with `ground={landfill:1}` and the pond stays wet; landfill delivered → tile filled, neighbour tile still water, pole built, `filled=1`. Cliff with recipe locked and empty bag → `cliff` reject; one explosive in the bag → `site.blast=1`, cliff destroyed, `blasted=1`, bag charged, job `verified`.
 
@@ -166,7 +166,7 @@ Unknown keys ignored (notes: `source`). Contract errors (refused, nothing built)
   `detail:true` (bridge + `--detail` on `blueprint-run`/`blueprint-job`), and the artifact
   receipt on disk always holds the full rows. The MCP `report` tool has no `detail` flag: the
   three-tool schema is ~4 bytes under its 4000-byte budget, so read the receipt instead.
-- Direct build caps at 64 entities (`control.lua:1571`, `direct-blueprint-too-large`,
+- Direct build caps at 64 entities (`build.lua` handle_place, `direct-blueprint-too-large`,
   `{entities, limit}`); ghost mode caps at 1000. A 194-belt run is four direct jobs — that
   cap is a reason to PREFER `build.mode="ghost"`, not a reason to hand-cut a plan.
 - An exact site needs `x,y` on `achieve` AND `site.mode="exact"`. Without x,y the executor
@@ -234,7 +234,7 @@ Re-check site + stock right before build. Then trees/rocks inside any entity foo
 - Engine PASS tests/verify_metrics_runtime.py: 2 layout poles chain to pre-placed pole+EEI, same network, lab verified; same layout far away → refused pre-build with `no-power`, nothing built.
 - Engine PASS tests/verify_power_runtime.py (14 checks): lab + near pole + pole 7 tiles out — a chest parked in the empty middle of the bbox does NOT read `occupied`, a chest on the lab's own tiles does; same design out of wire reach → `no-power`, same design where the far pole reaches a live grid → `planned`; resume (below).
 
-## Research (`control.lua` handle_research)
+## Research (`build.lua` handle_research)
 
 - `observe(view="research")` → current, progress, `queue`, `labs` {status→count on surface}, `available` (enabled, unresearched, prerequisites met).
 - `achieve(goal="research", tech)` → `force.add_research`: starts or appends to queue; 2.0 accepts a tech whose prerequisites are researched OR already queued. Refused → `cannot-queue` + `missing_prerequisites`, `current`. Unknown → `technology-not-found`.

@@ -657,7 +657,10 @@ import(pattern_id=bp string->reference)."""
             contract = {**(contract or {}),
                         "site": {"mode": "absolute", "rotations": [0],
                                  "ref": {"x": float(design[0]["x"]), "y": float(design[0]["y"])}},
-                        "build": (contract or {}).get("build") or {"mode": "direct"}}
+                        # Direct caps at 64 entities (control.lua); 23/09 a 243-row block
+                        # failed direct-blueprint-too-large, so big designs default to ghost.
+                        "build": (contract or {}).get("build")
+                                 or {"mode": "direct" if len(design) <= 64 else "ghost"}}
     elif goal == "reuse_blueprint":
         if not pattern_id:
             return _result({"ok": False, "error": "pattern-id-required"}, True)

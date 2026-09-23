@@ -270,7 +270,7 @@ function M.attach(ctx)
       local k=key(x,y)
       local v=free_cache[k]
       if v==nil then
-        v=(not feeds[k] and not touch[k] and not beltlike[k]
+        v=((not feeds[k] or (x==fx and y==fy)) and not touch[k] and not beltlike[k]
           and surface.can_place_entity{name=belt,position={x+0.5,y+0.5},direction=0,force=force,
             build_check_type=defines.build_check_type.blueprint_ghost,forced=true}
           and surface.count_entities_filtered{area={{x+0.05,y+0.05},{x+0.95,y+0.95}},type="cliff",limit=1}==0)

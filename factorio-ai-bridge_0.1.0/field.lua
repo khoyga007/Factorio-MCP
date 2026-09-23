@@ -323,7 +323,7 @@ function M.attach(ctx)
     while #heap>0 do
       local top=pop()
       local n=nodes[top[2]]
-      if top[1]-h(n.x,n.y)<=n.g then
+      if top[1]-h(n.x,n.y)<=n.g+1e-6 then  -- f-h can exceed g by rounding (1.3 turns)
         expanded=expanded+1
         if expanded>150000 then break end
         if n.x==tx and n.y==ty and (r.end_dir==nil or n.d==r.end_dir) then goal=top[2] break end

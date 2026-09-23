@@ -498,12 +498,12 @@ drop_ghosts(pattern_id=exec-N),
 research(tech|a,b backlog), annotate(contract.block;new needs area),
 set_recipe(design=[{x,y,recipe}]), craft|collect|insert
 (design=[{name,count,x?,y?,source?}]<=8; craft queues),
-import(pattern_id=bp string->reference)."""
+import(pattern_id=bp string->reference), launch(x,y silo)."""
     if (x is None) != (y is None):
         return _result({"ok": False, "error": "coordinate-pairs-required"}, True)
     if goal not in {"reuse_blueprint", "build_design", "recall", "capture", "research",
                     "annotate", "set_recipe", "craft", "collect", "insert", "import",
-                    "build_ghosts", "drop_ghosts"}:
+                    "build_ghosts", "drop_ghosts", "launch"}:
         return _result({"ok": False, "error": "unknown-goal"}, True)
     if (tech is not None) != (goal == "research"):
         return _result({"ok": False, "error": "tech-only-for-research"}, True)
@@ -523,6 +523,10 @@ import(pattern_id=bp string->reference)."""
                         **{k: saved[k] for k in ("pattern_id", "state", "entity_count",
                                                  "over_build_limit") if k in saved},
                         "layout": _digest(pattern_entities(pattern_id))})
+    if goal == "launch":
+        if x is None:
+            return _result({"ok": False, "error": "coordinate-pairs-required"}, True)
+        return _send({"action": "launch", "x": x, "y": y, "surface": surface}, 5)
     if goal == "set_recipe":
         return _set_recipe(design, surface, force)
     if goal in HAND:

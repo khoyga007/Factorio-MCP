@@ -1321,6 +1321,20 @@ local function handle_research(nonce, request)
   })
 end
 
+-- Rocket launch, 23/09: the silo holds a finished rocket and nothing else in the bridge
+-- could press the GUI button. x,y may be any point on the 9x9 silo.
+local function handle_launch(nonce, request)
+  local surface = surface_for(request)
+  local pos = position(request)
+  if not surface or not pos then return response(nonce, false, {error = "invalid-position"}) end
+  local silo = surface.find_entities_filtered {position = pos, radius = 5, type = "rocket-silo"}[1]
+  if not silo then return response(nonce, false, {error = "silo-not-found"}) end
+  local status = entity_status_name(silo.status)
+  local ok = silo.launch_rocket()
+  return response(nonce, ok, {action = "launch", status = status,
+    error = not ok and "not-ready" or nil, x = silo.position.x, y = silo.position.y})
+end
+
 local function handle_insert(nonce, request)
   local surface, force, pos = surface_for(request), force_for(request), position(request)
   if not surface then return response(nonce, false, {error = "surface-not-found"}) end
@@ -2093,6 +2107,7 @@ HANDLERS = {
   ledger = handle_ledger,
   ledger_note = handle_ledger_note,
   collect = handle_collect,
+  launch = handle_launch,
   craft = handle_craft,
   repair_demo_economy = handle_repair_demo_economy,
   index = handle_index,

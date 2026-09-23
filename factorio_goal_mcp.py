@@ -119,6 +119,16 @@ def _slices(lo: float, hi: float) -> list:
     return out
 
 
+def _trim_rows(res: CallToolResult) -> CallToolResult:
+    """23/09 a 50-tile belt recall printed 50 receipts; `delta` already sums them."""
+    p = _read(res)
+    for key in ("receipts", "entities"):
+        rows = p.get(key)
+        if isinstance(rows, list) and len(rows) > 8:
+            p[key], p[key + "_total"] = rows[:3], len(rows)
+    return _result(p, not p.get("ok", False))
+
+
 def _recall_area(body: dict, area: list) -> CallToolResult:
     """Recall a box of any size by slicing it into pieces the bridge accepts.
 
@@ -609,12 +619,12 @@ import(pattern_id=bp string->reference)."""
                 return _result({"ok": False, "error": "area-is-x1-y1-x2-y2"}, True)
             if not (area[0] < area[2] and area[1] < area[3]):
                 return _result({"ok": False, "error": "area-is-x1-y1-x2-y2"}, True)
-            return _recall_area(body, area)
+            return _trim_rows(_recall_area(body, area))
         elif design:
             body["entities"] = design
         else:
             return _result({"ok": False, "error": "area-or-design-required"}, True)
-        return _send(body, 15)
+        return _trim_rows(_send(body, 15))
     if area is not None or force_active:
         return _result({"ok": False, "error": "area-only-for-recall-capture-build-ghosts"},
                        True)

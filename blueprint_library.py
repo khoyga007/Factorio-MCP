@@ -113,6 +113,16 @@ def encode_blueprint(design: list[dict], label: str | None = None) -> str:
             if not isinstance(row[key], str):
                 raise ValueError(f"invalid-design-entity:{i}")
             entity[key] = row[key]
+        # Splitter settings: filter item name; priorities "left"/"right" of its facing.
+        for key in ("output_priority", "input_priority"):
+            if key in row:
+                if row[key] not in ("left", "right"):
+                    raise ValueError(f"invalid-design-entity:{i}")
+                entity[key] = row[key]
+        if "filter" in row:
+            if not isinstance(row["filter"], str) or not row["filter"]:
+                raise ValueError(f"invalid-design-entity:{i}")
+            entity["filter"] = {"name": row["filter"]}
         entities.append(entity)
     blueprint = {"item": "blueprint", "version": VERSION, "entities": entities,
                  "icons": [{"signal": {"name": n}, "index": k} for k, n in

@@ -18,20 +18,141 @@ from __future__ import annotations
 N, E = 0, 4
 
 
+def _rotate(port: dict, direction: int) -> dict:
+    px, py = port["x"], port["y"]
+    for _ in range(direction // 4):
+        px, py = -py, px
+    return {**port, "x": px, "y": py, "direction": (port["direction"] + direction) % 16}
+
+
+def _fluid_cell(recipe, ingredients, products, machine, width, height, count, x, y,
+                belt, inserter, long_inserter, pole, fluid_ports):
+    fluids_in = [part["name"] for part in ingredients if part.get("type") == "fluid"]
+    fluids_out = [part["name"] for part in products if part.get("type") == "fluid"]
+    solids = [part["name"] for part in ingredients if part.get("type") != "fluid"]
+    solid_products = [part["name"] for part in products if part.get("type") != "fluid"]
+    if len(solids) > 2:
+        raise ValueError(f"cell-fluid-too-many-solids:{len(solids)}")
+
+    chosen = None
+    for direction in (N, 8, E, 12):
+        if direction in (E, 12) and width != height:
+            continue
+        rotated = [_rotate(port, direction) for port in fluid_ports]
+        inputs = [p for p in rotated if p["production_type"] in ("input", "input-output")
+                  and p["direction"] == N and p["y"] == -(height + 1) / 2]
+        outputs = [p for p in rotated if p["production_type"] in ("output", "input-output")
+                   and p["direction"] == 8 and p["y"] == (height + 1) / 2]
+        if len(inputs) >= len(fluids_in) and len(outputs) >= len(fluids_out):
+            chosen = direction, inputs[:len(fluids_in)], outputs[:len(fluids_out)]
+            break
+    if chosen is None:
+        raise ValueError(f"cell-fluid-ports:{machine}")
+    direction, inputs, outputs = chosen
+    for fluid, port in zip(fluids_in + fluids_out, inputs + outputs):
+        if port.get("filter") and port["filter"] != fluid:
+            raise ValueError(f"cell-fluid-filter:{fluid}")
+
+    two_belts = len(solids) > 1
+    belt_start = y + 2 * len(fluids_in)
+    y_b = belt_start if two_belts else None
+    y_a = belt_start + int(two_belts) if solids else None
+    y_in = (y_a + 1) if solids else belt_start
+    y_m = y_in + 1
+    y_out = y_m + height
+    y_belt_out = y_out + 1 if solid_products else None
+    out_bus_start = y_out + (3 if solid_products else 2)
+    length = count * width
+    rows = []
+
+    def add(name, cx, cy, facing=N, **extra):
+        rows.append({"name": name, "x": cx, "y": cy, "direction": facing, **extra})
+
+    for i in range(count):
+        left = x + i * width
+        center_x = left + width / 2
+        add(machine, center_x, y_m + height / 2, direction, recipe=recipe)
+        occupied_in = set()
+        occupied_out = set()
+        for j, port in enumerate(inputs):
+            px = center_x + port["x"]
+            occupied_in.add(px)
+            add("pipe-to-ground", px, y_in + 0.5, 8)
+            add("pipe-to-ground", px, y + 2 * j + 1.5, N)
+        for j, port in enumerate(outputs):
+            px = center_x + port["x"]
+            occupied_out.add(px)
+            add("pipe-to-ground", px, y_out + 0.5, N)
+            add("pipe-to-ground", px, out_bus_start + 2 * j - 0.5, 8)
+        slots = [left + k + 0.5 for k in range(width)]
+        free_in = [sx for sx in slots if sx not in occupied_in]
+        if two_belts:
+            if len(free_in) < 2:
+                raise ValueError(f"cell-fluid-inserter-space:{machine}")
+            add(long_inserter, free_in[0], y_in + 0.5)
+            add(inserter, free_in[-1], y_in + 0.5)
+            free_in = free_in[1:-1]
+        elif solids:
+            if not free_in:
+                raise ValueError(f"cell-fluid-inserter-space:{machine}")
+            sx = min(free_in, key=lambda value: abs(value - center_x))
+            add(inserter, sx, y_in + 0.5)
+            free_in.remove(sx)
+        free_out = [sx for sx in slots if sx not in occupied_out]
+        if solid_products:
+            if not free_out:
+                raise ValueError(f"cell-fluid-output-space:{machine}")
+            sx = min(free_out, key=lambda value: abs(value - center_x))
+            add(inserter, sx, y_out + 0.5)
+            free_out.remove(sx)
+        pole_slots = free_out or free_in
+        if pole_slots:
+            add(pole, pole_slots[-1], (y_out if free_out else y_in) + 0.5)
+
+    for belt_y in [b for b in (y_b, y_a, y_belt_out) if b is not None]:
+        for k in range(length):
+            add(belt, x + k + 0.5, belt_y + 0.5, E)
+    for bus_y in [y + 2 * j for j in range(len(inputs))] + [
+            out_bus_start + 2 * j for j in range(len(outputs))]:
+        for k in range(length):
+            add("pipe", x + k + 0.5, bus_y + 0.5)
+
+    ports = {"box": [x, y, x + length,
+                     max(y_belt_out + 1 if y_belt_out is not None else y_out + 1,
+                         out_bus_start + 2 * (len(outputs) - 1) + 1 if outputs else 0)],
+             "fluid_in": [{"kind": "pipe", "x": x + 0.5, "y": y + 2 * j + 0.5,
+                           "fluid": fluid} for j, fluid in enumerate(fluids_in)],
+             "fluid_out": [{"kind": "pipe", "x": x + length - 0.5,
+                            "y": out_bus_start + 2 * j + 0.5, "fluid": fluid}
+                           for j, fluid in enumerate(fluids_out)]}
+    if solids:
+        ports["in_a"] = {"x": x + 0.5, "y": y_a + 0.5, "dir": E, "items": solids[:1]}
+        if two_belts:
+            ports["in_b"] = {"x": x + 0.5, "y": y_b + 0.5, "dir": E, "items": solids[1:]}
+    if solid_products:
+        ports["out"] = {"x": x + length - 0.5, "y": y_belt_out + 0.5,
+                        "dir": E, "items": solid_products}
+    return rows, ports
+
+
 def cell(recipe: str, ingredients: list[dict], products: list[dict], machine: str,
          width: int, height: int, count: int, x: int, y: int,
          belt: str = "transport-belt", inserter: str = "fast-inserter",
          long_inserter: str = "long-handed-inserter",
-         pole: str = "small-electric-pole", fuel: str | None = None) -> tuple[list[dict], dict]:
+         pole: str = "small-electric-pole", fuel: str | None = None,
+         fluid_ports: list[dict] | None = None) -> tuple[list[dict], dict]:
     """Return (design rows in world centers, ports). x,y = top-left tile of the cell.
     fuel: burner machine; rides belt A's second lane, the same inserter fuels it."""
     if count < 1:
         raise ValueError("cell-count-must-be-positive")
-    for part in list(ingredients) + list(products):
-        if part.get("type") == "fluid":
-            # ponytail: solid-only cells; fluid needs the prototype's pipe connection
-            # positions from spec, add when a fluid recipe gets its own cell.
-            raise ValueError(f"cell-fluid-unsupported:{part['name']}")
+    if any(part.get("type") == "fluid" for part in list(ingredients) + list(products)):
+        if fuel:
+            raise ValueError("cell-fluid-fuel-unsupported")
+        if width < 3:
+            raise ValueError(f"cell-machine-too-narrow:{machine}")
+        return _fluid_cell(recipe, ingredients, products, machine, width, height,
+                           count, x, y, belt, inserter, long_inserter, pole,
+                           fluid_ports or [])
     solids = [i["name"] for i in ingredients]
     if len(solids) > 4:
         raise ValueError(f"cell-too-many-ingredients:{len(solids)}")

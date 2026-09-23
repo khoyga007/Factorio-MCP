@@ -454,13 +454,29 @@ local function handle_spec(nonce, request)
       end
     end
     local fluidboxes = {}
+    local fluid_ports = {}
+    local port_dir = {[0] = {0, -1}, [4] = {1, 0}, [8] = {0, 1}, [12] = {-1, 0}}
     for _, box in pairs(proto.fluidbox_prototypes or {}) do
       fluidboxes[#fluidboxes + 1] = {
         index = box.index, production_type = box.production_type,
         filter = box.filter and box.filter.name or nil,
         pipe_connections = box.pipe_connections,
       }
+      for _, connection in pairs(box.pipe_connections or {}) do
+        local direction = connection.direction or 0
+        local position = connection.positions and connection.positions[1]
+        local outward = port_dir[direction]
+        if connection.connection_type == "normal" and position and outward then
+          fluid_ports[#fluid_ports + 1] = {
+            index = box.index, production_type = box.production_type,
+            filter = box.filter and box.filter.name or nil,
+            x = position.x + outward[1], y = position.y + outward[2],
+            direction = direction,
+          }
+        end
+      end
     end
+    table.sort(fluid_ports, function(a, b) return a.index < b.index end)
     return response(nonce, true, {
       action = "spec", kind = kind, name = name, entity_type = proto.type,
       mining_speed = proto.mining_speed,
@@ -480,6 +496,7 @@ local function handle_spec(nonce, request)
       mining_time = mine and mine.mining_time or nil,
       mining_products = products,
       fluidbox_prototypes = #fluidboxes > 0 and fluidboxes or nil,
+      fluid_ports = #fluid_ports > 0 and fluid_ports or nil,
     })
   elseif kind == "item" then
     local proto = prototypes.item[name]

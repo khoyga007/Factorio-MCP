@@ -195,7 +195,7 @@ def _cell_rows(row: dict) -> tuple[list[dict], dict]:
         extra.setdefault("fuel", "coal")
     rows, ports = cell(row["cell"], recipe.get("ingredients") or [], recipe.get("products") or [],
                        machine, size["tile_width"], size["tile_height"], int(row.get("count", 1)),
-                       int(row["x"]), int(row["y"]), **extra)
+                       int(row["x"]), int(row["y"]), fluid_ports=size.get("fluid_ports"), **extra)
     if size.get("entity_type") == "furnace":
         # A furnace picks its recipe from the input; a ghost refuses `recipe` on it.
         for r in rows:

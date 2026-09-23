@@ -114,6 +114,16 @@ Engine PASS 2026-09-19 (tests/verify_design_runtime.py, tests/designs/coal-drill
 
 `report(exec-N)` → `self_sustaining` = last window `feed_moved`==0. Catalog upgrade on verified: self-sustaining → `verified`, fed → `built` only.
 
+## Rate plan + production cells (23/09, step 3)
+- `observe(view="plan", query="item@rate/min[;recipe=item:name,...]")` (`planner.py`): recipe tree from live read-only `spec` → per-recipe machine + exact/ceil count, raw per min (drills/pumps), kW, belt lanes per edge, surplus. No LP: multi-product recipes via `recipe=` override, byproducts = surplus.
+  - maintainer's cheat lives in PROTOTYPES (live: rocket-silo crafting_speed 1e6, asm2 750k) → every count ceils to 1. Real limit = inserters/belts; size cells by `flow`, widen (count) when an output belt saturates.
+- `build_design` row `{cell:recipe, x, y, count?, machine?, belt?, inserter?, long_inserter?, pole?}` (`cells.py`): `count` machines in a row, x,y = top-left TILE. Top→bottom: [belt B] belt A, input row (long|fast|pole per machine), machines, output row (-|fast|pole), output belt. All belts run east; inserters dir 0.
+  - Ingredients 1-2 on belt A lanes (left = north lane), 3-4 on belt B via long inserters. Fluid ingredient/product → `cell-fluid-unsupported:<name>` (needs pipe connection positions in spec).
+  - Machine default = cheapest UNLOCKED machine for the category (first live try picked locked asm3).
+  - Reply carries `ports`: `in_a`/`in_b` west-end belt tile + lane items, `out` east-end tile + items, `box`. Ports are in the DESIGN frame: world only when build_design has no x,y (absolute mode) — use that, then `observe(route)` belts from/to the ports.
+  - Poles connect inside the cell only; `unpowered` in the reply = no link to the grid yet, route a pole line.
+  - Live dry-run 23/09: gear x2 at (-236,96) absolute → `planned`, 0 unconnected inserters.
+
 ## Field actions (live play, `field.lua`)
 
 - `observe(view="water", x?, y?, radius≤2048, offset)` → action `water_sites`. Scans every generated chunk in radius holding fluid tiles (not the capped survey index), nearest first. Shore spots tried ×4 directions, center snapped to pump footprint. `candidates` (≤12/page, `next_offset`): `can_place_entity` manual true → `{x,y,direction,output,distance}`; `output` = tile the pump's pipe must occupy (from prototype pipe_connections; engine-checked: pipe there connects). `blocked` (≤12): placeable only with `forced` ghost check → `obstacles` [{name,x,y}] trees/rocks/cliffs to clear by hand. `clusters` (≤12): chunk, tiles, per-tile-type counts. Budget 40000 checks → `truncated`.

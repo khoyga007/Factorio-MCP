@@ -12,6 +12,7 @@ from mcp.types import CallToolResult, TextContent, ToolAnnotations
 from pydantic import Field, FiniteFloat
 
 from bridge_client import invoke
+from cells import cell
 from planner import live_spec, plan
 from perception import grid, ground, lanes, natural, summarize
 from factorio_ai import DEFAULT_HOST, DEFAULT_PORT, request, self_sustaining
@@ -29,6 +30,8 @@ mcp = FastMCP(
         "machines, checks real stock and geometry, builds a feasible pattern and "
         "audits in game. Use observe(patterns) and achieve(reuse_blueprint) for saved "
         "native blueprints; achieve(build_design) builds a layout the agent designed itself. Use report(job_id) for the outcome and observe for blockers. "
+        "observe(plan) sizes a chain; build_design {cell:recipe} rows lay out a machine row "
+        "between belts and return its belt ports. Goal details: CONTRACT.md. "
         "Detailed actions remain in the CLI for diagnosis. Never spawn free items."
     ),
     log_level="WARNING",
@@ -55,6 +58,35 @@ def _send(body: dict, timeout: float) -> CallToolResult:
     p.pop("nonce", None)
     p.pop("v", None)
     return _result(p, not p.get("ok", False))
+
+
+def _cell_rows(row: dict) -> tuple[list[dict], dict]:
+    """Expand {cell:recipe,x,y,count?,machine?,belt?,inserter?} via read-only spec calls."""
+    ask = lambda body: request({"action": "spec", **body},
+                               host=os.environ.get("FACTORIO_HOST", DEFAULT_HOST),
+                               port=int(os.environ.get("FACTORIO_PORT", DEFAULT_PORT)))
+    recipe = ask({"kind": "recipe", "name": row["cell"]})
+    if not recipe.get("ok"):
+        raise ValueError(f"cell-recipe:{recipe.get('error')}")
+    machine = row.get("machine")
+    if not machine:
+        # Same rule as planner._cost: fewest ingredients among UNLOCKED machines
+        # (first live try picked a locked assembling-machine-3).
+        costs = {}
+        for m in recipe.get("machines") or []:
+            r = ask({"kind": "recipe", "name": m})
+            costs[m] = (sum(i["amount"] for i in r.get("ingredients") or []) or float("inf")
+                        if r.get("ok") and r.get("enabled") else float("inf"))
+        if not costs:
+            raise ValueError(f"cell-no-machine:{row['cell']}")
+        machine = min(sorted(costs), key=costs.get)
+    size = ask({"kind": "entity", "name": machine})
+    if not size.get("ok"):
+        raise ValueError(f"cell-machine:{size.get('error')}")
+    extra = {k: row[k] for k in ("belt", "inserter", "long_inserter", "pole") if k in row}
+    return cell(row["cell"], recipe.get("ingredients") or [], recipe.get("products") or [],
+                machine, size["tile_width"], size["tile_height"], int(row.get("count", 1)),
+                int(row["x"]), int(row["y"]), **extra)
 
 
 HAND = {"craft": 15.0, "collect": 10.0, "insert": 10.0}
@@ -509,8 +541,8 @@ def achieve(goal: str,
             contract: dict | None = None, design: list[dict] | None = None,
             area: list[float] | None = None, force_active: bool = False,
             tech: str | None = None) -> CallToolResult:
-    """Goals (CONTRACT.md; area=x1,y1,x2,y2): reuse_blueprint(pattern_id)
-build_design(design=[{name,x,y,direction?,recipe?,filter?,output_priority?}|{file:json}|{route:id}]; world centers, dir 0N4E8S12W)
+    """area=x1,y1,x2,y2. reuse_blueprint(pattern_id)
+build_design(design=[{name,x,y,direction?,recipe?,filter?,output_priority?}|{file:json}|{route:id}|{cell:recipe,x,y,count?}]; centers, dir 0N4E8S12W)
 recall(area|design) capture(area) build_ghosts(area) drop_ghosts(pattern_id=exec-N)
 research(tech|a,b) annotate(contract.block) set_recipe(design=[{x,y,recipe}])
 craft|collect|insert(design=[{name,count,x?,y?,source?}]<=8) import(pattern_id=bp) launch(x,y)"""
@@ -653,9 +685,16 @@ craft|collect|insert(design=[{name,count,x?,y?,source?}]<=8) import(pattern_id=b
     if goal == "build_design":
         if pattern_id is not None:
             return _result({"ok": False, "error": "design-takes-no-pattern-id"}, True)
-        expanded = []
+        expanded, ports = [], []
         for row in design:
-            if "route" in row:
+            if "cell" in row:
+                try:
+                    rows, port = _cell_rows(row)
+                except (OSError, ValueError, KeyError, TimeoutError) as exc:
+                    return _result({"ok": False, "error": str(exc)}, True)
+                expanded += rows
+                ports.append({"cell": row["cell"], **port})
+            elif "route" in row:
                 if row["route"] not in ROUTES:
                     return _result({"ok": False, "error": f"unknown-route:{row['route']}"}, True)
                 expanded += ROUTES[row["route"]]
@@ -717,6 +756,7 @@ craft|collect|insert(design=[{name,count,x?,y?,source?}]<=8) import(pattern_id=b
         except (OSError, ValueError, TimeoutError) as exc:
             return _result({"ok": False, "error": str(exc), "pattern_id": pattern_id}, True)
         return _result({"ok": p.get("ok", False), "goal": goal, "pattern_id": pattern_id,
+                        **({"ports": ports} if goal == "build_design" and ports else {}),
                         **_fields(p, "job_id", "state", "site", "site_validated", "materials",
                                   "missing", "locked", "skipped_locked", "bots", "uncovered", "unpowered", "lane_joins", "steps", "rejects", "checks", "unconnected",
                                   "plan", "error")},

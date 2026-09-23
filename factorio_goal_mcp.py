@@ -131,10 +131,17 @@ def _cell_rows(row: dict) -> tuple[list[dict], dict]:
     size = ask({"kind": "entity", "name": machine})
     if not size.get("ok"):
         raise ValueError(f"cell-machine:{size.get('error')}")
-    extra = {k: row[k] for k in ("belt", "inserter", "long_inserter", "pole") if k in row}
-    return cell(row["cell"], recipe.get("ingredients") or [], recipe.get("products") or [],
-                machine, size["tile_width"], size["tile_height"], int(row.get("count", 1)),
-                int(row["x"]), int(row["y"]), **extra)
+    extra = {k: row[k] for k in ("belt", "inserter", "long_inserter", "pole", "fuel") if k in row}
+    if size.get("burner_effectivity"):
+        extra.setdefault("fuel", "coal")
+    rows, ports = cell(row["cell"], recipe.get("ingredients") or [], recipe.get("products") or [],
+                       machine, size["tile_width"], size["tile_height"], int(row.get("count", 1)),
+                       int(row["x"]), int(row["y"]), **extra)
+    if size.get("entity_type") == "furnace":
+        # A furnace picks its recipe from the input; a ghost refuses `recipe` on it.
+        for r in rows:
+            r.pop("recipe", None)
+    return rows, ports
 
 
 HAND = {"craft": 15.0, "collect": 10.0, "insert": 10.0}

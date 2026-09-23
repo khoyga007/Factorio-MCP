@@ -60,7 +60,9 @@ def chain(p: dict, cell_of, route, x: int, y: int, gap: int = 4) -> tuple[list[d
                 # A shared belt arrives pre-merged: `items` in lane order (left = north).
                 external.append({"items": port["items"], "x": to[0], "y": to[1], "dir": E,
                                  "cell": row["recipe"],
-                                 "per_min": [row["in"][i] * share for i in port["items"]]})
+                                 # Fuel is not a recipe input: None = rate unknown.
+                                 "per_min": [row["in"][i] * share if i in row["in"] else None
+                                             for i in port["items"]]})
         return node
 
     root = place(p["item"], p["per_min"])

@@ -1,6 +1,6 @@
 # CLI chẩn đoán — `factorio_ai.py`
 
-> Tách từ README cũ (19/09/2026). Agent chơi qua MCP `factorio-engineer` ([README](../README.md)); CLI chỉ để chẩn đoán. Đường dẫn tương đối trong file này tính từ gốc repo.
+> Tách từ README cũ (19/09/2026). Agent chơi qua MCP `factorio-engineer` ở `factorio_goal_mcp.py` ([README](../README.md)); CLI `factorio_ai.py` chỉ để chẩn đoán. Đường dẫn tương đối trong file này tính từ gốc repo.
 
 Prototype tối thiểu để nghiên cứu cách AI đọc một vùng bản đồ và xây trực tiếp trong Factorio 2.0.77.
 

@@ -2,7 +2,7 @@
 
 `factorio_goal_mcp.py` dùng FastMCP trong official Python SDK (`mcp` 1.x).
 Codex chỉ thấy 3 tool: `observe`, `achieve`, `report`. 25 action chi tiết vẫn có
-trong CLI và `factorio_mcp.py` để chẩn đoán, nhưng không chiếm catalog tool của
+trong CLI `factorio_ai.py` để chẩn đoán, nhưng không chiếm catalog tool của
 agent cấp chiến lược. Các kiểm tra vật tư, công nghệ và va chạm nằm trong Lua
 ngay trước khi thao tác.
 

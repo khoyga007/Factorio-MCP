@@ -1,4 +1,5 @@
 import unittest
+from pathlib import Path
 
 from contract_check import (
     check,
@@ -10,6 +11,11 @@ from contract_check import (
 
 
 class ContractTest(unittest.TestCase):
+    def test_one_mcp_entry_point(self):
+        root = Path(__file__).resolve().parent.parent
+        self.assertEqual(["factorio_goal_mcp.py"],
+                         sorted(path.name for path in root.glob("factorio*_mcp.py")))
+
     def test_three_sources_agree(self):
         self.assertEqual([], check())
 

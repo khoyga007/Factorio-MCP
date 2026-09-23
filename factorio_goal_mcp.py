@@ -11,7 +11,7 @@ from mcp.server.fastmcp import FastMCP
 from mcp.types import CallToolResult, TextContent, ToolAnnotations
 from pydantic import Field, FiniteFloat
 
-from factorio_mcp import invoke
+from bridge_client import invoke
 from perception import grid, ground, lanes, natural, summarize
 from factorio_ai import DEFAULT_HOST, DEFAULT_PORT, request, self_sustaining
 from blueprint_library import (encode_blueprint, import_reference, list_patterns,

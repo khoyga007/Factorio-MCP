@@ -235,7 +235,7 @@ def observe(view: str = "situation",
     """situation|deposits|nearby|grid|lanes|entities(query=name)|
 flow(/min;query=a,b@10m)|water|research|ledger(query=exec-N|status:|cluster:|item:)
 |supply(query=item: makers/users/belt runs/chests base-wide)
-|route(x,y=first tile; query=tx,ty[,end_dir][,belt]: A* belt path -> route-N for build_design [{route:id}])
+|route(x,y=first tile; query=tx,ty[,end_dir][,sDIR start][,belt]: A* belt path -> route-N for build_design [{route:id}])
 |patterns(+pattern_id)|references. offset pages; r<=32(water 2048)"""
     if (x is None) != (y is None):
         return _result({"ok": False, "error": "x-and-y-required-together"}, True)
@@ -297,6 +297,9 @@ flow(/min;query=a,b@10m)|water|research|ledger(query=exec-N|status:|cluster:|ite
         for extra in parts[2:]:
             if extra.lstrip("-").isdigit():
                 body["end_dir"] = int(extra)
+            elif extra[:1] == "s" and extra[1:].isdigit():
+                # First tile's facing: fixes which lane a side-on source inserter fills.
+                body["start_dir"] = int(extra[1:])
             elif extra:
                 body["belt"] = extra
         p = _read(_send(body, 60))

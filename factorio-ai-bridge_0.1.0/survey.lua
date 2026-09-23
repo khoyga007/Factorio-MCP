@@ -421,6 +421,27 @@ local function handle_spec(nonce, request)
   if kind == "entity" then
     local proto = prototypes.entity[name]
     if not proto then return response(nonce, false, {error = "entity-not-found"}) end
+    local categories = {}
+    for category in pairs(proto.crafting_categories or {}) do
+      categories[#categories + 1] = category
+    end
+    table.sort(categories)
+    local resource_categories = {}
+    for category in pairs(proto.resource_categories or {}) do
+      resource_categories[#resource_categories + 1] = category
+    end
+    table.sort(resource_categories)
+    local miners = {}
+    if proto.type == "resource" then
+      for machine_name, machine in pairs(prototypes.entity) do
+        if machine.type == "mining-drill" and machine.resource_categories
+          and machine.resource_categories[proto.resource_category]
+          and machine.items_to_place_this and #machine.items_to_place_this > 0 then
+          miners[#miners + 1] = machine_name
+        end
+      end
+      table.sort(miners)
+    end
     local mine = proto.mineable_properties
     local products = {}
     if mine then
@@ -443,8 +464,14 @@ local function handle_spec(nonce, request)
     return response(nonce, true, {
       action = "spec", kind = kind, name = name, entity_type = proto.type,
       mining_speed = proto.mining_speed,
-      crafting_speed = (proto.type == "furnace" or proto.type == "assembling-machine")
+      resource_category = proto.resource_category,
+      resource_categories = resource_categories,
+      miners = miners,
+      crafting_categories = categories,
+      crafting_speed = (proto.type == "furnace" or proto.type == "assembling-machine" or proto.type == "rocket-silo")
         and proto.get_crafting_speed() or nil,
+      pumping_speed = (proto.type == "offshore-pump" or proto.type == "pump")
+        and proto.get_pumping_speed() or nil,
       belt_speed = proto.belt_speed,
       energy_usage_joules_per_tick = proto.energy_usage,
       energy_usage_watts = proto.energy_usage and proto.energy_usage * 60 or nil,
@@ -482,8 +509,29 @@ local function handle_spec(nonce, request)
     end
     local recipe = force.recipes[name]
     if not recipe then
-      return response(nonce, false, {error = "recipe-not-found", name = name})
+      local candidates = {}
+      for recipe_name, candidate in pairs(force.recipes) do
+        for _, product in pairs(candidate.products) do
+          if product.name == name then
+            candidates[#candidates + 1] = recipe_name
+            break
+          end
+        end
+      end
+      table.sort(candidates)
+      return response(nonce, false, {error = "recipe-not-found", name = name,
+        candidates = candidates})
     end
+    local machines = {}
+    for machine_name, machine in pairs(prototypes.get_entity_filtered{
+      {filter = "crafting-category", crafting_category = recipe.category}
+    }) do
+      if (machine.type == "assembling-machine" or machine.type == "furnace" or machine.type == "rocket-silo")
+        and machine.items_to_place_this and #machine.items_to_place_this > 0 then
+        machines[#machines + 1] = machine_name
+      end
+    end
+    table.sort(machines)
 
     local inventory = treasury_inventory()
     local ingredients = {}
@@ -524,6 +572,7 @@ local function handle_spec(nonce, request)
       via_entity = via_entity,
       enabled = recipe.enabled,
       category = recipe.category,
+      machines = machines,
       energy = recipe.energy,
       ingredients = ingredients,
       products = products,

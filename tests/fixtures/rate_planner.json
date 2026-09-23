@@ -1,0 +1,25 @@
+{
+  "schema_version": 1,
+  "entities": {
+    "assembler-1": {"entity_type": "assembling-machine", "crafting_speed": 0.5, "crafting_categories": ["crafting", "crafting-with-fluid"], "energy_usage_watts": 75000},
+    "assembler-2": {"entity_type": "assembling-machine", "crafting_speed": 0.75, "crafting_categories": ["crafting", "crafting-with-fluid"], "energy_usage_watts": 150000},
+    "stone-furnace": {"entity_type": "furnace", "crafting_speed": 1, "crafting_categories": ["smelting"], "energy_usage_watts": 90000},
+    "electric-drill": {"entity_type": "mining-drill", "mining_speed": 0.5, "resource_categories": ["basic-solid"], "energy_usage_watts": 90000},
+    "iron-ore": {"entity_type": "resource", "resource_category": "basic-solid", "mining_time": 1, "mining_products": [{"name": "iron-ore", "amount": 1}], "miners": ["electric-drill"]},
+    "copper-ore": {"entity_type": "resource", "resource_category": "basic-solid", "mining_time": 1, "mining_products": [{"name": "copper-ore", "amount": 1}], "miners": ["electric-drill"]},
+    "offshore-pump": {"entity_type": "offshore-pump", "pumping_speed": 20},
+    "transport-belt": {"entity_type": "transport-belt", "belt_speed": 0.03125},
+    "fast-transport-belt": {"entity_type": "transport-belt", "belt_speed": 0.0625},
+    "express-transport-belt": {"entity_type": "transport-belt", "belt_speed": 0.09375}
+  },
+  "recipes": {
+    "assembler-1": {"enabled": true, "ingredients": [{"name": "iron-plate", "amount": 9}], "products": [{"name": "assembler-1", "amount": 1}]},
+    "assembler-2": {"enabled": true, "ingredients": [{"name": "iron-plate", "amount": 20}], "products": [{"name": "assembler-2", "amount": 1}]},
+    "iron-plate": {"category": "smelting", "energy": 3.2, "ingredients": [{"name": "iron-ore", "amount": 1}], "products": [{"name": "iron-plate", "amount": 1}], "machines": ["stone-furnace"]},
+    "copper-plate": {"category": "smelting", "energy": 3.2, "ingredients": [{"name": "copper-ore", "amount": 1}], "products": [{"name": "copper-plate", "amount": 1}], "machines": ["stone-furnace"]},
+    "iron-gear-wheel": {"category": "crafting", "energy": 0.5, "ingredients": [{"name": "iron-plate", "amount": 2}], "products": [{"name": "iron-gear-wheel", "amount": 1}], "machines": ["assembler-1", "assembler-2"]},
+    "copper-cable": {"category": "crafting", "energy": 0.5, "ingredients": [{"name": "copper-plate", "amount": 1}], "products": [{"name": "copper-cable", "amount": 2}], "machines": ["assembler-1", "assembler-2"]},
+    "electronic-circuit": {"category": "crafting", "energy": 0.5, "ingredients": [{"name": "iron-gear-wheel", "amount": 1}, {"name": "iron-plate", "amount": 1}, {"name": "copper-cable", "amount": 3}], "products": [{"name": "electronic-circuit", "amount": 1}], "machines": ["assembler-1", "assembler-2"]},
+    "coolant-cell": {"category": "crafting-with-fluid", "energy": 2, "ingredients": [{"name": "electronic-circuit", "amount": 1}, {"name": "water", "type": "fluid", "amount": 10}], "products": [{"name": "coolant-cell", "amount": 2}, {"name": "steam", "type": "fluid", "amount": 1}], "machines": ["assembler-1", "assembler-2"]}
+  }
+}

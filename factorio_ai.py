@@ -154,6 +154,22 @@ def parser() -> argparse.ArgumentParser:
     flow.add_argument("--window", default="10m", choices=["1m", "10m", "1h"])
     flow.add_argument("--surface", default="nauvis")
     flow.add_argument("--force", default="player")
+    supply = commands.add_parser("supply", help="makers, users, chests and belt runs of one item")
+    supply.add_argument("item")
+    supply.add_argument("--surface", default="nauvis")
+    route = commands.add_parser("route", help="A* belt or pipe path between two tiles")
+    route.add_argument("x", type=float)
+    route.add_argument("y", type=float)
+    route.add_argument("tx", type=float)
+    route.add_argument("ty", type=float)
+    route.add_argument("--end-dir", type=int)
+    route.add_argument("--start-dir", type=int)
+    route.add_argument("--belt", help="belt name or 'pipe'")
+    route.add_argument("--surface", default="nauvis")
+    launch = commands.add_parser("launch", help="launch the rocket in the silo at x y")
+    launch.add_argument("x", type=float)
+    launch.add_argument("y", type=float)
+    launch.add_argument("--surface", default="nauvis")
     research = commands.add_parser("research", help="inspect or start technology research")
     research.add_argument("name", nargs="?")
     research.add_argument("--start", action="store_true")
@@ -327,6 +343,18 @@ def command_body(args: argparse.Namespace) -> dict[str, Any]:
     if args.command == "flow":
         return {"action": "flow", "items": args.items or None, "window": args.window,
                 "surface": args.surface, "force": args.force}
+    if args.command == "supply":
+        return {"action": "supply", "item": args.item, "surface": args.surface}
+    if args.command == "route":
+        body = {"action": "route", "surface": args.surface,
+                "from": {"x": args.x, "y": args.y}, "to": {"x": args.tx, "y": args.ty}}
+        for key, value in (("end_dir", args.end_dir), ("start_dir", args.start_dir),
+                           ("belt", args.belt)):
+            if value is not None:
+                body[key] = value
+        return body
+    if args.command == "launch":
+        return {"action": "launch", "x": args.x, "y": args.y, "surface": args.surface}
     if args.command == "research":
         if args.start and not args.name:
             raise ValueError("research --start needs a technology name")

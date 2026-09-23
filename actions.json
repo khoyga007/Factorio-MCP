@@ -296,6 +296,35 @@
         "surface",
         "force"
       ]
+    },
+    "supply": {
+      "required": [
+        "item"
+      ],
+      "optional": [
+        "surface"
+      ]
+    },
+    "route": {
+      "required": [
+        "from",
+        "to"
+      ],
+      "optional": [
+        "end_dir",
+        "start_dir",
+        "belt",
+        "surface"
+      ]
+    },
+    "launch": {
+      "required": [
+        "x",
+        "y"
+      ],
+      "optional": [
+        "surface"
+      ]
     }
   }
 }

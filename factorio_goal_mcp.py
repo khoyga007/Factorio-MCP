@@ -243,11 +243,10 @@ def observe(view: str = "situation",
             resource: str | None = None, pattern_id: str | None = None,
             query: str | None = None,
             offset: Annotated[int, Field(ge=0)] = 0) -> CallToolResult:
-    """situation|deposits|nearby|grid|lanes|entities(query=name)|
-flow(/min;query=a,b@10m)|water|research|ledger(query=exec-N|status:|cluster:|item:)
-|supply(query=item: makers/users/belt runs/chests base-wide)
-|route(x,y=first tile; query=tx,ty[,end_dir][,sDIR start][,belt|pipe]: A* belt/pipe path -> route-N for build_design [{route:id}])
-|patterns(+pattern_id)|references. offset pages; r<=32(water 2048)"""
+    """situation|deposits|nearby|grid|lanes|water|research|patterns(+pattern_id)|references
+|entities(query=name)|flow(query=a,b@10m)|ledger(query=exec-N|status:|cluster:|item:)
+|supply(query=item)|route(x,y=from; query=tx,ty[,end_dir][,sDIR][,belt|pipe] -> route-N)
+offset pages; r<=32 (water 2048)"""
     if (x is None) != (y is None):
         return _result({"ok": False, "error": "x-and-y-required-together"}, True)
     if view not in {"situation", "deposits", "nearby", "entities", "patterns", "references",
@@ -489,16 +488,11 @@ def achieve(goal: str,
             contract: dict | None = None, design: list[dict] | None = None,
             area: list[float] | None = None, force_active: bool = False,
             tech: str | None = None) -> CallToolResult:
-    """Goals (CONTRACT.md; area=[x1,y1,x2,y2]): reuse_blueprint(pattern_id),
-build_design(design=[{name,x,y,direction?}] world centers, dir 0N4E8S12W; filter=item (splitter|inserter), output_priority=left|right;
-  row {file:path.json} = rows from disk, {route:id} = route view),
-recall(area|design; force_active beats job),
-capture(area->catalog+site), build_ghosts(area),
-drop_ghosts(pattern_id=exec-N),
-research(tech|a,b backlog), annotate(contract.block;new needs area),
-set_recipe(design=[{x,y,recipe}]), craft|collect|insert
-(design=[{name,count,x?,y?,source?}]<=8; craft queues),
-import(pattern_id=bp string->reference), launch(x,y silo)."""
+    """Goals (CONTRACT.md; area=x1,y1,x2,y2): reuse_blueprint(pattern_id)
+build_design(design=[{name,x,y,direction?,recipe?,filter?,output_priority?}|{file:json}|{route:id}]; world centers, dir 0N4E8S12W)
+recall(area|design) capture(area) build_ghosts(area) drop_ghosts(pattern_id=exec-N)
+research(tech|a,b) annotate(contract.block) set_recipe(design=[{x,y,recipe}])
+craft|collect|insert(design=[{name,count,x?,y?,source?}]<=8) import(pattern_id=bp) launch(x,y)"""
     if (x is None) != (y is None):
         return _result({"ok": False, "error": "coordinate-pairs-required"}, True)
     if goal not in {"reuse_blueprint", "build_design", "recall", "capture", "research",
@@ -709,8 +703,7 @@ import(pattern_id=bp string->reference), launch(x,y silo)."""
 
 @mcp.tool(annotations=READ)
 def report(job_id: str, resume: bool = False) -> CallToolResult:
-    """One goal's audit, progress, blockers, block, artifact.
-resume=True restarts a built job after its blocker clears; never re-imports."""
+    """Job audit/progress/blockers/artifact. resume=True restarts a built job after blocker clears."""
     if not job_id.startswith("exec-"):
         return _result({"ok": False, "error": "unknown-job-id"}, True)
     p = _read(invoke("blueprint-job", job_id=job_id, resume=resume or None))

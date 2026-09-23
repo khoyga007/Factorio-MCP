@@ -175,6 +175,26 @@ def set_recipe(recipe: str, x: FiniteFloat, y: FiniteFloat,
 
 
 @mcp.tool(annotations=READ)
+def supply(item: str, surface: str = "nauvis") -> CallToolResult:
+    """Makers, users, chests and belt runs of one item, base-wide."""
+    return invoke("supply", **locals())
+
+
+@mcp.tool(annotations=READ)
+def route(x: FiniteFloat, y: FiniteFloat, tx: FiniteFloat, ty: FiniteFloat,
+          end_dir: int | None = None, start_dir: int | None = None,
+          belt: str | None = None, surface: str = "nauvis") -> CallToolResult:
+    """A* belt or pipe (belt='pipe') path from tile x,y to tx,ty; returns design rows."""
+    return invoke("route", **locals())
+
+
+@mcp.tool(annotations=WRITE)
+def launch(x: FiniteFloat, y: FiniteFloat, surface: str = "nauvis") -> CallToolResult:
+    """Launch the finished rocket in the silo at x,y."""
+    return invoke("launch", **locals())
+
+
+@mcp.tool(annotations=READ)
 def flow(items: list[str] | None = None, window: str = "10m", surface: str = "nauvis",
          force: str = "player") -> CallToolResult:
     """Items/fluids made and used per minute over window 1m|10m|1h."""

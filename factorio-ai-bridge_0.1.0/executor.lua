@@ -1293,8 +1293,15 @@ function M.attach(ctx)
         -- two sets look like one crowded site.
         for _,near in pairs(surface.find_entities_filtered{type="entity-ghost",force=force,
           area={{e.x-1.5,e.y-1.5},{e.x+1.5,e.y+1.5}}}) do
+          -- A neighbour this same layout wants (a belt run) is not drift: 23/09 every
+          -- row belt raised the alarm against the next tile of its own run.
+          if not j.wanted then
+            j.wanted={}
+            for _,w in ipairs(j.layout) do j.wanted[w.name.."@"..w.x..","..w.y]=true end
+          end
           if near.valid and near.ghost_name==e.name
-              and (math.abs(near.position.x-e.x)>0.01 or math.abs(near.position.y-e.y)>0.01) then
+              and (math.abs(near.position.x-e.x)>0.01 or math.abs(near.position.y-e.y)>0.01)
+              and not j.wanted[e.name.."@"..near.position.x..","..near.position.y] then
             j.drift=j.drift or {}
             if #j.drift<8 then
               j.drift[#j.drift+1]={name=e.name,x=e.x,y=e.y,

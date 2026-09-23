@@ -1,8 +1,8 @@
-"""One source of truth for the 15 bridge actions.
+"""Check the three declarations of bridge actions.
 
 ``actions.json`` declares each action's name, client command, and arguments.
-This module checks that declaration against the two other places that used to
-hand-declare the same list: the ``HANDLERS`` table in ``control.lua`` and the
+This module checks that declaration against the two other places that
+declare the same list: the ``HANDLERS`` table in ``control.lua`` and the
 argparse subcommands + ``command_body`` action mapping in ``factorio_ai.py``.
 
 ``check()`` returns a list of mismatch descriptions; an empty list means the

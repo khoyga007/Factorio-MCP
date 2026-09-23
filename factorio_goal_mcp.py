@@ -195,6 +195,30 @@ def _digest(rows: list) -> dict:
     return {"count": len(rows), "entities": names, "bbox": box}
 
 
+ROUTES: dict[str, list[dict]] = {}  # ponytail: in-memory, lost on MCP restart; re-run observe(route)
+_ARROW = {0: "^", 4: ">", 8: "v", 12: "<"}
+
+
+def _route_runs(design: list[dict]) -> list[str]:
+    """Compact path: straight belt runs 'x1,y1..x2,y2 >' and 'ug x,y>x,y'."""
+    out, run = [], None
+    for e in design:
+        if e.get("type") == "input":
+            ug_in = e
+            continue
+        if e.get("type") == "output":
+            run = None
+            out.append(f"ug {ug_in['x']},{ug_in['y']}>{e['x']},{e['y']} {_ARROW[e['direction']]}")
+            continue
+        if run and run[2] == e["direction"]:
+            run[1] = e
+            out[-1] = f"{run[0]['x']},{run[0]['y']}..{e['x']},{e['y']} {_ARROW[e['direction']]}"
+        else:
+            run = [e, e, e["direction"]]
+            out.append(f"{e['x']},{e['y']} {_ARROW[e['direction']]}")
+    return out
+
+
 def _fields(source: dict, *names: str) -> dict:
     return {name: source[name] for name in names if name in source}
 
@@ -210,11 +234,12 @@ def observe(view: str = "situation",
     """situation|deposits|nearby|grid|lanes|entities(query=name)|
 flow(/min;query=a,b@10m)|water|research|ledger(query=exec-N|status:|cluster:|item:)
 |supply(query=item: makers/users/belt runs/chests base-wide)
+|route(x,y=first tile; query=tx,ty[,end_dir][,belt]: A* belt path -> route-N for build_design [{route:id}])
 |patterns(+pattern_id)|references. offset pages; r<=32(water 2048)"""
     if (x is None) != (y is None):
         return _result({"ok": False, "error": "x-and-y-required-together"}, True)
     if view not in {"situation", "deposits", "nearby", "entities", "patterns", "references",
-                    "water", "research", "ledger", "grid", "flow", "lanes", "supply"}:
+                    "water", "research", "ledger", "grid", "flow", "lanes", "supply", "route"}:
         return _result({"ok": False, "error": "unknown-view"}, True)
     if view == "ledger":
         # Default is the roll-up: the whole base in a fixed number of bytes. A filter or a
@@ -256,6 +281,31 @@ flow(/min;query=a,b@10m)|water|research|ledger(query=exec-N|status:|cluster:|ite
                         **_fields(p, "stored", "belt_tiles"),
                         # ponytail: first 40 runs; iron-plate can have hundreds, add paging if needed
                         "runs": (r := lanes(rows))[:40], "run_total": len(r)})
+    if view == "route":
+        # Belt path finder: 23/09 three long feeds each cost several grid scans and hand
+        # routing. Lua plans; the design is parked here and built by reference so a
+        # 130-tile belt never travels through the conversation twice.
+        parts = [q.strip() for q in (query or "").split(",")]
+        if x is None or len(parts) < 2:
+            return _result({"ok": False, "error": "route-needs-x-y-and-query-tx,ty[,end_dir][,belt]"}, True)
+        try:
+            body = {"action": "route", "surface": surface, "from": {"x": x, "y": y},
+                    "to": {"x": float(parts[0]), "y": float(parts[1])}}
+        except ValueError:
+            return _result({"ok": False, "error": "route-query-tx,ty-numbers"}, True)
+        for extra in parts[2:]:
+            if extra.lstrip("-").isdigit():
+                body["end_dir"] = int(extra)
+            elif extra:
+                body["belt"] = extra
+        p = _read(_send(body, 60))
+        if not p.get("ok", False):
+            return _result(p, True)
+        rid = f"route-{len(ROUTES) + 1}"
+        ROUTES[rid] = p["design"]
+        return _result({"ok": True, "view": view, "route_id": rid,
+                        **_fields(p, "belts", "underground_pairs", "cost"),
+                        "path": _route_runs(p["design"])})
     if view == "water":
         body = {"action": "water_sites", "surface": surface, "radius": max(radius, 8), "offset": offset}
         if x is not None:
@@ -568,6 +618,15 @@ import(pattern_id=bp string->reference)."""
     if goal == "build_design":
         if pattern_id is not None:
             return _result({"ok": False, "error": "design-takes-no-pattern-id"}, True)
+        expanded = []
+        for row in design:
+            if "route" in row:
+                if row["route"] not in ROUTES:
+                    return _result({"ok": False, "error": f"unknown-route:{row['route']}"}, True)
+                expanded += ROUTES[row["route"]]
+            else:
+                expanded.append(row)
+        design = expanded
         try:
             blueprint = encode_blueprint(design)
             pattern_id = pattern_id_for(blueprint)

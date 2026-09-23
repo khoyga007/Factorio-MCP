@@ -218,6 +218,147 @@ function M.attach(ctx)
       delta=delta,spilled=next(spilled) and spilled or nil})
   end
 
+  -- Belt path planner (read-only). A* over (tile, facing) with belt steps, 90-degree turns
+  -- and underground jumps. A tile is usable when a forced ghost fits (trees/rocks are fine:
+  -- the executor mines them) and the new belt would not interact with the base: no existing
+  -- belt/splitter/underground outputs into it, no inserter picks from or drops onto it, and
+  -- it does not point into an existing belt (the goal tile may: joining is the agent's call).
+  -- ponytail: the path is not checked against itself (a path hugging its own earlier tiles
+  -- could side-load); A* rarely folds back. Undergrounds may pass under anything; a
+  -- same-axis underground pair of the same type in between is not checked (rare).
+  function M.route(nonce,r)
+    local surface=game.surfaces[r.surface or "nauvis"]
+    local force=game.forces[r.force or "player"]
+    if not surface or not force then return reply(nonce,false,{error="surface-or-force-not-found"}) end
+    if type(r.from)~="table" or type(r.to)~="table" then return reply(nonce,false,{error="from-and-to-required"}) end
+    local belt=r.belt or "transport-belt"
+    local ug=r.underground or (belt:gsub("transport%-belt","underground-belt"))
+    if not prototypes.entity[belt] or not prototypes.entity[ug] then return reply(nonce,false,{error="unknown-belt"}) end
+    local maxd=prototypes.entity[ug].max_underground_distance or 5
+    local fx,fy=math.floor(r.from.x),math.floor(r.from.y)
+    local tx,ty=math.floor(r.to.x),math.floor(r.to.y)
+    local m=r.margin or 12
+    local x1,y1=math.min(fx,tx)-m,math.min(fy,ty)-m
+    local x2,y2=math.max(fx,tx)+m,math.max(fy,ty)+m
+    if (x2-x1+1)*(y2-y1+1)>90000 then return reply(nonce,false,{error="route-area-too-large"}) end
+    local function key(x,y) return (x+100000)*262144+(y+100000) end
+    -- Hazards from the base, one scan.
+    local feeds,touch,beltlike={},{},{}
+    local area={{x1-2,y1-2},{x2+3,y2+3}}
+    for _,e in pairs(surface.find_entities_filtered{area=area,force=force,
+        type={"transport-belt","underground-belt","splitter","loader","loader-1x1","linked-belt"}}) do
+      local u=UNIT[e.direction]
+      local tiles
+      if e.type=="splitter" then
+        local px,py=-u[2]*0.5,u[1]*0.5
+        tiles={{e.position.x+px,e.position.y+py},{e.position.x-px,e.position.y-py}}
+      else tiles={{e.position.x,e.position.y}} end
+      for _,t in ipairs(tiles) do
+        local bx,by=math.floor(t[1]),math.floor(t[2])
+        beltlike[key(bx,by)]=true
+        if not (e.type=="underground-belt" and e.belt_to_ground_type=="input") then
+          feeds[key(bx+u[1],by+u[2])]=true
+        end
+      end
+    end
+    for _,e in pairs(surface.find_entities_filtered{area=area,force=force,type="inserter"}) do
+      for _,p in ipairs{e.pickup_position,e.drop_position} do touch[key(math.floor(p.x),math.floor(p.y))]=true end
+    end
+    local free_cache={}
+    local function free(x,y)
+      if x<x1 or x>x2 or y<y1 or y>y2 then return false end
+      local k=key(x,y)
+      local v=free_cache[k]
+      if v==nil then
+        v=(not feeds[k] and not touch[k] and not beltlike[k]
+          and surface.can_place_entity{name=belt,position={x+0.5,y+0.5},direction=0,force=force,
+            build_check_type=defines.build_check_type.blueprint_ghost,forced=true}
+          and surface.count_entities_filtered{area={{x+0.05,y+0.05},{x+0.95,y+0.95}},type="cliff",limit=1}==0)
+          or false
+        free_cache[k]=v
+      end
+      return v
+    end
+    local function ok_at(x,y,d)  -- tile usable holding something that outputs toward d
+      if not free(x,y) then return false end
+      if x==tx and y==ty then return true end
+      local u=UNIT[d]
+      return not beltlike[key(x+u[1],y+u[2])]
+    end
+    if not free(fx,fy) then return reply(nonce,false,{error="from-blocked"}) end
+    if not free(tx,ty) then return reply(nonce,false,{error="to-blocked"}) end
+    -- A*: node = {x,y,d}; ids index the node table.
+    local nodes,index,heap={}, {}, {}
+    local function push(f,i)
+      heap[#heap+1]={f,i}
+      local c=#heap
+      while c>1 do local p=math.floor(c/2)
+        if heap[p][1]<=heap[c][1] then break end
+        heap[p],heap[c]=heap[c],heap[p] c=p end
+    end
+    local function pop()
+      local top=heap[1] local last=table.remove(heap)
+      if #heap>0 then heap[1]=last local c=1
+        while true do local l,rr,s=2*c,2*c+1,c
+          if l<=#heap and heap[l][1]<heap[s][1] then s=l end
+          if rr<=#heap and heap[rr][1]<heap[s][1] then s=rr end
+          if s==c then break end
+          heap[s],heap[c]=heap[c],heap[s] c=s end
+      end
+      return top
+    end
+    local function h(x,y) return math.abs(x-tx)+math.abs(y-ty) end
+    local function relax(x,y,d,cost,from,ug_in)
+      local k=key(x,y)*16+d
+      local i=index[k]
+      if i and nodes[i].g<=cost then return end
+      if not i then i=#nodes+1 index[k]=i end
+      nodes[i]={x=x,y=y,d=d,g=cost,prev=from,ug_in=ug_in}
+      push(cost+h(x,y),i)
+    end
+    for _,d in ipairs(r.start_dir and {r.start_dir} or {0,4,8,12}) do
+      if ok_at(fx,fy,d) then relax(fx,fy,d,1,nil,nil) end
+    end
+    local goal,expanded=nil,0
+    while #heap>0 do
+      local top=pop()
+      local n=nodes[top[2]]
+      if top[1]-h(n.x,n.y)<=n.g then
+        expanded=expanded+1
+        if expanded>150000 then break end
+        if n.x==tx and n.y==ty and (r.end_dir==nil or n.d==r.end_dir) then goal=top[2] break end
+        local u=UNIT[n.d]
+        local nx,ny=n.x+u[1],n.y+u[2]
+        for _,nd in ipairs{n.d,(n.d+4)%16,(n.d+12)%16} do
+          if ok_at(nx,ny,nd) then relax(nx,ny,nd,n.g+(nd==n.d and 1 or 1.3),top[2],nil) end
+        end
+        -- underground: entrance on the next tile, exit j tiles beyond it
+        if free(nx,ny) then
+          for j=2,maxd do
+            local ex,ey=nx+u[1]*j,ny+u[2]*j
+            if ok_at(ex,ey,n.d) then relax(ex,ey,n.d,n.g+3+0.1*j,top[2],{nx,ny}) end
+          end
+        end
+      end
+    end
+    if not goal then return reply(nonce,false,{error="no-route",expanded=expanded}) end
+    local out,belts,ugs,i={},0,0,goal
+    while i do
+      local n=nodes[i]
+      if n.ug_in then
+        table.insert(out,1,{name=ug,x=n.x+0.5,y=n.y+0.5,direction=n.d,type="output"})
+        table.insert(out,1,{name=ug,x=n.ug_in[1]+0.5,y=n.ug_in[2]+0.5,direction=n.d,type="input"})
+        ugs=ugs+1
+      else
+        table.insert(out,1,{name=belt,x=n.x+0.5,y=n.y+0.5,direction=n.d})
+        belts=belts+1
+      end
+      i=n.prev
+    end
+    return reply(nonce,true,{action="route",design=out,belts=belts,underground_pairs=ugs,
+      cost=nodes[goal].g,expanded=expanded})
+  end
+
   return M
 end
 

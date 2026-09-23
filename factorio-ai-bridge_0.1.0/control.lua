@@ -2073,6 +2073,7 @@ end
 
 local function handle_water_sites(nonce, request) return field.water(nonce, request) end
 local function handle_recall(nonce, request) return field.recall(nonce, request) end
+local function handle_route(nonce, request) return field.route(nonce, request) end
 local function handle_blueprint_run(nonce, request) return executor.start(nonce, request) end
 local function handle_blueprint_job(nonce, request) return executor.status(nonce, request) end
 local function handle_drop_ghosts(nonce, request) return executor.drop_ghosts(nonce, request) end
@@ -2107,6 +2108,7 @@ HANDLERS = {
   supply = handle_supply,
   place = handle_place,
   recall = handle_recall,
+  route = handle_route,
   water_sites = handle_water_sites,
 }
 

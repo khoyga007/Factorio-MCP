@@ -1538,6 +1538,9 @@ function M.attach(ctx)
           local surface,force=game.get_surface(j.surface),game.forces[j.force]
           local stock,owner,kind=ctx.inventory()
           if kind~="player" or owner.index~=j.player or owner.surface~=surface then error("treasury-changed") end
+          -- Main inventory is nil while the player has no character body (23/09, mid-build
+          -- after a restart): wait a tick instead of killing the job with a nil index.
+          if not stock then return end
           if j.state=="preparing" then
             if game.tick>j.deadline then error("job-timeout") end
             if owner.crafting_queue_size>0 then return end

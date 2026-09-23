@@ -1,10 +1,12 @@
 # Lessons — road to first rocket (17/09 → 23/09/2026)
 
+**First rocket = end of the learning phase, not end of the game.** Next test for the toolset: a base that launches rockets continuously with no agent intervention; then space platforms / planets.
+
 Meta-lessons for any agent driving this bridge. Mechanics live in FIELD_NOTES.md / LEARNING_PROGRESSION.md; tool contract in CONTRACT.md. Each line = a mistake paid for or a pattern that worked.
 
 ## Planning
 1. **Walk the end goal's recipe tree from game data before building mid-tier.** `python factorio_ai.py spec recipe|entity X`. 23/09: planned purple science "for the silo tech" — tech was already researched, Space Age recipes differ from wiki memory. A day of purple block for nothing needed.
-2. **Finite goal ≠ rate goal.** Rocket needs fixed counts (250 PU, 1000 concrete…). Chest-fed cells + remote `collect`/`insert` of real items finished in ~1h what belt layouts took days on. Build for throughput only when the demand is continuous.
+2. **Chest-fed + remote hauling is a SHORTCUT, not play.** Rocket 1–2 were hand-kitted: chest-fed cells, agent `collect`/`insert` real items batch by batch. Reached the finish line in ~1h, but the base CANNOT launch rocket 3 on its own — silo stops when the agent stops. Factorio's point is automation: a factory that runs without hands. Use the shortcut only for a one-off bootstrap (a silo, a first batch of a new item); the real deliverable is a self-running line (maintainer agreed 23/09: "không đúng tinh thần game").
 3. **Plan by numbers, measure by `flow`.** Belt density / snapshots show stock, not rate; one bottleneck call guessed from density was wrong. `observe(flow, query=a,b@10m)` before any "X is the bottleneck" claim.
 4. **Extend, don't clone.** More capacity = widen existing strip.
 

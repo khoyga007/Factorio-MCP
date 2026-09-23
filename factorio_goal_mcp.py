@@ -11,7 +11,7 @@ from mcp.types import CallToolResult, TextContent, ToolAnnotations
 from pydantic import Field, FiniteFloat
 
 from factorio_mcp import invoke
-from perception import grid, ground, natural, summarize
+from perception import grid, ground, lanes, natural, summarize
 from factorio_ai import DEFAULT_HOST, DEFAULT_PORT, request, self_sustaining
 from blueprint_library import (encode_blueprint, import_reference, list_patterns,
                                load_pattern, pattern_entities, pattern_id_for,
@@ -207,13 +207,13 @@ def observe(view: str = "situation",
             resource: str | None = None, pattern_id: str | None = None,
             query: str | None = None,
             offset: Annotated[int, Field(ge=0)] = 0) -> CallToolResult:
-    """situation|deposits|nearby|grid(map)|entities(query=name)|
+    """situation|deposits|nearby|grid|lanes|entities(query=name)|
 flow(/min;query=a,b@10m)|water|research|ledger(query=exec-N|status:|cluster:|item:)
 |patterns(+pattern_id)|references. offset pages; r<=32(water 2048)"""
     if (x is None) != (y is None):
         return _result({"ok": False, "error": "x-and-y-required-together"}, True)
     if view not in {"situation", "deposits", "nearby", "entities", "patterns", "references",
-                    "water", "research", "ledger", "grid", "flow"}:
+                    "water", "research", "ledger", "grid", "flow", "lanes"}:
         return _result({"ok": False, "error": "unknown-view"}, True)
     if view == "ledger":
         # Default is the roll-up: the whole base in a fixed number of bytes. A filter or a
@@ -280,6 +280,12 @@ flow(/min;query=a,b@10m)|water|research|ledger(query=exec-N|status:|cluster:|ite
         return _nearby(surface, x, y, radius)
     if view == "grid":
         return _grid(surface, x, y, radius)
+    if view == "lanes":
+        err, head, rows, _, _, more = _pull(surface, x, y, radius)
+        if err:
+            return _result({"ok": False, "view": view, **_fields(err, "error")}, True)
+        return _result({"ok": True, "view": view, "runs": lanes(rows),
+                        **({"truncated_at": len(rows)} if more is not None else {})})
     # entities: full rows, but a belt tile is geometry grid/nearby already show, and on
     # 23/09 half of every 12-row page was identical copper-belt tiles. query = name filter.
     err, head, rows, ghosts, _, more = _pull(surface, x, y, radius)
@@ -400,11 +406,11 @@ def achieve(goal: str,
             tech: str | None = None) -> CallToolResult:
     """Goals (CONTRACT.md; area=[x1,y1,x2,y2]): reuse_blueprint(pattern_id),
 build_design(design=[{name,x,y,direction?}] world centers, dir 0N4E8S12W),
-recall(area|design->bag; force_active beats job),
+recall(area|design; force_active beats job),
 capture(area->catalog+site), build_ghosts(area),
 drop_ghosts(pattern_id=exec-N),
-research(tech), annotate(contract.block;new needs area),
-set_recipe(design=[{x,y,recipe}]; empty asm), craft|collect|insert
+research(tech|a,b backlog), annotate(contract.block;new needs area),
+set_recipe(design=[{x,y,recipe}]), craft|collect|insert
 (design=[{name,count,x?,y?,source?}]<=8; craft queues),
 import(pattern_id=bp string->reference)."""
     if (x is None) != (y is None):
@@ -436,6 +442,9 @@ import(pattern_id=bp string->reference)."""
     if goal in HAND:
         return _hand(goal, design, surface, force, x, y)
     if goal == "research":
+        if "," in tech:
+            return _send({"action": "research", "backlog": [t.strip() for t in tech.split(",") if t.strip()],
+                          "force": force, "surface": surface}, 5)
         return _send({"action": "research", "name": tech, "start": True, "force": force,
                       "surface": surface}, 5)
     if goal == "annotate":

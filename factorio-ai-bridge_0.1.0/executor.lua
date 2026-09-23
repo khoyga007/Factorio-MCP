@@ -357,6 +357,39 @@ local function pipe_gaps(surface,force,placed)
   return out
 end
 
+-- Side joins of planned belts. 23/09 exec-208 fed a belt head from the side: with nothing
+-- behind the target that is a CURVE (both lanes pass), not a sideload, and iron filled the
+-- lane the steel output needed. Warning only: lane = compass side the items land on.
+local COMPASS={[0]="N",[4]="E",[8]="S",[12]="W"}
+local function lane_joins(surface,force,placed)
+  local function belt(x,y)
+    for _,e in ipairs(placed) do
+      if covers(e,x,y) then return prototypes.entity[e.name].type,e.dir or 0 end
+    end
+    local f=surface.find_entities_filtered{area={{x-0.4,y-0.4},{x+0.4,y+0.4}},
+      type={"transport-belt","underground-belt","splitter"},force=force,limit=1}[1]
+    if f then return f.type,f.direction end
+  end
+  local out
+  for _,p in ipairs(placed) do
+    local v=DIRV[p.dir or 0]
+    if v and prototypes.entity[p.name].type=="transport-belt" then
+      local tx,ty=p.x+v[1],p.y+v[2]
+      local tt,td=belt(tx,ty)
+      if tt=="transport-belt" and td~=p.dir and td~=(p.dir+8)%16 then
+        local b=DIRV[td]
+        local bt,bd=belt(tx-b[1],ty-b[2])
+        local side=(p.dir+8)%16
+        local kind=(bt and bd==td) and "sideload" or "curve"
+        out=out or {}
+        if #out<12 then out[#out+1]={from={p.x,p.y},to={tx,ty},kind=kind,
+          lane=kind=="curve" and "both" or COMPASS[side]} end
+      end
+    end
+  end
+  return out
+end
+
 local function placed_at(layout)
   local out={}
   for i,e in ipairs(layout) do out[i]={e.name,e.x,e.y,e.dir} end
@@ -668,7 +701,7 @@ function M.attach(ctx)
       -- placed = tiles that hold the right entity now; built = the ones THIS job revived
       -- and paid for; existing = the ones that were already standing.
       built=j.built,existing=j.existing,replaced=j.replaced,replaced_at=j.replaced_at,
-      skipped=j.skipped,skipped_locked=j.skipped_locked,bots=j.bots,uncovered=j.uncovered,unpowered=j.unpowered,restocked=j.restocked,drift=j.drift,
+      skipped=j.skipped,skipped_locked=j.skipped_locked,bots=j.bots,uncovered=j.uncovered,unpowered=j.unpowered,lane_joins=j.lane_joins,restocked=j.restocked,drift=j.drift,
       blasted=(j.blasted or 0)>0 and j.blasted or nil,filled=(j.filled or 0)>0 and j.filled or nil,
       ground=j.ground,
       plan=layout_digest(j.layout),
@@ -1125,6 +1158,7 @@ function M.attach(ctx)
         end
       end
     end
+    local joins=lane_joins(surface,force,placed)
     local gaps=inserter_gaps(surface,force,placed,site.rotation)
     if #gaps>0 then
       return ctx.response(nonce,true,{state="blocked",error="inserter-unconnected",unconnected=gaps,skipped_locked=skipped_locked,
@@ -1147,7 +1181,7 @@ function M.attach(ctx)
         site=site_out,site_validated=true,materials=cost,missing=missing,
         plan=layout_digest(placed),placed_at=r.detail and placed_at(placed) or nil,
         locked=#locked>0 and locked or nil,skipped_locked=skipped_locked,steps=#steps,rejects=rejects,
-        bots=c.bots or nil,uncovered=uncovered,unpowered=unpowered})
+        bots=c.bots or nil,uncovered=uncovered,unpowered=unpowered,lane_joins=joins})
     end
     local state=ctx.state() state.executor_seq=(state.executor_seq or 0)+1
     local id="exec-"..state.executor_seq
@@ -1157,7 +1191,7 @@ function M.attach(ctx)
       layout=place_list(site.shape,site.x,site.y),contract=c,metrics=c.metrics,
       feeds=c.feeds,max_windows=c.max_windows,materials=cost,steps=steps,step=1,
       receipts={},feed={},state="preparing",block=block,skipped_locked=skipped_locked,
-      bots=c.bots or nil,uncovered=uncovered,unpowered=unpowered,artifact="executor/"..id,deadline=game.tick+18000}
+      bots=c.bots or nil,uncovered=uncovered,unpowered=unpowered,lane_joins=joins,artifact="executor/"..id,deadline=game.tick+18000}
     jobs()[id]=j save(j)
     return ctx.response(nonce,true,summary(j,r.detail))
   end

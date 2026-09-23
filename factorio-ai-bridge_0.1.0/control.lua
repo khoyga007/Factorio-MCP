@@ -1196,9 +1196,36 @@ local function handle_set_recipe(nonce, request)
     x = pos.x, y = pos.y, recipe = recipe.name, unchanged = false})
 end
 
+-- Backlog refill, 23/09: the cheat drained a 7-deep queue in minutes and labs sat idle.
+-- Agent sets an ordered wishlist; each finished research tops the queue up from it.
+local function refill_research(force)
+  local state = bridge_state()
+  local left = {}
+  for _, name in ipairs(state.research_backlog or {}) do
+    local t = force.technologies[name]
+    if t and not t.researched then
+      local queued = false
+      for _, q in pairs(force.research_queue or {}) do if q.name == name then queued = true end end
+      if not queued and not force.add_research(name) then left[#left + 1] = name end
+    end
+  end
+  state.research_backlog = left
+  return left
+end
+
 local function handle_research(nonce, request)
   local force = force_for(request)
   if not force then return response(nonce, false, {error = "force-not-found"}) end
+  if request.backlog ~= nil then
+    if type(request.backlog) ~= "table" then return response(nonce, false, {error = "invalid-backlog"}) end
+    for _, n in ipairs(request.backlog) do
+      if type(n) ~= "string" or not force.technologies[n] then
+        return response(nonce, false, {error = "technology-not-found", name = n})
+      end
+    end
+    bridge_state().research_backlog = request.backlog
+    refill_research(force)
+  end
   local name = request.name
   if name ~= nil and (type(name) ~= "string" or name == "") then
     return response(nonce, false, {error = "invalid-technology-name"})
@@ -1261,6 +1288,7 @@ local function handle_research(nonce, request)
   return response(nonce, true, {
     action = "research", tick = game.tick, force = force.name,
     queue = queue, labs = labs, available = request.available and available or nil,
+    backlog = bridge_state().research_backlog,
     current = current and current.name or nil,
     progress = current and force.research_progress or nil,
     requested = name,
@@ -2049,6 +2077,9 @@ end)
 
 -- A newly generated chunk invalidates the cached whole-map bounds; the next
 -- index request rebuilds from scratch.
+script.on_event(defines.events.on_research_finished, function(event)
+  refill_research(event.research.force)
+end)
 script.on_event(defines.events.on_chunk_generated, function()
   bridge_state().index = nil
 end)

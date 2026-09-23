@@ -346,3 +346,60 @@ def grid(rows: list[dict], cx: float, cy: float, radius: float, obstacles=()) ->
             "key": "^>v< belt, u/U underground in/out, n/e/s/w inserter drop side "
                    "(caps=long), + pole, = pipe, ~ pipe-to-ground, $ splitter, # wall, "
                    "* tree/rock, . free"}
+
+
+# Left lane side per travel direction (lines[1] = left, lines[2] = right).
+_LEFT_SIDE = {0: "W", 4: "N", 8: "E", 12: "S"}
+_RIGHT_SIDE = {0: "E", 4: "S", 8: "W", 12: "N"}
+
+
+def lanes(rows: list[dict]) -> list[str]:
+    """Belt runs with lane contents by compass side, e.g.
+    "-169.5..-151.5,57.5 > N:steel-plate 25% S:iron-plate 100%".
+    A run = contiguous same-direction tiles on one row/column with the same item set per lane."""
+    belts = []
+    for e in rows:
+        if not isinstance(e, dict) or e.get("type") != "transport-belt":
+            continue
+        d = e.get("direction", 0)
+        ls = e.get("lines") or [{}, {}]
+        sig, cnt = [], []
+        for lane in ls[:2]:
+            items = lane if isinstance(lane, list) else []
+            sig.append(tuple(sorted(i["name"] for i in items)))
+            cnt.append(sum(i.get("count", 0) for i in items))
+        belts.append((d, e["x"], e["y"], tuple(sig), cnt))
+    # travel axis: horizontal belts run along x, vertical along y
+    belts.sort(key=lambda b: (b[0], b[2], b[1]) if b[0] in (4, 12) else (b[0], b[1], b[2]))
+    runs = []
+    for d, x, y, sig, cnt in belts:
+        r = runs[-1] if runs else None
+        horiz = d in (4, 12)
+        if (r and r["d"] == d and r["sig"] == sig
+                and (r["y"] == y and abs(x - r["x2"]) == 1 if horiz else r["x"] == x and abs(y - r["y2"]) == 1)):
+            r["x2"], r["y2"], r["n"] = x, y, r["n"] + 1
+            r["cnt"] = [a + b for a, b in zip(r["cnt"], cnt)]
+        else:
+            runs.append({"d": d, "x": x, "y": y, "x2": x, "y2": y, "n": 1, "sig": sig, "cnt": list(cnt)})
+    out = []
+    for r in runs:
+        span = (f"{num(r['x'])}..{num(r['x2'])},{num(r['y'])}" if r["d"] in (4, 12)
+                else f"{num(r['x'])},{num(r['y'])}..{num(r['y2'])}")
+        parts = []
+        for side, names, c in ((_LEFT_SIDE[r["d"]], r["sig"][0], r["cnt"][0]),
+                               (_RIGHT_SIDE[r["d"]], r["sig"][1], r["cnt"][1])):
+            if names:  # ponytail: 4 items/lane-tile = full, fine for yellow..blue
+                parts.append(f"{side}:{'+'.join(names)} {round(100 * c / (4 * r['n']))}%")
+        out.append(f"{span} {ARROW.get(r['d'], '?')} " + (" ".join(parts) or "empty"))
+    return out
+
+
+if __name__ == "__main__":
+    b = lambda x, y, l, r: {"type": "transport-belt", "x": x, "y": y, "direction": 4,
+                            "lines": [l, r]}
+    iron = [{"name": "iron-plate", "count": 4}]
+    got = lanes([b(1.5, 0.5, [], iron), b(2.5, 0.5, [], iron),
+                 b(3.5, 0.5, [{"name": "steel-plate", "count": 1}], iron)])
+    assert got == ["1.5..2.5,0.5 > S:iron-plate 100%",
+                   "3.5..3.5,0.5 > N:steel-plate 25% S:iron-plate 100%"], got
+    print("ok")

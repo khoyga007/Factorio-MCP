@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import os
+from pathlib import Path
 from typing import Annotated
 
 from mcp.server.fastmcp import FastMCP
@@ -475,7 +476,8 @@ def achieve(goal: str,
             area: list[float] | None = None, force_active: bool = False,
             tech: str | None = None) -> CallToolResult:
     """Goals (CONTRACT.md; area=[x1,y1,x2,y2]): reuse_blueprint(pattern_id),
-build_design(design=[{name,x,y,direction?}] world centers, dir 0N4E8S12W; filter=item (splitter|inserter), output_priority=left|right),
+build_design(design=[{name,x,y,direction?}] world centers, dir 0N4E8S12W; filter=item (splitter|inserter), output_priority=left|right;
+  row {file:path.json} = rows from disk, {route:id} = route view),
 recall(area|design; force_active beats job),
 capture(area->catalog+site), build_ghosts(area),
 drop_ghosts(pattern_id=exec-N),
@@ -624,6 +626,15 @@ import(pattern_id=bp string->reference)."""
                 if row["route"] not in ROUTES:
                     return _result({"ok": False, "error": f"unknown-route:{row['route']}"}, True)
                 expanded += ROUTES[row["route"]]
+            elif "file" in row:
+                # Script-generated layouts: a JSON list of rows on disk, not pasted inline.
+                try:
+                    rows = json.loads(Path(row["file"]).read_text(encoding="utf-8"))
+                except (OSError, ValueError) as exc:
+                    return _result({"ok": False, "error": f"design-file:{exc}"}, True)
+                if not isinstance(rows, list) or any("file" in r or "route" in r for r in rows):
+                    return _result({"ok": False, "error": "design-file-must-be-plain-rows"}, True)
+                expanded += rows
             else:
                 expanded.append(row)
         design = expanded

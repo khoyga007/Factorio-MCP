@@ -268,6 +268,22 @@ function M.attach(ctx)
     for _,e in pairs(surface.find_entities_filtered{area=area,force=force,type="inserter"}) do
       for _,p in ipairs{e.pickup_position,e.drop_position} do touch[key(math.floor(p.x),math.floor(p.y))]=true end
     end
+    -- Planned, not yet built (chain layouts route before anything stands): `avoid` boxes
+    -- {x1,y1,x2,y2} in tiles (x2,y2 exclusive) are solid; `planned_belts` {x,y,dir[,no_feed]}
+    -- count as belts, so a new route never points into one by accident.
+    local blocked={}
+    for _,b in ipairs(r.avoid or {}) do
+      for x=math.floor(b[1]),math.ceil(b[3])-1 do
+        for y=math.floor(b[2]),math.ceil(b[4])-1 do blocked[key(x,y)]=true end
+      end
+    end
+    for _,b in ipairs(r.planned_belts or {}) do
+      local u,bx,by=UNIT[b[3]],math.floor(b[1]),math.floor(b[2])
+      if u then
+        beltlike[key(bx,by)]=true
+        if not b[4] then feeds[key(bx+u[1],by+u[2])]=true end
+      end
+    end
     local fluid={}
     if pipe then
       for _,e in pairs(surface.find_entities_filtered{area=area,force=force}) do
@@ -291,7 +307,7 @@ function M.attach(ctx)
       local k=key(x,y)
       local v=free_cache[k]
       if v==nil then
-        v=(((pipe and not near_fluid(x,y)) or (not pipe and (not feeds[k] or (x==fx and y==fy)) and not touch[k] and not beltlike[k]))
+        v=not blocked[k] and (((pipe and not near_fluid(x,y)) or (not pipe and (not feeds[k] or (x==fx and y==fy)) and not touch[k] and not beltlike[k]))
           and surface.can_place_entity{name=belt,position={x+0.5,y+0.5},direction=0,force=force,
             build_check_type=defines.build_check_type.blueprint_ghost,forced=true}
           and surface.count_entities_filtered{area={{x+0.05,y+0.05},{x+0.95,y+0.95}},type="cliff",limit=1}==0)

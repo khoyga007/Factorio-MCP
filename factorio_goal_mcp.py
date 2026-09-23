@@ -592,7 +592,7 @@ import(pattern_id=bp string->reference)."""
             return _result({"ok": False, "error": str(exc), "pattern_id": pattern_id}, True)
         return _result({"ok": p.get("ok", False), "goal": goal, "pattern_id": pattern_id,
                         **_fields(p, "job_id", "state", "site", "site_validated", "materials",
-                                  "missing", "locked", "skipped_locked", "bots", "uncovered", "unpowered", "steps", "rejects", "checks", "unconnected",
+                                  "missing", "locked", "skipped_locked", "bots", "uncovered", "unpowered", "lane_joins", "steps", "rejects", "checks", "unconnected",
                                   "plan", "error")},
                        not p.get("ok", False))
 
@@ -614,7 +614,7 @@ resume=True restarts a built job after its blocker clears; never re-imports."""
                               # nothing else: the executor knew WHICH tiles and what stood
                               # on them, the whitelist here dropped every one of them.
                               "blocked", "pending", "waiting", "standing", "built", "existing",
-                              "replaced", "replaced_at", "drift", "skipped_locked", "bots", "uncovered", "unpowered",
+                              "replaced", "replaced_at", "drift", "skipped_locked", "bots", "uncovered", "unpowered", "lane_joins",
                               "block", "error", "artifact")},
                    not p.get("ok", False))
 

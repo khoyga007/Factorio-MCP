@@ -356,7 +356,7 @@ _RIGHT_SIDE = {0: "E", 4: "S", 8: "W", 12: "N"}
 def lanes(rows: list[dict]) -> list[str]:
     """Belt runs with lane contents by compass side, e.g.
     "-169.5..-151.5,57.5 > N:steel-plate 25% S:iron-plate 100%".
-    A run = contiguous same-direction tiles on one row/column with the same item set per lane."""
+    A run = contiguous same-direction tiles on one row/column; items = union per lane."""
     belts = []
     for e in rows:
         if not isinstance(e, dict) or e.get("type") != "transport-belt":
@@ -375,10 +375,11 @@ def lanes(rows: list[dict]) -> list[str]:
     for d, x, y, sig, cnt in belts:
         r = runs[-1] if runs else None
         horiz = d in (4, 12)
-        if (r and r["d"] == d and r["sig"] == sig
+        if (r and r["d"] == d
                 and (r["y"] == y and abs(x - r["x2"]) == 1 if horiz else r["x"] == x and abs(y - r["y2"]) == 1)):
             r["x2"], r["y2"], r["n"] = x, y, r["n"] + 1
             r["cnt"] = [a + b for a, b in zip(r["cnt"], cnt)]
+            r["sig"] = tuple(tuple(sorted(set(a) | set(b))) for a, b in zip(r["sig"], sig))
         else:
             runs.append({"d": d, "x": x, "y": y, "x2": x, "y2": y, "n": 1, "sig": sig, "cnt": list(cnt)})
     out = []
@@ -400,6 +401,5 @@ if __name__ == "__main__":
     iron = [{"name": "iron-plate", "count": 4}]
     got = lanes([b(1.5, 0.5, [], iron), b(2.5, 0.5, [], iron),
                  b(3.5, 0.5, [{"name": "steel-plate", "count": 1}], iron)])
-    assert got == ["1.5..2.5,0.5 > S:iron-plate 100%",
-                   "3.5..3.5,0.5 > N:steel-plate 25% S:iron-plate 100%"], got
+    assert got == ["1.5..3.5,0.5 > N:steel-plate 8% S:iron-plate 100%"], got
     print("ok")

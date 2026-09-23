@@ -1198,12 +1198,32 @@ end
 
 -- Backlog refill, 23/09: the cheat drained a 7-deep queue in minutes and labs sat idle.
 -- Agent sets an ordered wishlist; each finished research tops the queue up from it.
+-- A tech needing a pack no lab holds would stall the queue head (23/09: ICB-4 wanted
+-- purple, 12 labs idle), so it waits in the backlog until labs carry that pack.
+local function lab_packs(force)
+  local held = {}
+  for _, surface in pairs(game.surfaces) do
+    for _, lab in pairs(surface.find_entities_filtered {type = "lab", force = force}) do
+      local inv = lab.get_inventory(defines.inventory.lab_input)
+      for _, it in pairs(inv and inv.get_contents() or {}) do held[it.name] = true end
+    end
+  end
+  return held
+end
+
 local function refill_research(force)
   local state = bridge_state()
   local left = {}
+  local held = lab_packs(force)
   for _, name in ipairs(state.research_backlog or {}) do
     local t = force.technologies[name]
-    if t and not t.researched then
+    local feedable = true
+    for _, ing in pairs(t and t.research_unit_ingredients or {}) do
+      if not held[ing.name] then feedable = false end
+    end
+    if t and not t.researched and not feedable then
+      left[#left + 1] = name
+    elseif t and not t.researched then
       local queued = false
       for _, q in pairs(force.research_queue or {}) do if q.name == name then queued = true end end
       if not queued and not force.add_research(name) then left[#left + 1] = name end
@@ -1224,6 +1244,7 @@ local function handle_research(nonce, request)
       end
     end
     bridge_state().research_backlog = request.backlog
+    force.research_queue = {}  -- the backlog is the whole plan; drops stale/stalled heads
     refill_research(force)
   end
   local name = request.name
@@ -2079,6 +2100,9 @@ end)
 -- index request rebuilds from scratch.
 script.on_event(defines.events.on_research_finished, function(event)
   refill_research(event.research.force)
+end)
+script.on_nth_tick(600, function()  -- labs briefly empty at a finish must not end the plan
+  if next(bridge_state().research_backlog or {}) then refill_research(game.forces.player) end
 end)
 script.on_event(defines.events.on_chunk_generated, function()
   bridge_state().index = nil

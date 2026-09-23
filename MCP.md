@@ -70,6 +70,18 @@ Nguồn: [MCP Python SDK 1.27.1](https://github.com/modelcontextprotocol/python-
 6. `report(job_id, resume?)` đọc audit của job `exec-N`; `resume=true` chạy tiếp một job đã dựng xong nhưng dừng vì lỗi sau khi build (điện/ống chưa nối, primer không nhét được, audit trượt) — không import lại, không mồi lại. Blueprint và receipt chi tiết
    nằm trong `script-output/executor/`.
 
+7. Kế hoạch tốc độ danh định: `observe(view="plan", query="rocket-part@1/min")`.
+   Chọn công thức nhiều nguồn bằng `;recipe=solid-fuel:solid-fuel-from-light-oil,light-oil:advanced-oil-processing`.
+   Kết quả gồm số máy chính xác/làm tròn, nguyên liệu thô mỗi phút, công suất kW
+   và số làn băng chuyền cho từng cạnh. Chỉ gọi `spec recipe/entity` để đọc prototype;
+   không xây gì. Công thức có nhiều sản phẩm để sản phẩm phụ ở `surplus`, chưa cân
+   đối chéo. Nếu không chọn, lấy công thức cùng tên sản phẩm hoặc ứng viên đầu tiên
+   theo tên. Chỉ số máy dựa trên tốc độ prototype thường, không tính cheat/module.
+   Bản game cần nạp lại mod sau khi bổ sung trường `machines`, `miners` và tốc độ bơm
+   vào `spec`.
+   Máy mặc định "rẻ nhất" theo tổng số vật phẩm trực tiếp trong công thức chế máy;
+   không quy đổi giá trị giữa các loại tài nguyên.
+
 Một lượt gọi `achieve` có thể dùng nhiều action UDP bên trong; agent chỉ nhận
 một kết quả ngắn. Retry UDP dùng lại nonce; nếu mutation timeout, đọc trạng thái
 trước khi gọi lại. Cache nonce có giới hạn và không đảm bảo no-op sau load save.

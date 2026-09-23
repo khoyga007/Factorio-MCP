@@ -20,8 +20,13 @@ SCHEMA_VERSION = 1
 _ENTITY_FIELDS = (
     "entity_type",
     "mining_speed",
+    "resource_category",
+    "resource_categories",
+    "miners",
     "crafting_speed",
+    "crafting_categories",
     "belt_speed",
+    "pumping_speed",
     "energy_usage_joules_per_tick",
     "energy_usage_watts",
     "burner_effectivity",
@@ -31,15 +36,20 @@ _ENTITY_FIELDS = (
     "mining_products",
 )
 _ITEM_FIELDS = ("fuel_value_joules", "fuel_category", "stack_size")
-_RECIPE_FIELDS = ("category", "energy", "ingredients", "products")
+_RECIPE_FIELDS = ("category", "energy", "ingredients", "products", "machines", "enabled")
 
 
 @dataclass(frozen=True)
 class EntitySpec:
     entity_type: str | None = None
     mining_speed: float | None = None
+    resource_category: str | None = None
+    resource_categories: tuple[str, ...] = ()
+    miners: tuple[str, ...] = ()
     crafting_speed: float | None = None
+    crafting_categories: tuple[str, ...] = ()
     belt_speed: float | None = None
+    pumping_speed: float | None = None
     energy_usage_joules_per_tick: float | None = None
     energy_usage_watts: float | None = None
     burner_effectivity: float | None = None
@@ -62,6 +72,8 @@ class RecipeSpec:
     energy: float | None = None
     ingredients: tuple[dict[str, Any], ...] = ()
     products: tuple[dict[str, Any], ...] = ()
+    machines: tuple[str, ...] = ()
+    enabled: bool | None = None
 
 
 @dataclass(frozen=True)
@@ -69,6 +81,7 @@ class Spec:
     entities: dict[str, EntitySpec] = field(default_factory=dict)
     items: dict[str, ItemSpec] = field(default_factory=dict)
     recipes: dict[str, RecipeSpec] = field(default_factory=dict)
+    selected_recipes: dict[str, str] = field(default_factory=dict)
 
     def entity(self, name: str) -> EntitySpec:
         return self.entities[name]
@@ -97,8 +110,13 @@ def _entity_from_dict(d: dict[str, Any]) -> EntitySpec:
     return EntitySpec(
         entity_type=d.get("entity_type"),
         mining_speed=d.get("mining_speed"),
+        resource_category=d.get("resource_category"),
+        resource_categories=tuple(d.get("resource_categories") or ()),
+        miners=tuple(d.get("miners") or ()),
         crafting_speed=d.get("crafting_speed"),
+        crafting_categories=tuple(d.get("crafting_categories") or ()),
         belt_speed=d.get("belt_speed"),
+        pumping_speed=d.get("pumping_speed"),
         energy_usage_joules_per_tick=d.get("energy_usage_joules_per_tick"),
         energy_usage_watts=d.get("energy_usage_watts"),
         burner_effectivity=d.get("burner_effectivity"),
@@ -123,12 +141,13 @@ def _recipe_from_dict(d: dict[str, Any]) -> RecipeSpec:
         energy=d.get("energy"),
         ingredients=tuple(d.get("ingredients") or ()),
         products=tuple(d.get("products") or ()),
+        machines=tuple(d.get("machines") or ()),
+        enabled=d.get("enabled"),
     )
 
 
-def load_spec(path: str | Path) -> Spec:
-    """Read spec.json into a Spec. Raises ValueError on a schema mismatch."""
-    data = json.loads(Path(path).read_text(encoding="utf-8"))
+def spec_from_dict(data: dict[str, Any]) -> Spec:
+    """Validate and load a spec document, including live per-call snapshots."""
     if data.get("schema_version") != SCHEMA_VERSION:
         raise ValueError(
             f"spec schema_version {data.get('schema_version')!r} != {SCHEMA_VERSION}"
@@ -139,4 +158,10 @@ def load_spec(path: str | Path) -> Spec:
         },
         items={k: _item_from_dict(v) for k, v in data.get("items", {}).items()},
         recipes={k: _recipe_from_dict(v) for k, v in data.get("recipes", {}).items()},
+        selected_recipes=data.get("selected_recipes", {}),
     )
+
+
+def load_spec(path: str | Path) -> Spec:
+    """Read spec.json into a Spec. Raises ValueError on a schema mismatch."""
+    return spec_from_dict(json.loads(Path(path).read_text(encoding="utf-8")))

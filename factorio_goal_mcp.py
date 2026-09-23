@@ -12,6 +12,7 @@ from mcp.types import CallToolResult, TextContent, ToolAnnotations
 from pydantic import Field, FiniteFloat
 
 from bridge_client import invoke
+from planner import live_spec, plan
 from perception import grid, ground, lanes, natural, summarize
 from factorio_ai import DEFAULT_HOST, DEFAULT_PORT, request, self_sustaining
 from blueprint_library import (encode_blueprint, import_reference, list_patterns,
@@ -243,15 +244,35 @@ def observe(view: str = "situation",
             resource: str | None = None, pattern_id: str | None = None,
             query: str | None = None,
             offset: Annotated[int, Field(ge=0)] = 0) -> CallToolResult:
-    """situation|deposits|nearby|grid|lanes|water|research|patterns(+pattern_id)|references
-|entities(query=name)|flow(query=a,b@10m)|ledger(query=exec-N|status:|cluster:|item:)
-|supply(query=item)|route(x,y=from; query=tx,ty[,end_dir][,sDIR][,belt|pipe] -> route-N)
-offset pages; r<=32 (water 2048)"""
+    """situation|deposits|nearby|grid|lanes|water|research|patterns|references
+|entities(query=name)|flow(query=a,b@10m)|ledger(query=id|status:|cluster:|item:)
+|supply(query=item)|route(x,y;query=tx,ty[,dir][,sDIR][,belt|pipe])
+|plan(query=item@rate/min[;recipe=item:name,...]); offset paging; r<=32"""
     if (x is None) != (y is None):
         return _result({"ok": False, "error": "x-and-y-required-together"}, True)
     if view not in {"situation", "deposits", "nearby", "entities", "patterns", "references",
-                    "water", "research", "ledger", "grid", "flow", "lanes", "supply", "route"}:
+                    "water", "research", "ledger", "grid", "flow", "lanes", "supply", "route", "plan"}:
         return _result({"ok": False, "error": "unknown-view"}, True)
+    if view == "plan":
+        try:
+            target, separator, rest = (query or "").partition("@")
+            rate_text, *options = rest.split(";")
+            value, unit_separator, unit = rate_text.partition("/")
+            if not target or not separator or unit_separator != "/" or unit != "min":
+                raise ValueError("plan-query=item@rate/min[;recipe=item:name,...]")
+            overrides = {}
+            for option in options:
+                if not option.startswith("recipe="):
+                    raise ValueError("plan-option-must-be-recipe=item:name,...")
+                for pair in option[7:].split(","):
+                    product, colon, recipe = pair.partition(":")
+                    if not colon or not product or not recipe:
+                        raise ValueError("plan-recipe-option=item:name")
+                    overrides[product] = recipe
+            result = plan(live_spec(target, overrides), target, float(value), recipes=overrides)
+            return _result({"ok": True, "view": view, **result})
+        except (OSError, ValueError, TimeoutError) as exc:
+            return _result({"ok": False, "view": view, "error": str(exc)}, True)
     if view == "ledger":
         # Default is the roll-up: the whole base in a fixed number of bytes. A filter or a
         # block id is what opens rows; nothing returns every block at full detail any more.

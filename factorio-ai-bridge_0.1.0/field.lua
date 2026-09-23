@@ -336,7 +336,7 @@ function M.attach(ctx)
         if free(nx,ny) then
           for j=2,maxd do
             local ex,ey=nx+u[1]*j,ny+u[2]*j
-            if ok_at(ex,ey,n.d) then relax(ex,ey,n.d,n.g+3+0.1*j,top[2],{nx,ny}) end
+            if ok_at(ex,ey,n.d) then relax(ex,ey,n.d,n.g+j+1+2.5,top[2],{nx,ny}) end
           end
         end
       end

@@ -252,7 +252,8 @@ flow(/min;query=a,b@10m)|water|research|ledger(query=exec-N|status:|cluster:|ite
         return _result({"ok": True, "view": view, "item": item,
                         "flow_10m": (f.get("rows") or [None])[0],
                         **_fields(p, "makers", "users", "stored", "chests", "belt_tiles"),
-                        "runs": lanes(rows)})
+                        # ponytail: first 40 runs; iron-plate can have hundreds, add paging if needed
+                        "runs": (r := lanes(rows))[:40], "run_total": len(r)})
     if view == "water":
         body = {"action": "water_sites", "surface": surface, "radius": max(radius, 8), "offset": offset}
         if x is not None:

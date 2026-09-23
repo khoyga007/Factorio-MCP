@@ -2,15 +2,16 @@
 
 Layout, top to bottom (x grows east, belts run east):
 
-    y    belt B   (only when the recipe has 3-4 solid ingredients; long inserters reach it)
-    +1   belt A   (ingredients 1-2, one per lane)
+    y    belt B   (2nd ingredient alone, or 3rd-4th on lanes; long inserters reach it)
+    +1   belt A   (1st ingredient alone, or 1st-2nd on lanes when there are 3-4)
     +2   input row: per machine [long | fast | pole]
     +3.. machines (w x h from the prototype)
     ..   output row: per machine [- | fast | pole]
     ..   output belt (products)
 
 Without belt B the whole cell starts at y (belt A on y). Inserter direction = pickup side,
-so every inserter is dir 0: picks from the north, drops south.
+so every inserter is dir 0: picks from the north, drops south. One item per belt up to two
+ingredients: an inserter takes from either lane, so a feed belt needs no lane planning.
 """
 from __future__ import annotations
 
@@ -35,7 +36,8 @@ def cell(recipe: str, ingredients: list[dict], products: list[dict], machine: st
     solids = [i["name"] for i in ingredients]
     if len(solids) > 4:
         raise ValueError(f"cell-too-many-ingredients:{len(solids)}")
-    two_belts = len(solids) > 2
+    two_belts = len(solids) > 1
+    a_items, b_items = (solids[:1], solids[1:]) if len(solids) <= 2 else (solids[:2], solids[2:])
     y_b = y if two_belts else None
     y_a = y + 1 if two_belts else y
     y_in, y_m = y_a + 1, y_a + 2
@@ -60,17 +62,14 @@ def cell(recipe: str, ingredients: list[dict], products: list[dict], machine: st
         for k in range(length):
             add(belt, x + k + 0.5, belt_y + 0.5, E)
     ports = {
-        # Belt runs east; seen from its heading the LEFT lane is the north one.
-        "in_a": {"x": x + 0.5, "y": y_a + 0.5, "dir": E,
-                 "left": solids[0] if solids else None,
-                 "right": solids[1] if len(solids) > 1 else None},
+        # Two items on one belt (3-4 ingredients): list order = left (north) lane, right lane.
+        "in_a": {"x": x + 0.5, "y": y_a + 0.5, "dir": E, "items": a_items},
         "out": {"x": x + length - 0.5, "y": y_belt_out + 0.5, "dir": E,
                 "items": [p["name"] for p in products]},
         "box": [x, y, x + length, y_belt_out + 1],
     }
     if two_belts:
-        ports["in_b"] = {"x": x + 0.5, "y": y_b + 0.5, "dir": E, "left": solids[2],
-                         "right": solids[3] if len(solids) > 3 else None}
+        ports["in_b"] = {"x": x + 0.5, "y": y_b + 0.5, "dir": E, "items": b_items}
     return rows, ports
 
 

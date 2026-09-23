@@ -287,6 +287,15 @@
         "force_active"
       ],
       "note": "mine own-force entities + contents into player bag; MCP also takes an entity list"
+    },
+    "flow": {
+      "required": [],
+      "optional": [
+        "items",
+        "window",
+        "surface",
+        "force"
+      ]
     }
   }
 }

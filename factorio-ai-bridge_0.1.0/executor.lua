@@ -544,7 +544,14 @@ local function parse_contract(raw,r)
   raw=type(raw)=="table" and raw or {}
   local c={resources={},primer={},feeds={},rotations={},connect={},supply={}}
   local site=type(raw.site)=="table" and raw.site or {}
-  c.exact=site.mode=="exact"
+  -- absolute (23/09): the design rows ARE world positions; the anchor is derived from
+  -- site.ref (the first row's own position) instead of hand floor(min corner) math.
+  c.absolute=site.mode=="absolute"
+  if c.absolute and (type(site.ref)~="table" or not finite(site.ref.x) or not finite(site.ref.y)) then
+    return nil,"absolute-site-needs-ref"
+  end
+  c.ref=c.absolute and {x=site.ref.x,y=site.ref.y} or nil
+  c.exact=site.mode=="exact" or c.absolute
   local build=type(raw.build)=="table" and raw.build or {}
   if build.mode~=nil and build.mode~="ghost" and build.mode~="direct" then return nil,"invalid-build-mode" end
   c.ghost=build.mode=="ghost"
@@ -661,7 +668,7 @@ function M.attach(ctx)
       -- placed = tiles that hold the right entity now; built = the ones THIS job revived
       -- and paid for; existing = the ones that were already standing.
       built=j.built,existing=j.existing,replaced=j.replaced,replaced_at=j.replaced_at,
-      skipped=j.skipped,skipped_locked=j.skipped_locked,bots=j.bots,uncovered=j.uncovered,restocked=j.restocked,drift=j.drift,
+      skipped=j.skipped,skipped_locked=j.skipped_locked,bots=j.bots,uncovered=j.uncovered,unpowered=j.unpowered,restocked=j.restocked,drift=j.drift,
       blasted=(j.blasted or 0)>0 and j.blasted or nil,filled=(j.filled or 0)>0 and j.filled or nil,
       ground=j.ground,
       plan=layout_digest(j.layout),
@@ -982,6 +989,11 @@ function M.attach(ctx)
     end
     local c,cerr=parse_contract(r.contract,r)
     if not c then return ctx.response(nonce,false,{error=cerr}) end
+    if c.absolute then
+      local shape=orient(base,c.rotations[1])
+      r.x=c.ref.x-shape[1].x r.y=c.ref.y-shape[1].y
+      c.center={x=r.x,y=r.y}
+    end
     local block,berr=parse_block(type(r.contract)=="table" and r.contract.block or nil)
     if berr then return ctx.response(nonce,false,{error=berr}) end
     local cost={}
@@ -1097,6 +1109,22 @@ function M.attach(ctx)
         if not hit then uncovered=(uncovered or 0)+1 end
       end
     end
+    -- Warning like `uncovered`: 23/09 two inserters went down `no_power` because nothing
+    -- said so before the build. Poles planned in the same design count.
+    local unpowered=nil
+    do
+      local fed
+      for _,e in ipairs(placed) do
+        local p=prototypes.entity[e.name]
+        if p.type~="electric-pole" and p.electric_energy_source_prototype then
+          fed=fed or fed_poles(surface,force,placed)
+          if not pole_covers(fed,e) then
+            unpowered=unpowered or {}
+            if #unpowered<12 then unpowered[#unpowered+1]={e.name,e.x,e.y} end
+          end
+        end
+      end
+    end
     local gaps=inserter_gaps(surface,force,placed,site.rotation)
     if #gaps>0 then
       return ctx.response(nonce,true,{state="blocked",error="inserter-unconnected",unconnected=gaps,skipped_locked=skipped_locked,
@@ -1119,7 +1147,7 @@ function M.attach(ctx)
         site=site_out,site_validated=true,materials=cost,missing=missing,
         plan=layout_digest(placed),placed_at=r.detail and placed_at(placed) or nil,
         locked=#locked>0 and locked or nil,skipped_locked=skipped_locked,steps=#steps,rejects=rejects,
-        bots=c.bots or nil,uncovered=uncovered})
+        bots=c.bots or nil,uncovered=uncovered,unpowered=unpowered})
     end
     local state=ctx.state() state.executor_seq=(state.executor_seq or 0)+1
     local id="exec-"..state.executor_seq
@@ -1129,7 +1157,7 @@ function M.attach(ctx)
       layout=place_list(site.shape,site.x,site.y),contract=c,metrics=c.metrics,
       feeds=c.feeds,max_windows=c.max_windows,materials=cost,steps=steps,step=1,
       receipts={},feed={},state="preparing",block=block,skipped_locked=skipped_locked,
-      bots=c.bots or nil,uncovered=uncovered,artifact="executor/"..id,deadline=game.tick+18000}
+      bots=c.bots or nil,uncovered=uncovered,unpowered=unpowered,artifact="executor/"..id,deadline=game.tick+18000}
     jobs()[id]=j save(j)
     return ctx.response(nonce,true,summary(j,r.detail))
   end

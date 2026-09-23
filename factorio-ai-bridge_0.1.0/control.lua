@@ -12,7 +12,9 @@ local ENTITY_TYPES = {
   "gate", "generator", "inserter", "lab", "locomotive", "logistic-container",
   "mining-drill", "offshore-pump", "pipe", "pipe-to-ground", "pump", "radar",
   "reactor", "roboport", "rocket-silo", "solar-panel", "splitter", "storage-tank",
-  "train-stop", "transport-belt", "underground-belt", "wall"
+  "train-stop", "transport-belt", "underground-belt", "wall", "lamp",
+  "constant-combinator", "arithmetic-combinator", "decider-combinator", "power-switch",
+  "loader", "loader-1x1", "car", "land-mine", "heat-pipe"
 }
 
 local DIRECTIONS = {
@@ -1903,6 +1905,52 @@ local field = require("field").attach {
   state = bridge_state, response = response, inventory = treasury_inventory,
   fluid_tiles = fluid_tile_names,
 }
+-- Production statistics (the in-game F-screen), per minute over a window. Snapshots show
+-- stock on belts, not rates; on 23/09 every bottleneck call was guessed from belt density
+-- and one was wrong. count=true + divide keeps the unit ours, not the API's.
+local FLOW_WINDOWS = {["1m"] = {"one_minute", 1}, ["10m"] = {"ten_minutes", 10},
+  ["1h"] = {"one_hour", 60}}
+local function handle_flow(nonce, request)
+  local surface = surface_for(request)
+  if not surface then return response(nonce, false, {error = "surface-not-found"}) end
+  local force = force_for(request)
+  if not force then return response(nonce, false, {error = "force-not-found"}) end
+  local w = FLOW_WINDOWS[request.window or "10m"]
+  if not w then return response(nonce, false, {error = "window-is-1m-10m-1h"}) end
+  local precision = defines.flow_precision_index[w[1]]
+  local rows = {}
+  for kind, stats in pairs {item = force.get_item_production_statistics(surface),
+                             fluid = force.get_fluid_production_statistics(surface)} do
+    local names = {}
+    if type(request.items) == "table" then
+      for _, n in ipairs(request.items) do names[n] = true end
+    else
+      for n in pairs(stats.input_counts) do names[n] = true end
+      for n in pairs(stats.output_counts) do names[n] = true end
+    end
+    for n in pairs(names) do
+      local proto = kind == "item" and prototypes.item[n] or prototypes.fluid[n]
+      if proto then
+        local made = stats.get_flow_count {name = n, category = "input", precision_index = precision, count = true}
+        local used = stats.get_flow_count {name = n, category = "output", precision_index = precision, count = true}
+        if made > 0 or used > 0 or type(request.items) == "table" then
+          rows[#rows + 1] = {name = n, kind = kind ~= "item" and kind or nil,
+            made = math.floor(made / w[2] * 10 + 0.5) / 10,
+            used = math.floor(used / w[2] * 10 + 0.5) / 10}
+        end
+      end
+    end
+  end
+  table.sort(rows, function(a, b)
+    if a.made + a.used ~= b.made + b.used then return a.made + a.used > b.made + b.used end
+    return a.name < b.name
+  end)
+  local total = #rows
+  for i = total, 61, -1 do rows[i] = nil end
+  return response(nonce, true, {action = "flow", tick = game.tick, window = request.window or "10m",
+    unit = "per_minute", rows = rows, total = total})
+end
+
 local function handle_water_sites(nonce, request) return field.water(nonce, request) end
 local function handle_recall(nonce, request) return field.recall(nonce, request) end
 local function handle_blueprint_run(nonce, request) return executor.start(nonce, request) end
@@ -1920,6 +1968,7 @@ HANDLERS = {
   blueprint_run = handle_blueprint_run,
   blueprint_job = handle_blueprint_job,
   drop_ghosts = handle_drop_ghosts,
+  flow = handle_flow,
   ledger = handle_ledger,
   ledger_note = handle_ledger_note,
   collect = handle_collect,

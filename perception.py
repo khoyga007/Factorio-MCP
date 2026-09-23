@@ -5,6 +5,7 @@ Rule: compress repetition, never geometry -- every run keeps from/to/len/directi
 """
 from __future__ import annotations
 
+import math
 from collections import defaultdict
 
 RUN_TYPES = {"transport-belt", "pipe"}
@@ -264,3 +265,84 @@ def summarize(rows: list[dict]) -> dict:
             "machines": {n: [{k: v for k, v in r.items() if k != "name"} for r in arrays(ms)]
                          for n, ms in ordered.items()},
             "runs": _by_name(r for r in runs_out if "status" not in r), "poles": dict(poles)}
+
+
+# --- grid: one char per tile ------------------------------------------------------
+# Coordinates read as lists cost the agent the most time on 23/09 (a 3-chem-sci block
+# stalled on "which tiles are free"). A text map answers that at a glance.
+ARROW = {0: "^", 4: ">", 8: "v", 12: "<"}
+GRID_FIXED = {"electric-pole": "+", "pipe": "=", "pipe-to-ground": "~", "wall": "#",
+              "gate": "#", "splitter": "$"}
+# Letters the fixed symbols use; machine letters come from what is left.
+RESERVED = set("^>v<+=~#$.*uUnesw") | set("NESW")
+POOL = [c for c in "ABCDFGHIJKLMOPQRTVXYZabcdfghijklmopqrtxyz0123456789" if c not in RESERVED]
+COMPASS = "nesw"
+
+
+def _tiles(e: dict):
+    """Integer tile corners covered by the entity's bounding box."""
+    box = e.get("bounding_box")
+    if not box:
+        yield math.floor(e["x"]), math.floor(e["y"])
+        return
+    lt, rb = box["left_top"], box["right_bottom"]
+    for tx in range(math.floor(lt["x"] + 0.01), math.ceil(rb["x"] - 0.01)):
+        for ty in range(math.floor(lt["y"] + 0.01), math.ceil(rb["y"] - 0.01)):
+            yield tx, ty
+
+
+def _flow(e: dict):
+    """Inserter drop side as n/e/s/w; long reach (>1.5 tiles) upper case."""
+    drop = e.get("drop_position")
+    if not isinstance(drop, dict):
+        return "i"
+    dx, dy = drop["x"] - e["x"], drop["y"] - e["y"]
+    c = (("e" if dx > 0 else "w") if abs(dx) > abs(dy) else ("s" if dy > 0 else "n"))
+    return c.upper() if max(abs(dx), abs(dy)) > 1.5 else c
+
+
+def grid(rows: list[dict], cx: float, cy: float, radius: float, obstacles=()) -> dict:
+    """Tile map around (cx,cy). rows = snapshot entities (need bounding_box).
+    Row label = tile-center y; `ruler` digit = |tile-center x| mod 10."""
+    x0, y0 = math.floor(cx - radius), math.floor(cy - radius)
+    w = h = 2 * math.ceil(radius) + 1
+    cells = [["."] * w for _ in range(h)]
+    legend, letters = {}, {}
+
+    def put(tx, ty, ch):
+        i, j = tx - x0, ty - y0
+        if 0 <= i < w and 0 <= j < h:
+            cells[j][i] = ch
+
+    for o in obstacles or ():
+        if isinstance(o, dict) and "x" in o:
+            for tx, ty in _tiles(o):
+                put(tx, ty, "*")
+    for e in rows:
+        if not isinstance(e, dict) or "x" not in e:
+            continue
+        t, name = e.get("type"), e.get("name")
+        if t == "transport-belt":
+            ch = ARROW.get(e.get("direction", 0), "?")
+        elif t == "underground-belt":
+            ch = "u" if e.get("belt_to_ground_type") == "input" else "U"
+        elif t == "inserter":
+            ch = _flow(e)
+        elif t in GRID_FIXED:
+            ch = GRID_FIXED[t]
+        else:
+            key = name + (":" + e["recipe"] if e.get("recipe") else "")
+            if key not in letters:
+                letters[key] = POOL[len(letters) % len(POOL)]
+                legend[letters[key]] = key
+            ch = letters[key]
+        for tx, ty in _tiles(e):
+            put(tx, ty, ch)
+    width = max(len(str(num(y0 + k + 0.5))) for k in range(h))
+    lines = [str(num(y0 + j + 0.5)).rjust(width) + " " + "".join(r) for j, r in enumerate(cells)]
+    ruler = " " * (width + 1) + "".join(str(int(abs(x0 + i + 0.5)) % 10) for i in range(w))
+    return {"x0": num(x0 + 0.5), "y0": num(y0 + 0.5), "ruler": ruler, "rows": lines,
+            "legend": legend,
+            "key": "^>v< belt, u/U underground in/out, n/e/s/w inserter drop side "
+                   "(caps=long), + pole, = pipe, ~ pipe-to-ground, $ splitter, # wall, "
+                   "* tree/rock, . free"}

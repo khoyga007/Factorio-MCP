@@ -113,9 +113,21 @@ class GoalMCPTest(unittest.IsolatedAsyncioTestCase):
                             p = await call("observe", {"view": "deposits", "resource": "iron-ore"},
                                            ["ore_marks"])
                             self.assertEqual(1, p["total"])
+                            # entities pages in Python now (belts hidden, name filter), so
+                            # the bridge is always asked from offset 0.
                             p = await call("observe", {"view": "entities", "offset": 12}, ["snapshot"])
-                            self.assertEqual(12, seen[-1]["offset"])
+                            self.assertEqual(0, seen[-1]["offset"])
+                            self.assertEqual((1, []), (p["entities_total"], p["entities"]))
+                            p = await call("observe", {"view": "entities"}, ["snapshot"])
                             self.assertEqual("working", p["entities"][0]["status_name"])
+                            p = await call("observe", {"view": "grid", "x": 0, "y": 0, "radius": 1},
+                                           ["snapshot"])
+                            self.assertEqual(3, len(p["rows"]))
+                            self.assertIn("A", p["legend"])
+                            p = await call("observe", {"view": "flow", "query": "iron-plate,coal@1m"},
+                                           ["flow"])
+                            self.assertEqual((["iron-plate", "coal"], "1m"),
+                                             (seen[-1]["items"], seen[-1]["window"]))
                             p = await call("observe", {"view": "nearby"}, ["snapshot"])
                             self.assertEqual(64, seen[-1]["limit"])
                             self.assertEqual([0, 0], p["machines"]["stone-furnace"][0]["at"])

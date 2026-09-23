@@ -145,3 +145,21 @@ class OutputBudgetTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class GridTest(unittest.TestCase):
+    def test_footprints_arrows_and_inserter_drop_side(self):
+        from perception import grid
+        box = lambda x, y, r: {"left_top": {"x": x - r, "y": y - r},
+                               "right_bottom": {"x": x + r, "y": y + r}}
+        rows = [{"name": "assembling-machine-2", "type": "assembling-machine",
+                 "recipe": "copper-cable", "x": -139.5, "y": 26.5, "bounding_box": box(-139.5, 26.5, 1.35)},
+                {"name": "fast-inserter", "type": "inserter", "x": -137.5, "y": 26.5,
+                 "drop_position": {"x": -138.3, "y": 26.5}, "bounding_box": box(-137.5, 26.5, 0.15)},
+                {"name": "fast-transport-belt", "type": "transport-belt", "x": -136.5, "y": 26.5,
+                 "direction": 0, "bounding_box": box(-136.5, 26.5, 0.4)}]
+        g = grid(rows, -138, 26.5, 3, [{"x": -135.5, "y": 23.5}])
+        self.assertEqual("     0987654", g["ruler"])
+        self.assertEqual("26.5 AAAw^..", g["rows"][3])
+        self.assertEqual("23.5 .....*.", g["rows"][0])
+        self.assertEqual({"A": "assembling-machine-2:copper-cable"}, g["legend"])

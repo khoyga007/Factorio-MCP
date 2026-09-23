@@ -149,6 +149,11 @@ def parser() -> argparse.ArgumentParser:
     set_recipe.add_argument("y", type=float)
     set_recipe.add_argument("--surface", default="nauvis")
     set_recipe.add_argument("--force", default="player")
+    flow = commands.add_parser("flow", help="production/consumption per minute")
+    flow.add_argument("items", nargs="*")
+    flow.add_argument("--window", default="10m", choices=["1m", "10m", "1h"])
+    flow.add_argument("--surface", default="nauvis")
+    flow.add_argument("--force", default="player")
     research = commands.add_parser("research", help="inspect or start technology research")
     research.add_argument("name", nargs="?")
     research.add_argument("--start", action="store_true")
@@ -319,6 +324,9 @@ def command_body(args: argparse.Namespace) -> dict[str, Any]:
             "action": "set_recipe", "recipe": args.recipe,
             "x": args.x, "y": args.y, "surface": args.surface, "force": args.force,
         }
+    if args.command == "flow":
+        return {"action": "flow", "items": args.items or None, "window": args.window,
+                "surface": args.surface, "force": args.force}
     if args.command == "research":
         if args.start and not args.name:
             raise ValueError("research --start needs a technology name")

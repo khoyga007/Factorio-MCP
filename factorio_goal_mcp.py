@@ -11,7 +11,7 @@ from mcp.types import CallToolResult, TextContent, ToolAnnotations
 from pydantic import Field, FiniteFloat
 
 from factorio_mcp import invoke
-from perception import ground, natural, summarize
+from perception import grid, ground, natural, summarize
 from factorio_ai import DEFAULT_HOST, DEFAULT_PORT, request, self_sustaining
 from blueprint_library import (encode_blueprint, import_reference, list_patterns,
                                load_pattern, pattern_entities, pattern_id_for,
@@ -207,13 +207,13 @@ def observe(view: str = "situation",
             resource: str | None = None, pattern_id: str | None = None,
             query: str | None = None,
             offset: Annotated[int, Field(ge=0)] = 0) -> CallToolResult:
-    """situation|deposits|nearby(issues,machines,runs,poles)|entities|water|research|ledger(roll;
-query=exec-N|status:|cluster:|item:)|patterns(+pattern_id)|references(human).
-query+offset page; water r<=2048 else 32."""
+    """situation|deposits|nearby|grid(map)|entities(query=name)|
+flow(/min;query=a,b@10m)|water|research|ledger(query=exec-N|status:|cluster:|item:)
+|patterns(+pattern_id)|references. offset pages; r<=32(water 2048)"""
     if (x is None) != (y is None):
         return _result({"ok": False, "error": "x-and-y-required-together"}, True)
     if view not in {"situation", "deposits", "nearby", "entities", "patterns", "references",
-                    "water", "research", "ledger"}:
+                    "water", "research", "ledger", "grid", "flow"}:
         return _result({"ok": False, "error": "unknown-view"}, True)
     if view == "ledger":
         # Default is the roll-up: the whole base in a fixed number of bytes. A filter or a
@@ -232,6 +232,10 @@ query+offset page; water r<=2048 else 32."""
         return _send(body, 5)
     if view == "research":
         return _send({"action": "research", "surface": surface, "available": True}, 5)
+    if view == "flow":
+        items, _, window = (query or "").partition("@")
+        return _send({"action": "flow", "surface": surface, "window": window or "10m",
+                      "items": [i.strip() for i in items.split(",") if i.strip()] or None}, 5)
     if view == "water":
         body = {"action": "water_sites", "surface": surface, "radius": max(radius, 8), "offset": offset}
         if x is not None:
@@ -274,43 +278,64 @@ query+offset page; water r<=2048 else 32."""
                        not p.get("ok", False))
     if view == "nearby":
         return _nearby(surface, x, y, radius)
-    p = _read(invoke("snapshot", surface=surface, x=x, y=y, radius=radius,
-                     offset=offset, limit=12, tiles=False, name=None, obstacles=True))
-    rows = p.get("entities") or []
-    entities = [_fields(e, "name", "type", "x", "y", "direction", "status_name",
-                        "fuel", "input", "output", "fluids", "lines")
-                for e in rows if isinstance(e, dict)]
-    return _result({"ok": p.get("ok", False), "view": view,
-                    **_fields(p, "center", "resources", "entities_total",
-                              "entities_next_offset", "ghosts", "ghosts_total",
-                              "ghosts_next_offset", "obstacles_total", "obstacles",
-                              "ground_items", "error"), "entities": entities},
-                   not p.get("ok", False))
+    if view == "grid":
+        return _grid(surface, x, y, radius)
+    # entities: full rows, but a belt tile is geometry grid/nearby already show, and on
+    # 23/09 half of every 12-row page was identical copper-belt tiles. query = name filter.
+    err, head, rows, ghosts, _, more = _pull(surface, x, y, radius)
+    if err:
+        return _result({"ok": False, "view": view, **_fields(err, "error")}, True)
+    q = (query or "").strip()
+    keep = ([e for e in rows if q in e.get("name", "") or q == e.get("type")] if q
+            else [e for e in rows if e.get("type") != "transport-belt"])
+    page = keep[offset:offset + ENTITY_PAGE]
+    entities = [_fields(e, "name", "type", "x", "y", "direction", "status_name", "recipe",
+                        "fuel", "input", "output", "fluids", "lines", "belt_to_ground_type")
+                for e in page]
+    return _result({"ok": True, "view": view, **_fields(head, "center", "ground_items"),
+                    "entities_total": len(keep),
+                    **({"belts_hidden": len(rows) - len(keep)} if not q else {}),
+                    **({"truncated_at": len(rows)} if more is not None else {}),
+                    "entities_next_offset": (offset + len(page)
+                                             if offset + len(page) < len(keep) else None),
+                    **({"ghosts": _digest(ghosts)} if ghosts else {}),
+                    "entities": entities})
 
 
 LEDGER_FILTERS = {"status", "cluster", "item"}
 PATTERN_PAGE = 40  # layout rows per observe(patterns, pattern_id) page
 NEARBY_MAX_PAGES = 16  # x64 rows per Lua page
+ENTITY_PAGE = 16  # full rows per observe(entities) page
+
+
+def _pull(surface, x, y, radius, obstacles=False):
+    """Every snapshot page (Lua stays a cheap fact dump). -> (error|None, head, rows, ghosts, natural, more)."""
+    rows, ghosts, natural_rows, offset, head = [], [], [], 0, None
+    for _ in range(NEARBY_MAX_PAGES):
+        p = _read(invoke("snapshot", surface=surface, x=x, y=y, radius=radius,
+                         offset=offset, limit=64, tiles=False, name=None,
+                         obstacles=obstacles or offset == 0))
+        if not p.get("ok", False):
+            return p, None, [], [], [], None
+        head = head or p
+        rows += [e for e in p.get("entities") or [] if isinstance(e, dict)]
+        ghosts += [g for g in p.get("ghosts") or [] if isinstance(g, dict)]
+        natural_rows += [o for o in p.get("obstacles") or [] if isinstance(o, dict)]
+        # The lists share one offset but not one length: keep paging while ANY has more,
+        # or a field of ghosts hides behind a short entity list.
+        nxt = [v for v in (p.get("entities_next_offset"), p.get("ghosts_next_offset"),
+                           p.get("obstacles_next_offset") if obstacles else None) if v is not None]
+        offset = max(nxt) if nxt else None
+        if offset is None:
+            break
+    return None, head, rows, ghosts, natural_rows, offset
 
 
 def _nearby(surface, x, y, radius) -> CallToolResult:
     """Pull every snapshot page, then compress in Python (Lua stays a cheap fact dump)."""
-    rows, ghosts, offset, head = [], [], 0, None
-    for _ in range(NEARBY_MAX_PAGES):
-        p = _read(invoke("snapshot", surface=surface, x=x, y=y, radius=radius,
-                         offset=offset, limit=64, tiles=False, name=None, obstacles=offset == 0))
-        if not p.get("ok", False):
-            return _result({"ok": False, "view": "nearby", **_fields(p, "error")}, True)
-        head = head or p
-        rows += [e for e in p.get("entities") or [] if isinstance(e, dict)]
-        ghosts += [g for g in p.get("ghosts") or [] if isinstance(g, dict)]
-        # The two lists share one offset but not one length: keep paging while EITHER
-        # has more, or a field of ghosts hides behind a short entity list.
-        offset, more_ghosts = p.get("entities_next_offset"), p.get("ghosts_next_offset")
-        if offset is None:
-            offset = more_ghosts
-        if offset is None:
-            break
+    err, head, rows, ghosts, _, offset = _pull(surface, x, y, radius)
+    if err:
+        return _result({"ok": False, "view": "nearby", **_fields(err, "error")}, True)
     data = {"ok": True, "view": "nearby", **_fields(head, "center", "entities_total"),
             **summarize(rows)}
     if ghosts:
@@ -323,6 +348,19 @@ def _nearby(surface, x, y, radius) -> CallToolResult:
                        ("ground_items", ground(head.get("ground_items")))):
         if value:
             data[key] = value
+    return _result(data)
+
+
+def _grid(surface, x, y, radius) -> CallToolResult:
+    err, head, rows, ghosts, obstacles, offset = _pull(surface, x, y, radius, obstacles=True)
+    if err:
+        return _result({"ok": False, "view": "grid", **_fields(err, "error")}, True)
+    c = head.get("center") or {"x": x or 0, "y": y or 0}
+    data = {"ok": True, "view": "grid", **grid(rows, c["x"], c["y"], radius, obstacles)}
+    if ghosts:
+        data["ghosts"] = _digest(ghosts)  # plans, not drawn: a ghost tile is not free
+    if offset is not None:
+        data["truncated_at"] = len(rows)
     return _result(data)
 
 
@@ -361,11 +399,11 @@ def achieve(goal: str,
             area: list[float] | None = None, force_active: bool = False,
             tech: str | None = None) -> CallToolResult:
     """Goals (CONTRACT.md; area=[x1,y1,x2,y2]): reuse_blueprint(pattern_id),
-build_design(design=[{name,x,y,direction?}] centers, dir 0N4E8S12W),
+build_design(design=[{name,x,y,direction?}] world centers, dir 0N4E8S12W),
 recall(area|design->bag; force_active beats job),
 capture(area->catalog+site), build_ghosts(area),
 drop_ghosts(pattern_id=exec-N),
-research(tech), annotate(contract.block; new needs area),
+research(tech), annotate(contract.block;new needs area),
 set_recipe(design=[{x,y,recipe}]; empty asm), craft|collect|insert
 (design=[{name,count,x?,y?,source?}]<=8; craft queues),
 import(pattern_id=bp string->reference)."""
@@ -510,6 +548,14 @@ import(pattern_id=bp string->reference)."""
         except (OSError, ValueError, KeyError, json.JSONDecodeError) as exc:
             return _result({"ok": False, "error": str(exc)}, True)
         pattern = {"blueprint_string": blueprint, "contract": None}
+        if x is None and not (contract or {}).get("site"):
+            # No anchor given: design rows are world positions, built where they stand.
+            # 23/09 every design needed hand floor(min corner) math and one wrong anchor
+            # shifted a whole layout; the executor now derives it from row 1.
+            contract = {**(contract or {}),
+                        "site": {"mode": "absolute", "rotations": [0],
+                                 "ref": {"x": float(design[0]["x"]), "y": float(design[0]["y"])}},
+                        "build": (contract or {}).get("build") or {"mode": "direct"}}
     elif goal == "reuse_blueprint":
         if not pattern_id:
             return _result({"ok": False, "error": "pattern-id-required"}, True)
@@ -537,7 +583,7 @@ import(pattern_id=bp string->reference)."""
             return _result({"ok": False, "error": str(exc), "pattern_id": pattern_id}, True)
         return _result({"ok": p.get("ok", False), "goal": goal, "pattern_id": pattern_id,
                         **_fields(p, "job_id", "state", "site", "site_validated", "materials",
-                                  "missing", "locked", "skipped_locked", "bots", "uncovered", "steps", "rejects", "checks", "unconnected",
+                                  "missing", "locked", "skipped_locked", "bots", "uncovered", "unpowered", "steps", "rejects", "checks", "unconnected",
                                   "plan", "error")},
                        not p.get("ok", False))
 
@@ -559,7 +605,7 @@ resume=True restarts a built job after its blocker clears; never re-imports."""
                               # nothing else: the executor knew WHICH tiles and what stood
                               # on them, the whitelist here dropped every one of them.
                               "blocked", "pending", "waiting", "standing", "built", "existing",
-                              "replaced", "replaced_at", "drift", "skipped_locked", "bots", "uncovered",
+                              "replaced", "replaced_at", "drift", "skipped_locked", "bots", "uncovered", "unpowered",
                               "block", "error", "artifact")},
                    not p.get("ok", False))
 

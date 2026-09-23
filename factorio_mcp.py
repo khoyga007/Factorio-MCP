@@ -174,6 +174,13 @@ def set_recipe(recipe: str, x: FiniteFloat, y: FiniteFloat,
     return invoke("set-recipe", **locals())
 
 
+@mcp.tool(annotations=READ)
+def flow(items: list[str] | None = None, window: str = "10m", surface: str = "nauvis",
+         force: str = "player") -> CallToolResult:
+    """Items/fluids made and used per minute over window 1m|10m|1h."""
+    return invoke("flow", **locals())
+
+
 @mcp.tool(annotations=WRITE)
 def research(name: str | None = None, start: bool = False, force: str = "player") -> CallToolResult:
     """Read research, or start an available technology with start=true."""

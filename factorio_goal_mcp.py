@@ -209,11 +209,12 @@ def observe(view: str = "situation",
             offset: Annotated[int, Field(ge=0)] = 0) -> CallToolResult:
     """situation|deposits|nearby|grid|lanes|entities(query=name)|
 flow(/min;query=a,b@10m)|water|research|ledger(query=exec-N|status:|cluster:|item:)
+|supply(query=item: makers/users/belt runs/chests base-wide)
 |patterns(+pattern_id)|references. offset pages; r<=32(water 2048)"""
     if (x is None) != (y is None):
         return _result({"ok": False, "error": "x-and-y-required-together"}, True)
     if view not in {"situation", "deposits", "nearby", "entities", "patterns", "references",
-                    "water", "research", "ledger", "grid", "flow", "lanes"}:
+                    "water", "research", "ledger", "grid", "flow", "lanes", "supply"}:
         return _result({"ok": False, "error": "unknown-view"}, True)
     if view == "ledger":
         # Default is the roll-up: the whole base in a fixed number of bytes. A filter or a
@@ -236,6 +237,22 @@ flow(/min;query=a,b@10m)|water|research|ledger(query=exec-N|status:|cluster:|ite
         items, _, window = (query or "").partition("@")
         return _send({"action": "flow", "surface": surface, "window": window or "10m",
                       "items": [i.strip() for i in items.split(",") if i.strip()] or None}, 5)
+    if view == "supply":
+        # One call for "where is X, how much spare": replaces a dozen nearby/lanes probes.
+        item = (query or "").strip()
+        p = _read(_send({"action": "supply", "surface": surface, "item": item}, 30))
+        if not p.get("ok", False):
+            return _result(p, True)
+        f = _read(_send({"action": "flow", "surface": surface, "window": "10m",
+                         "items": [item]}, 5))
+        rows = [{"type": "transport-belt", "x": bx, "y": by, "direction": d,
+                 "lines": [[{"name": item, "count": c1}] if c1 else [],
+                           [{"name": item, "count": c2}] if c2 else []]}
+                for bx, by, d, c1, c2 in p.get("belts") or []]
+        return _result({"ok": True, "view": view, "item": item,
+                        "flow_10m": (f.get("rows") or [None])[0],
+                        **_fields(p, "makers", "users", "stored", "chests", "belt_tiles"),
+                        "runs": lanes(rows)})
     if view == "water":
         body = {"action": "water_sites", "surface": surface, "radius": max(radius, 8), "offset": offset}
         if x is not None:

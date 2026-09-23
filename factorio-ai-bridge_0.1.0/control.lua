@@ -2000,6 +2000,77 @@ local function handle_flow(nonce, request)
     unit = "per_minute", rows = rows, total = total})
 end
 
+-- Where one item lives base-wide: machines making/using it (16-tile clusters),
+-- belt tiles carrying it (per-lane counts; Python folds them into runs) and chests.
+-- ponytail: full-surface find_entities per call; cache/area-limit if bases get huge.
+local function handle_supply(nonce, request)
+  local surface = surface_for(request)
+  if not surface then return response(nonce, false, {error = "surface-not-found"}) end
+  local force = force_for(request)
+  if not force then return response(nonce, false, {error = "force-not-found"}) end
+  local item = request.item
+  if type(item) ~= "string" or not (prototypes.item[item] or prototypes.fluid[item]) then
+    return response(nonce, false, {error = "unknown-item"})
+  end
+  local function has(list)
+    for _, p in pairs(list or {}) do if p.name == item then return true end end
+  end
+  local makers, users = {}, {}
+  local function add(bag, e, st)
+    local k = math.floor(e.position.x / 16) .. ":" .. math.floor(e.position.y / 16)
+    local c = bag[k]
+    if not c then c = {n = 0, sx = 0, sy = 0, st = {}}; bag[k] = c end
+    c.n, c.sx, c.sy = c.n + 1, c.sx + e.position.x, c.sy + e.position.y
+    c.st[st] = (c.st[st] or 0) + 1
+    c.r = c.r or e.get_recipe().name
+  end
+  for _, e in pairs(surface.find_entities_filtered {force = force,
+      type = {"assembling-machine", "furnace", "chemical-plant", "oil-refinery"}}) do
+    local r = e.get_recipe()
+    if r then
+      local st = entity_status_name(e.status) or "?"
+      if has(r.products) then add(makers, e, st) end
+      if has(r.ingredients) then add(users, e, st) end
+    end
+  end
+  local function fold(bag)
+    local out = {}
+    for _, c in pairs(bag) do
+      out[#out + 1] = {x = math.floor(c.sx / c.n + 0.5), y = math.floor(c.sy / c.n + 0.5),
+        n = c.n, recipe = c.r, status = c.st}
+    end
+    table.sort(out, function(a, b) return a.n > b.n end)
+    for i = #out, 25, -1 do out[i] = nil end
+    return out
+  end
+  local solid = prototypes.item[item] ~= nil
+  local belts, belt_total = {}, 0
+  for _, e in pairs(solid and surface.find_entities_filtered {force = force, type = "transport-belt"} or {}) do
+    local c1 = e.get_transport_line(1).get_item_count(item)
+    local c2 = e.get_transport_line(2).get_item_count(item)
+    if c1 + c2 > 0 then
+      belt_total = belt_total + 1
+      if #belts < 800 then
+        belts[#belts + 1] = {e.position.x, e.position.y, e.direction, c1, c2}
+      end
+    end
+  end
+  local chests, stored = {}, 0
+  for _, e in pairs(solid and surface.find_entities_filtered {force = force,
+      type = {"container", "logistic-container"}} or {}) do
+    local n = e.get_item_count(item)
+    if n > 0 then
+      stored = stored + n
+      chests[#chests + 1] = {x = e.position.x, y = e.position.y, n = n}
+    end
+  end
+  table.sort(chests, function(a, b) return a.n > b.n end)
+  for i = #chests, 21, -1 do chests[i] = nil end
+  return response(nonce, true, {action = "supply", item = item, makers = fold(makers),
+    users = fold(users), belts = belts, belt_tiles = belt_total, chests = chests,
+    stored = stored})
+end
+
 local function handle_water_sites(nonce, request) return field.water(nonce, request) end
 local function handle_recall(nonce, request) return field.recall(nonce, request) end
 local function handle_blueprint_run(nonce, request) return executor.start(nonce, request) end
@@ -2033,6 +2104,7 @@ HANDLERS = {
   set_treasury = handle_set_treasury,
   set_recipe = handle_set_recipe,
   snapshot = handle_snapshot,
+  supply = handle_supply,
   place = handle_place,
   recall = handle_recall,
   water_sites = handle_water_sites,

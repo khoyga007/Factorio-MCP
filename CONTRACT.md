@@ -118,11 +118,14 @@ Engine PASS 2026-09-19 (tests/verify_design_runtime.py, tests/designs/coal-drill
 - `observe(view="plan", query="item@rate/min[;recipe=item:name,...]")` (`planner.py`): recipe tree from live read-only `spec` → per-recipe machine + exact/ceil count, raw per min (drills/pumps), kW, belt lanes per edge, surplus. No LP: multi-product recipes via `recipe=` override, byproducts = surplus.
   - maintainer's cheat lives in PROTOTYPES (live: rocket-silo crafting_speed 1e6, asm2 750k) → every count ceils to 1. Real limit = inserters/belts; size cells by `flow`, widen (count) when an output belt saturates.
 - `build_design` row `{cell:recipe, x, y, count?, machine?, belt?, inserter?, long_inserter?, pole?}` (`cells.py`): `count` machines in a row, x,y = top-left TILE. Top→bottom: [belt B] belt A, input row (long|fast|pole per machine), machines, output row (-|fast|pole), output belt. All belts run east; inserters dir 0.
-  - Ingredients 1-2 on belt A lanes (left = north lane), 3-4 on belt B via long inserters. Fluid ingredient/product → `cell-fluid-unsupported:<name>` (needs pipe connection positions in spec).
+  - 1-2 ingredients: one item per belt (A = 1st, B = 2nd via long inserters), so a feed needs no lane planning. 3-4: two items per belt, lane order = `items` (left = north). Fluid ingredient/product → `cell-fluid-unsupported:<name>` (needs pipe connection positions in spec).
   - Machine default = cheapest UNLOCKED machine for the category (first live try picked locked asm3).
   - Reply carries `ports`: `in_a`/`in_b` west-end belt tile + lane items, `out` east-end tile + items, `box`. Ports are in the DESIGN frame: world only when build_design has no x,y (absolute mode) — use that, then `observe(route)` belts from/to the ports.
   - Poles connect inside the cell only; `unpowered` in the reply = no link to the grid yet, route a pole line.
   - Live dry-run 23/09: gear x2 at (-236,96) absolute → `planned`, 0 unconnected inserters.
+- `build_design` row `{chain:item@N/min, x, y}` (`chain.py`): plan → one producer cell PER consumer (no splitters), stacked in a column (gap 4), post-order (leaves on top). Each internal edge = routed belt child `out` → parent `in` via Lua `route` with `avoid` (cell boxes + reserved port tiles) + `planned_belts` (cell + earlier route belts, so no route sideloads into them).
+  - Chain can't make it (fluid, furnace/2x2, pre-merged 3-4 ingredient belt) → `ports.external` {items, x, y, dir, cell, per_min}: agent feeds those. `output` = tile east of root out belt.
+  - Live dry-run 23/09 absolute (-236,96): electronic-circuit@60 → planned, 2 cells, 1 edge, 10 route belts, 0 unconnected; fast-transport-belt@30 → planned, 4 cells, 3 edges, 56 route belts, 0 unconnected, 3 iron-plate externals.
 
 ## Field actions (live play, `field.lua`)
 

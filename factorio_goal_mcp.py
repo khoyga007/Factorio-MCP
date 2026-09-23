@@ -34,7 +34,7 @@ mcp = FastMCP(
         "native blueprints; achieve(build_design) builds a layout the agent designed itself. Use report(job_id) for the outcome and observe for blockers. "
         "observe(plan) sizes a chain; build_design {cell:recipe} lays one machine row between "
         "belts, {chain:item@N/min} stacks cells and routes their belts; both return ports "
-        "(external inputs to feed, output). Design rows are entity centers. Goal details: CONTRACT.md. "
+        "(external inputs to feed, output); power:true adds a pole line to the nearest pole. Design rows are entity centers. Goal details: CONTRACT.md. "
         "Detailed actions remain in the CLI for diagnosis. Never spawn free items."
     ),
     log_level="WARNING",

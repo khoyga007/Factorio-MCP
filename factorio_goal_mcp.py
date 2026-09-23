@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import math
 import os
 from pathlib import Path
 from typing import Annotated
@@ -102,6 +103,64 @@ def _chain_rows(row: dict) -> tuple[list[dict], dict]:
                  lambda recipe, count, cx, cy: _cell_rows({"cell": recipe, "count": count,
                                                           "x": cx, "y": cy}),
                  route, int(row["x"]), int(row["y"]))
+
+
+def _power_rows(rows: list[dict], boxes: list, surface: str, pole: str,
+                free=()) -> list[dict]:
+    """Pole line from the nearest box edge to the nearest existing pole (row `power:true`).
+    Path = the belt router's A* over free tiles; a pole every <=7 tiles of it. Whether that
+    pole is LIVE is the executor's power check (`unpowered` in the reply), not this one."""
+    reach = 7  # ponytail: small pole wire 7.5; bigger poles just get denser lines
+    own = {(r["x"], r["y"]) for r in rows}
+    x1, y1 = min(b[0] for b in boxes), min(b[1] for b in boxes)
+    x2, y2 = max(b[2] for b in boxes), max(b[3] for b in boxes)
+    cx, cy = (x1 + x2) / 2, (y1 + y2) / 2
+    err, _, found, *_ = _pull(surface, cx, cy, 64)
+    if err:
+        raise ValueError(f"power-scan:{err.get('error')}")
+    poles = [e for e in found if ("electric-pole" in e["name"] or "substation" in e["name"])
+             and (e["x"], e["y"]) not in own]
+    if not poles:
+        raise ValueError("power-no-pole-within-64")
+
+    def gap(e):  # distance from the layout bbox to a pole
+        return math.hypot(max(x1 - e["x"], 0, e["x"] - x2), max(y1 - e["y"], 0, e["y"] - y2))
+    to = min(poles, key=gap)
+    if gap(to) <= reach - 3:  # a cell pole sits <=3 tiles inside the box edge
+        return []
+    # Start on the free tile just outside the box, facing the target pole.
+    sx = min(max(to["x"], x1 + 0.5), x2 - 0.5)
+    sy = min(max(to["y"], y1 + 0.5), y2 - 0.5)
+    if to["x"] < x1: sx = x1 - 0.5
+    elif to["x"] > x2: sx = x2 + 0.5
+    elif to["y"] < y1: sy = y1 - 0.5
+    else: sy = y2 + 0.5
+    ends = [(to["x"] + dx, to["y"] + dy) for dx, dy in ((1, 0), (-1, 0), (0, 1), (0, -1))]
+    ends.sort(key=lambda t: math.hypot(t[0] - sx, t[1] - sy))
+    belts = [[r["x"], r["y"], r["direction"]] for r in rows if "belt" in r["name"]]
+    keep = [(b[0], b[1]) for b in belts] + list(free)  # external feed tiles stay open
+    last = None
+    for ex, ey in ends:
+        p = request({"action": "route", "surface": surface, "from": {"x": sx, "y": sy},
+                     "to": {"x": ex, "y": ey}, "planned_belts": belts,
+                     "avoid": boxes + [[kx - .5, ky - .5, kx + .5, ky + .5] for kx, ky in keep]},
+                    host=os.environ.get("FACTORIO_HOST", DEFAULT_HOST),
+                    port=int(os.environ.get("FACTORIO_PORT", DEFAULT_PORT)), timeout=60)
+        if p.get("ok"):
+            break
+        last = p.get("error")
+    else:
+        raise ValueError(f"power-route:{last}")
+    path = [(r["x"], r["y"]) for r in p["design"]]
+    out, at = [], (sx, sy)
+    out.append(at)
+    for prev, nxt in zip(path, path[1:]):
+        if math.hypot(nxt[0] - at[0], nxt[1] - at[1]) > reach:
+            at = prev
+            out.append(at)
+    if math.hypot(to["x"] - at[0], to["y"] - at[1]) > reach:
+        out.append(path[-1])
+    return [{"name": pole, "x": px, "y": py, "direction": 0} for px, py in dict.fromkeys(out)]
 
 
 def _cell_rows(row: dict) -> tuple[list[dict], dict]:
@@ -733,6 +792,13 @@ craft|collect|insert(design=[{name,count,x?,y?,source?}]<=8) import(pattern_id=b
                     rows, port = _cell_rows(row) if "cell" in row else _chain_rows(row)
                 except (OSError, ValueError, KeyError, TimeoutError) as exc:
                     return _result({"ok": False, "error": str(exc)}, True)
+                if row.get("power"):
+                    boxes = [c["box"] for c in port["cells"]] if "cells" in port else [port["box"]]
+                    try:
+                        rows += _power_rows(rows, boxes, surface, row.get("pole", "small-electric-pole"),
+                                            [(e["x"], e["y"]) for e in port.get("external", [])])
+                    except (OSError, ValueError, KeyError, TimeoutError) as exc:
+                        return _result({"ok": False, "error": str(exc)}, True)
                 expanded += rows
                 ports.append({"cell" if "cell" in row else "chain": row.get("cell") or row["chain"], **port})
             elif "route" in row:

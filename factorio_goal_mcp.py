@@ -475,7 +475,7 @@ def achieve(goal: str,
             area: list[float] | None = None, force_active: bool = False,
             tech: str | None = None) -> CallToolResult:
     """Goals (CONTRACT.md; area=[x1,y1,x2,y2]): reuse_blueprint(pattern_id),
-build_design(design=[{name,x,y,direction?}] world centers, dir 0N4E8S12W; splitter filter=item,output_priority=left|right),
+build_design(design=[{name,x,y,direction?}] world centers, dir 0N4E8S12W; filter=item (splitter|inserter), output_priority=left|right),
 recall(area|design; force_active beats job),
 capture(area->catalog+site), build_ghosts(area),
 drop_ghosts(pattern_id=exec-N),

@@ -251,7 +251,9 @@ flow(/min;query=a,b@10m)|water|research|ledger(query=exec-N|status:|cluster:|ite
                 for bx, by, d, c1, c2 in p.get("belts") or []]
         return _result({"ok": True, "view": view, "item": item,
                         "flow_10m": (f.get("rows") or [None])[0],
-                        **_fields(p, "makers", "users", "stored", "chests", "belt_tiles"),
+                        # Lua serialises an empty table as {}; keep lists lists
+                        **{k: p.get(k) or [] for k in ("makers", "users", "chests")},
+                        **_fields(p, "stored", "belt_tiles"),
                         # ponytail: first 40 runs; iron-plate can have hundreds, add paging if needed
                         "runs": (r := lanes(rows))[:40], "run_total": len(r)})
     if view == "water":

@@ -14,6 +14,24 @@ local function sorted_keys(t)
 end
 local function list(v) return type(v)=="table" and v or {} end
 
+-- Blueprint settings a re-placed ghost would lose (23/09: drain() re-placed a whole
+-- 243-row job by name only; every underground came back "input", filters vanished).
+local function settings_of(e)
+  local s={ug=e.type,filters=e.filters,use_filters=e.use_filters,sfilter=e.filter,
+    oprio=e.output_priority,iprio=e.input_priority}
+  return next(s) and s or nil
+end
+local function apply_settings(ent,s)
+  if not (s and ent and ent.valid) then return end
+  if s.filters then pcall(function()
+    ent.use_filters=true
+    for _,f in ipairs(s.filters) do ent.set_filter(f.index,f.name) end
+  end) end
+  if s.sfilter then pcall(function() ent.splitter_filter=s.sfilter end) end
+  if s.oprio then pcall(function() ent.splitter_output_priority=s.oprio end) end
+  if s.iprio then pcall(function() ent.splitter_input_priority=s.iprio end) end
+end
+
 -- Blueprint -> entities normalised so the footprint's top-left tile corner is (0,0).
 local function decode(value)
   if type(value)~="string" or #value>24000 then return nil,"invalid-blueprint" end
@@ -37,7 +55,7 @@ local function decode(value)
     if not item then return nil,"entity-has-no-place-item:"..tostring(e.name) end
     out[#out+1]={name=e.name,x=e.position.x,y=e.position.y,dir=e.direction or 0,
       w=p.tile_width,h=p.tile_height,item=item.name,count=item.count,
-      recipe=type(e.recipe)=="string" and e.recipe or nil}
+      recipe=type(e.recipe)=="string" and e.recipe or nil,set=settings_of(e)}
   end
   return out
 end
@@ -52,7 +70,7 @@ local function orient(es,r)
     local dir=(e.dir+r)%16
     local w,h=e.w,e.h
     if dir%8~=0 then w,h=h,w end
-    out[i]={name=e.name,x=x,y=y,dir=dir,w=w,h=h,item=e.item,count=e.count,recipe=e.recipe}
+    out[i]={name=e.name,x=x,y=y,dir=dir,w=w,h=h,item=e.item,count=e.count,recipe=e.recipe,set=e.set}
     min_x=math.min(min_x,x-w/2) min_y=math.min(min_y,y-h/2)
   end
   local max_x,max_y=0,0
@@ -65,7 +83,7 @@ end
 
 local function place_list(shape,ax,ay)
   local out={}
-  for i,e in ipairs(shape) do out[i]={name=e.name,x=ax+e.x,y=ay+e.y,dir=e.dir,w=e.w,h=e.h,recipe=e.recipe} end
+  for i,e in ipairs(shape) do out[i]={name=e.name,x=ax+e.x,y=ay+e.y,dir=e.dir,w=e.w,h=e.h,recipe=e.recipe,set=e.set} end
   return out
 end
 
@@ -1288,13 +1306,15 @@ function M.attach(ctx)
         local function ghost_at(recipe)
           local okg,made=pcall(function()
             return surface.create_entity{name="entity-ghost",inner_name=e.name,
-              position={e.x,e.y},direction=e.dir,force=force,recipe=recipe}
+              position={e.x,e.y},direction=e.dir,force=force,recipe=recipe,
+              type=e.set and e.set.ug or nil}
           end)
           return okg and made or nil
         end
         -- `recipe` on a ghost is not accepted for every prototype; losing the recipe is
         -- better than losing the entity, and drain() sets it again after revive.
         local made=ghost_at(e.recipe) or (e.recipe and ghost_at(nil))
+        apply_settings(made,e.set)
         if not made then return "blocked" end
         -- Named, not just counted: "replaced: 3" says nothing about WHICH tile lost its
         -- ghost. This is a re-placement of a missing ghost, never an upgrade in place.
@@ -1361,6 +1381,7 @@ function M.attach(ctx)
         local okr2=pcall(function() built.set_recipe(e.recipe) end)
         recipe_lost=(not okr2) and e.recipe or nil
       end
+      apply_settings(built,e.set)
       e.ours,e.pre=true,nil
       built_now=built_now+1
       j.receipts[#j.receipts+1]={ok=true,action="revive",name=e.name,x=e.x,y=e.y,

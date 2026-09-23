@@ -214,13 +214,14 @@ def _route_runs(design: list[dict]) -> list[str]:
     """Compact path: straight belt runs 'x1,y1..x2,y2 >' and 'ug x,y>x,y'."""
     out, run = [], None
     for e in design:
-        if e.get("type") == "input":
+        if e.get("type") == "input" or e.get("ug") == "in":
             ug_in = e
             continue
-        if e.get("type") == "output":
+        if e.get("type") == "output" or e.get("ug") == "out":
             run = None
             out.append(f"ug {ug_in['x']},{ug_in['y']}>{e['x']},{e['y']} {_ARROW[e['direction']]}")
             continue
+        e = {**e, "direction": e.get("d", e["direction"])}  # pipe rows carry travel dir in d
         if run and run[2] == e["direction"]:
             run[1] = e
             out[-1] = f"{run[0]['x']},{run[0]['y']}..{e['x']},{e['y']} {_ARROW[e['direction']]}"
@@ -245,7 +246,7 @@ def observe(view: str = "situation",
     """situation|deposits|nearby|grid|lanes|entities(query=name)|
 flow(/min;query=a,b@10m)|water|research|ledger(query=exec-N|status:|cluster:|item:)
 |supply(query=item: makers/users/belt runs/chests base-wide)
-|route(x,y=first tile; query=tx,ty[,end_dir][,sDIR start][,belt]: A* belt path -> route-N for build_design [{route:id}])
+|route(x,y=first tile; query=tx,ty[,end_dir][,sDIR start][,belt|pipe]: A* belt/pipe path -> route-N for build_design [{route:id}])
 |patterns(+pattern_id)|references. offset pages; r<=32(water 2048)"""
     if (x is None) != (y is None):
         return _result({"ok": False, "error": "x-and-y-required-together"}, True)

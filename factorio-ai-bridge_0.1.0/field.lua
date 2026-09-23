@@ -232,9 +232,13 @@ function M.attach(ctx)
     if not surface or not force then return reply(nonce,false,{error="surface-or-force-not-found"}) end
     if type(r.from)~="table" or type(r.to)~="table" then return reply(nonce,false,{error="from-and-to-required"}) end
     local belt=r.belt or "transport-belt"
-    local ug=r.underground or (belt:gsub("transport%-belt","underground-belt"))
+    -- pipe mode: pipes join every fluid neighbour, so a tile beside any fluid entity is out
+    -- (except from/to, where joining is the point). Underground hops preferred: only their
+    -- two ends touch the surface. Pipe-to-ground direction = its open side.
+    local pipe=belt=="pipe"
+    local ug=r.underground or (pipe and "pipe-to-ground" or (belt:gsub("transport%-belt","underground-belt")))
     if not prototypes.entity[belt] or not prototypes.entity[ug] then return reply(nonce,false,{error="unknown-belt"}) end
-    local maxd=prototypes.entity[ug].max_underground_distance or 5
+    local maxd=pipe and 10 or prototypes.entity[ug].max_underground_distance or 5  -- ponytail: 2.0 pipe-to-ground reach, not read from prototype
     local fx,fy=math.floor(r.from.x),math.floor(r.from.y)
     local tx,ty=math.floor(r.to.x),math.floor(r.to.y)
     local m=r.margin or 12
@@ -264,13 +268,30 @@ function M.attach(ctx)
     for _,e in pairs(surface.find_entities_filtered{area=area,force=force,type="inserter"}) do
       for _,p in ipairs{e.pickup_position,e.drop_position} do touch[key(math.floor(p.x),math.floor(p.y))]=true end
     end
+    local fluid={}
+    if pipe then
+      for _,e in pairs(surface.find_entities_filtered{area=area,force=force}) do
+        local ok,fb=pcall(function() return e.fluidbox end)
+        if ok and fb and #fb>0 then
+          local b=e.bounding_box
+          for x=math.floor(b.left_top.x),math.ceil(b.right_bottom.x)-1 do
+            for y=math.floor(b.left_top.y),math.ceil(b.right_bottom.y)-1 do fluid[key(x,y)]=true end
+          end
+        end
+      end
+    end
+    local function near_fluid(x,y)
+      if (x==fx and y==fy) or (x==tx and y==ty) then return false end
+      for _,u in ipairs{{0,0},{1,0},{-1,0},{0,1},{0,-1}} do if fluid[key(x+u[1],y+u[2])] then return true end end
+      return false
+    end
     local free_cache={}
     local function free(x,y)
       if x<x1 or x>x2 or y<y1 or y>y2 then return false end
       local k=key(x,y)
       local v=free_cache[k]
       if v==nil then
-        v=((not feeds[k] or (x==fx and y==fy)) and not touch[k] and not beltlike[k]
+        v=(((pipe and not near_fluid(x,y)) or (not pipe and (not feeds[k] or (x==fx and y==fy)) and not touch[k] and not beltlike[k]))
           and surface.can_place_entity{name=belt,position={x+0.5,y+0.5},direction=0,force=force,
             build_check_type=defines.build_check_type.blueprint_ghost,forced=true}
           and surface.count_entities_filtered{area={{x+0.05,y+0.05},{x+0.95,y+0.95}},type="cliff",limit=1}==0)
@@ -281,7 +302,7 @@ function M.attach(ctx)
     end
     local function ok_at(x,y,d)  -- tile usable holding something that outputs toward d
       if not free(x,y) then return false end
-      if x==tx and y==ty then return true end
+      if pipe or (x==tx and y==ty) then return true end
       local u=UNIT[d]
       return not beltlike[key(x+u[1],y+u[2])]
     end
@@ -330,13 +351,13 @@ function M.attach(ctx)
         local u=UNIT[n.d]
         local nx,ny=n.x+u[1],n.y+u[2]
         for _,nd in ipairs{n.d,(n.d+4)%16,(n.d+12)%16} do
-          if ok_at(nx,ny,nd) then relax(nx,ny,nd,n.g+(nd==n.d and 1 or 1.3),top[2],nil) end
+          if ok_at(nx,ny,nd) then relax(nx,ny,nd,n.g+(nd==n.d and 1 or 1.3)*(pipe and 1.5 or 1),top[2],nil) end
         end
         -- underground: entrance on the next tile, exit j tiles beyond it
         if free(nx,ny) then
           for j=2,maxd do
             local ex,ey=nx+u[1]*j,ny+u[2]*j
-            if ok_at(ex,ey,n.d) then relax(ex,ey,n.d,n.g+j+1+2.5,top[2],{nx,ny}) end
+            if ok_at(ex,ey,n.d) then relax(ex,ey,n.d,n.g+j+1+(pipe and 0 or 2.5),top[2],{nx,ny}) end
           end
         end
       end
@@ -345,10 +366,17 @@ function M.attach(ctx)
     local out,belts,ugs,i={},0,0,goal
     while i do
       local n=nodes[i]
-      if n.ug_in then
+      if n.ug_in and pipe then  -- ug= marks the pair for display; build ignores it
+        table.insert(out,1,{name=ug,x=n.x+0.5,y=n.y+0.5,direction=n.d,ug="out"})
+        table.insert(out,1,{name=ug,x=n.ug_in[1]+0.5,y=n.ug_in[2]+0.5,direction=(n.d+8)%16,ug="in"})
+        ugs=ugs+1
+      elseif n.ug_in then
         table.insert(out,1,{name=ug,x=n.x+0.5,y=n.y+0.5,direction=n.d,type="output"})
         table.insert(out,1,{name=ug,x=n.ug_in[1]+0.5,y=n.ug_in[2]+0.5,direction=n.d,type="input"})
         ugs=ugs+1
+      elseif pipe then
+        table.insert(out,1,{name=belt,x=n.x+0.5,y=n.y+0.5,direction=0,d=n.d})
+        belts=belts+1
       else
         table.insert(out,1,{name=belt,x=n.x+0.5,y=n.y+0.5,direction=n.d})
         belts=belts+1

@@ -9,6 +9,74 @@ Job id `exec-N`; read with `report(job_id)` (action `blueprint_job`). Receipt + 
 - Re-entry is idempotent: site re-check, tree clearing, stock debit, ghost aim and `blueprint_import` are ALL skipped once `j.imported` is set (`j.placed` can legitimately be `0`, which Lua reads as true — the flag, not the count, is the guard). The `connect` checks re-run, the primer resumes from `j.primed` (a flat index over primer×matching entities), and the holdout clock restarts.
 - Use after fixing the cause: a pole run built to the job, a pipe connected, a fuel problem. A failed audit is resumable too, but the primer will NOT re-fuel — put fuel in by hand first.
 
+## Job states
+
+A `build_design` / `reuse_blueprint` call either answers at once (`planned`, `blocked`) or starts a job `exec-N` that moves through the states below. Read it with `report(job_id)`.
+
+| State | Meaning | How to get out |
+|---|---|---|
+| `planned` | Dry-run answer: site found, every check passed, material bill in `materials`. Nothing spent. | Repeat the call without `dry_run`. |
+| `blocked` | Refused before anything was spent. `error` says why: `no-site` (+`rejects`), `inserter-unconnected` / `pipe-unconnected` (+`unconnected`), `too-many-live-jobs`, `nothing-unlocked`; or `missing` / `locked` name items you lack or cannot craft yet. | Fix the design, the area or the stock, then call again. |
+| `preparing` | Gathering: collect from chests, mine trees/rocks, hand craft. Times out after 18 000 ticks (`job-timeout`). | Wait. |
+| `building` | Direct: importing the blueprint. Ghost: reviving ghosts as stock arrives; `pending`, `waiting`, `blocked`, `standing` say what is left. | Wait, or deliver what `waiting` names (declared `supply` chests restock by themselves). |
+| `settling` | Built and primed; waiting `settle_ticks` before the first audit window. | Wait. |
+| `auditing` | Holdout windows running; `audit` holds each window. | Wait. |
+| `verified` | Built, and the last audit window passed (or no metrics were declared). `self_sustaining` says whether it needed feeding. | Done. |
+| `needs-attention` | Stopped. `error` says why (see below). | Before the import: rerun the IDENTICAL call. After the import: fix the cause, then `report(job_id, resume=true)`. Never recall and rebuild a built job. |
+
+## Common errors
+
+Every refusal carries `error`; many also carry the facts to act on. Argument errors (`invalid-*`, `*-required`, `unknown-*`) mean the call itself is malformed: the code names the argument.
+
+| Error | Stage | What it means / what to do |
+|---|---|---|
+| `no-site` | plan | No spot passed. `rejects` counts reasons, `rejects.at` names what stood there. Move the area or relax the contract. |
+| `inserter-unconnected` | plan | An inserter end has no receiver. `unconnected[].hint.design_shift` suggests a move. Edit the design. |
+| `pipe-unconnected` | plan | An underground pipe has no partner (`no-partner`, `wrong-facing`). |
+| `no-power` (a `rejects` reason) | plan | A `connect power` entity is not under a pole that reaches a live grid. Build the pole line or use row `power:true`. |
+| `missing` / `locked` | plan | Items short / recipes not researched. Make them, research, or use ghost mode (`build.mode="ghost"`) to build as stock arrives. |
+| `direct-blueprint-too-large` | plan | Direct mode caps at 64 entities. Use ghost mode. |
+| `too-many-live-jobs` | plan | 8 jobs already live. Let one finish or `drop_ghosts` a parked one. |
+| `player-treasury-on-target-surface-required` | plan | The treasury is not player 1's inventory on this surface (a treasury chest is named, or no character). |
+| `reference-pattern-needs-contract` | plan | A community pattern: pass your own `contract`. |
+| `absolute-site-needs-ref` | plan | `site.mode="absolute"` without `site.ref`. |
+| `power-route:*` / `power-bridge:x,y` / `power-no-pole-within-64` | plan | Row `power:true` could not reach the grid. Build a pole nearer, or route by hand. |
+| `cell-*` / `chain-*` | plan | A cell or chain row cannot be expanded: the suffix says why (too many ingredients, machine too narrow, no fluid ports, route failed). |
+| `insufficient-items` | preparing | Stock ran short mid-job. Rerun the identical call; the executor regathers. |
+| `materials-changed:<item>` | preparing | The bag changed under a direct job and the replan came up short, or it changed more than three times. Restock, then rerun. |
+| `site-changed-replan` | preparing | The site stopped being valid before the build (`rejects`). Rerun the identical call. |
+| `job-timeout` | preparing | Gathering took over 18 000 ticks. Stock up, then rerun. |
+| `treasury-changed` | any | The player the job pays through changed or left the surface. |
+| `ground-not-clear` | building | Direct job: a cliff or water tile could not be paid for. Get explosives or landfill, rerun. |
+| `landfill-refused:<n>` | building | The tile cannot take landfill. Pick another site. |
+| `blueprint-blocked:<n>` | building | Ghost tiles the engine refuses; `blocked[].by` names what stands there. Free them, `resume`. |
+| `import-geometry-mismatch:<row>` | building | The import landed differently from the plan. The row is named; check the design. |
+| `infra-missing:<fluid\|power>:<entity>@x,y` | after import | A declared `connect` is not satisfied (re-checked for 10 s). Connect the pipe or pole, `resume`. |
+| `layout-broken:<row>` | auditing | An entity was removed, moved or rotated during the audit. Restore it, `resume`. |
+| `holdout-last-window-failed` | auditing | The last window missed a metric. Fix throughput or fuel (the primer will not refuel), `resume`. |
+| `ghosts-dropped` / `job-ghosts-dropped` | after `drop_ghosts` | The job's ghosts were removed; it cannot resume. Start a new job. |
+| `job-not-resumable` / `job-not-built` | `report(resume)` | Only a built `needs-attention` job resumes. A job that never imported: rerun the identical call. |
+| `player-inventory-full` | hand / preparing | The treasury is full. Empty it into a chest. |
+
+## Glossary
+
+| Term | Meaning |
+|---|---|
+| treasury / bag / stock | The same thing: player 1's main inventory. Builds pay from it, `craft` fills it. The Lua code calls it `stock`. |
+| job, `exec-N` | One `build_design` / `reuse_blueprint` run; its receipt is in script-output `executor/exec-N.*`. |
+| contract | What the agent declares for a job: site, material rules, primer, links, audit. §Schema. |
+| design frame / world | `build_design` rows are in the design frame unless the site is `absolute`, where they are world positions. Ports in replies use the same frame as the rows. |
+| anchor | The top-left TILE EDGE of the rotated footprint, never an entity centre. §Site. |
+| ghost | A planned entity not yet built. Ghost mode lays them all and pays per entity as stock arrives. |
+| primer | Items the executor puts into the new build once (fuel, ore). |
+| `contract.feeds` | The executor's refuelling loop during the audit: move `item` from a job chest into `to` entities. Counts against `self_sustaining`. |
+| `block.feeds` / `block.eats` | Ledger links: what this block supplies to / takes from other blocks, read by `observe(view="ledger")`. Nothing is moved. |
+| holdout window | One audit period (`window_ticks`). A job passes on its LAST window. |
+| `self_sustaining` | The last window needed no `contract.feeds` transfer. |
+| block, cluster | A ledger entry per job (or hand-declared area); clusters group nearby blocks per read. |
+| pattern state | Catalog ladder: `reference` → `designed` / `captured` → `built` → `verified`. |
+| cell / chain | A `build_design` row that expands to a row of machines with belts (cell), or one cell per recipe in a plan with belts routed between (chain). |
+
 ## Executor rules (cheat sheet)
 
 - Inserter `direction` = pickup side (dir 0 N: picks from north, drops south). Both ends must hold a receiver or `inserter-unconnected` (see §Site).
@@ -145,7 +213,12 @@ Engine PASS 2026-09-19 (tests/verify_design_runtime.py, tests/designs/coal-drill
 {
   "site": {"mode": "search|exact|absolute", "ref": {"x": 0.5, "y": 0.5}, "rotations": [0,4,8,12], "clearance": 1,
            "enemy_radius": 16, "max_checks": 20000},
-  "build": {"mode": "ghost|direct"},
+  "build": {"mode": "ghost|direct", "revive": true, "skip_locked": false},
+  "supply": [{"x": 10.5, "y": 4.5}],
+  "block": {"id": "smelter-1", "name": "iron smelting", "role": "iron plates for the bus",
+            "feeds": [{"item": "iron-plate", "block": "gears-1", "per_minute": 60}],
+            "eats": [{"item": "iron-ore", "via": "belt from the east patch"}],
+            "notes": "free text"},
   "resources": [{"entity": "burner-mining-drill", "resource": "coal",
                  "min_per_tile": 100, "min_total": 800, "full_cover": true, "exclusive": true}],
   "primer": [{"entity": "burner-mining-drill", "item": "coal", "count": 5}],
@@ -157,6 +230,8 @@ Engine PASS 2026-09-19 (tests/verify_design_runtime.py, tests/designs/coal-drill
                           "entity": "wooden-chest", "item": "coal", "min": 20}]}
 }
 ```
+
+Where each key is explained: `site` → §Site, `build` → §Ghost build (`revive:false` = bots mode, ghost only; `skip_locked` = leave locked items out), `supply` → §Site (≤8 chests a job may restock from; none = take nothing), `block` → §Ledger, `resources` → §Site, `primer` → §Build, `feeds` → §Feeds (the executor's refuelling loop, NOT the ledger link of the same name in `block.feeds`), `connect` → §Site, `verify` → §Holdout audit. The search `radius` (4..256, default 192) is an argument of `achieve`, not a contract key; it bounds both the site search and where materials are gathered.
 
 Unknown keys ignored (notes: `source`). Contract errors (refused, nothing built): `invalid-build-mode`, `invalid-site`, `absolute-site-needs-ref`, `invalid-rotation`, `exact-site-needs-one-rotation`, `invalid-connect`, `invalid-declared-load`, `invalid-metric[-item|-fluid|-fraction|-load-fraction|-min]:<metric key>`, `declared-load-required:<metric key>`.
 

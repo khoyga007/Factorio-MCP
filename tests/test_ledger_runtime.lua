@@ -4,7 +4,7 @@ return function(handlers,state,bp)
   local function check(v,name) assert(v,name) result.checks[#result.checks+1]=name end
   local function call(action,body) return handlers[action]("ledger-"..game.tick..":"..#result.checks,body) end
   local function find(led,id) for _,b in ipairs(led.blocks) do if b.id==id then return b end end end
-  local surface,a,b,phase,started,done,player,flow_started,hand,pair
+  local surface,a,b,phase,started,done,player,flow_started,hand,pair,starve,jam
   local function run(x,block) return call("blueprint_run",{blueprint=bp,surface=surface.name,x=x,y=0,
     contract={site={mode="exact"},block=block}}) end
   local function busy(job)
@@ -76,7 +76,15 @@ return function(handlers,state,bp)
         -- Hand blocks start their first window later than the job blocks, so wait for it.
         local led2=call("ledger",{detail="rows"})
         local lh,lp=find(led2,hand),find(led2,pair)
-        if not (lh and lh.flow and lp and lp.flow) then return end
+        local ls,lj=find(led2,starve),find(led2,jam)
+        if not (lh and lh.flow and lp and lp.flow and ls and ls.flow and lj and lj.flow) then return end
+        -- The jammed furnace still finishes the craft in hand, so its first window reads
+        -- half working; the next one is all `blocked`.
+        local ji=lj.flow.idle and lj.flow.idle["stone-furnace"] or {}
+        if (ji.blocked or 0)<90 and game.tick-flow_started<6000 then return end
+        check((ji.blocked or 0)>=90,"idle-blocked:"..helpers.table_to_json(lj.flow))
+        local si=ls.flow.idle and ls.flow.idle["stone-furnace"] or {}
+        check((si.starved or 0)>=90,"idle-starved:"..helpers.table_to_json(ls.flow))
         -- A chest-only block cannot measure anything: products_finished exists on no
         -- entity in it. `measured 0` there reads as a producer that made nothing.
         local he
@@ -160,6 +168,16 @@ return function(handlers,state,bp)
       local hp=call("ledger_note",{block={name="hand-furnaces"},surface=surface.name,force="player",x1=23,y1=-1,x2=28,y2=2})
       check(hp.ok and hp.id,"hand-pair-registered:"..helpers.table_to_json(hp))
       pair=hp.id
+      -- Idle reasons: a fuelled furnace with no ore reads `starved`; one whose result slot
+      -- is full of plates reads `blocked`. `active` alone could not tell the two apart.
+      local fs=surface.create_entity{name="stone-furnace",position={30.5,0.5},force="player"}
+      fs.insert{name="coal",count=5}
+      starve=call("ledger_note",{block={name="hand-starved"},surface=surface.name,force="player",x1=29,y1=-1,x2=32,y2=2}).id
+      local fj=surface.create_entity{name="stone-furnace",position={34.5,0.5},force="player"}
+      fj.insert{name="coal",count=5} fj.insert{name="iron-ore",count=25}
+      fj.get_output_inventory().insert{name="iron-plate",count=100}
+      jam=call("ledger_note",{block={name="hand-jammed"},surface=surface.name,force="player",x1=33,y1=-1,x2=36,y2=2}).id
+      check(starve and jam,"idle-blocks-registered")
       led=call("ledger",{detail="rows"})
       local lh=find(led,h.id)
       check(lh.status=="declared" and lh.n["wooden-chest"]==1,"hand-live:"..helpers.table_to_json(lh))

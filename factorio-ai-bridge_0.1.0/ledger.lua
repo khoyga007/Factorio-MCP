@@ -116,11 +116,28 @@ return function(ctx, M, jobs)
     return t
   end
 
+  -- Why a machine is not working, in the words the fix needs: `starved` = look upstream,
+  -- `blocked` = look downstream (24/09: `active` alone said "slow", never which way).
+  local ES=defines.entity_status
+  local WHY={}
+  for reason,names in pairs{
+    starved={"no_ingredients","item_ingredient_shortage","fluid_ingredient_shortage",
+      "no_input_fluid","low_input_fluid","missing_required_fluid","missing_science_packs"},
+    blocked={"full_output","not_enough_space_in_output","full_burnt_result_output",
+      "waiting_for_space_in_destination"},
+    power={"no_power","low_power","not_plugged_in_electric_network"},
+    fuel={"no_fuel"}, depleted={"no_minable_resources"},
+    recipe={"no_recipe","recipe_not_researched"}, research={"no_research_in_progress"}} do
+    for _,n in ipairs(names) do if ES[n] then WHY[ES[n]]=reason end end
+  end
+  local MACHINE={["assembling-machine"]=true,furnace=true,["rocket-silo"]=true,
+    ["mining-drill"]=true,lab=true}
+
   local function flow_step(site,es)
     local fl,now=flow(),made_totals(es)
     local f=fl[site.id]
     if not f then f={start=game.tick,base=now,samples=0,active={},present={}} fl[site.id]=f end
-    f.samples,f.present=f.samples+1,f.present or {}
+    f.samples,f.present,f.idle=f.samples+1,f.present or {},f.idle or {}
     local counters=0
     for _,e in pairs(es) do
       if e.valid then
@@ -128,8 +145,13 @@ return function(ctx, M, jobs)
         -- used to add 8 per sample and read back as active 800.
         f.present[e.name]=(f.present[e.name] or 0)+1
         if CRAFTERS[e.type] then counters=counters+1 end
-        if e.status==defines.entity_status.working then
+        local st=e.status
+        if st==ES.working then
           f.active[e.name]=(f.active[e.name] or 0)+1
+        elseif MACHINE[e.type] and st then
+          local why=WHY[st] or "other"
+          local t=f.idle[e.name] or {} f.idle[e.name]=t
+          t[why]=(t[why] or 0)+1
         end
       end
     end
@@ -149,8 +171,16 @@ return function(ctx, M, jobs)
       -- `counted` = machines in this block whose output products_finished can count.
       -- Zero means `made` is empty because NOTHING here counts (drills, belts, chests),
       -- not because the block produced nothing.
-      f.last={ticks=ticks,samples=f.samples,made=made,active=active,counted=counters}
-      f.start,f.base,f.samples,f.active,f.present=game.tick,now,0,{},{}
+      -- Same denominator as `active`; under 1% is noise and costs context.
+      local idle={}
+      for name,t in pairs(f.idle) do
+        for why,n in pairs(t) do
+          local pct=math.floor(n*100/math.max(f.present[name] or f.samples,1)+0.5)
+          if pct>=1 then idle[name]=idle[name] or {} idle[name][why]=pct end
+        end
+      end
+      f.last={ticks=ticks,samples=f.samples,made=made,active=active,idle=idle,counted=counters}
+      f.start,f.base,f.samples,f.active,f.present,f.idle=game.tick,now,0,{},{},{}
     end
   end
 
@@ -294,7 +324,7 @@ return function(ctx, M, jobs)
   local function thin(b)
     local f=b.flow
     if f then
-      b.flow={made=keep(f.made or {}),active=keep(f.active or {}),
+      b.flow={made=keep(f.made or {}),active=keep(f.active or {}),idle=keep(f.idle or {}),
               counted=f.counted,samples=f.samples}
     end
     return b
@@ -358,6 +388,15 @@ return function(ctx, M, jobs)
         -- next to `declared` reads exactly like a producer that made nothing.
         if (f.counted or 0)>0 then e.measured=f.made[e.item] or 0
         else e.uncounted=true end
+        -- A short edge names the producer's worst idle reason, so the agent knows which
+        -- end to fix without opening the block.
+        if e.declared and e.measured and e.measured<e.declared*0.5 then
+          local top,pct=nil,0
+          for _,t in pairs(f.idle or {}) do
+            for why,n in pairs(t) do if n>pct then top,pct=why,n end end
+          end
+          e.why=top
+        end
       end
     end
     local groups=clusters_of(out)

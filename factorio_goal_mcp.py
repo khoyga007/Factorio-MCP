@@ -832,11 +832,14 @@ craft|collect|insert(design=[{name,count,x?,y?,source?}]<=8) import(pattern_id=b
             # shifted a whole layout; the executor now derives it from row 1.
             contract = {**(contract or {}),
                         "site": {"mode": "absolute", "rotations": [0],
-                                 "ref": {"x": float(design[0]["x"]), "y": float(design[0]["y"])}},
-                        # Direct caps at 64 entities (control.lua); 23/09 a 243-row block
-                        # failed direct-blueprint-too-large, so big designs default to ghost.
-                        "build": (contract or {}).get("build")
-                                 or {"mode": "direct" if len(design) <= 64 else "ghost"}}
+                                 "ref": {"x": float(design[0]["x"]), "y": float(design[0]["y"])}}}
+        build = (contract or {}).get("build") or {}
+        if "mode" not in build:
+            # Direct caps at 64 entities (build.lua); 23/09 a 243-row block and an anchored
+            # chain both failed direct-blueprint-too-large, so big designs default to ghost
+            # whether or not the agent passed an anchor.
+            contract = {**(contract or {}),
+                        "build": {**build, "mode": "direct" if len(design) <= 64 else "ghost"}}
     elif goal == "reuse_blueprint":
         if not pattern_id:
             return _result({"ok": False, "error": "pattern-id-required"}, True)

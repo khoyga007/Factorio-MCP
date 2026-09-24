@@ -188,7 +188,13 @@ class GoalMCPTest(unittest.IsolatedAsyncioTestCase):
                             p = await call("achieve", {"goal": "build_design", "design": moved,
                                                        "contract": own}, ["blueprint_run"])
                             self.assertNotEqual(pattern_id, p["pattern_id"])
-                            self.assertEqual(own, seen[-1]["contract"])
+                            self.assertEqual({**own, "build": {"mode": "direct"}}, seen[-1]["contract"])
+                            # 23/09 live: an anchored chain went direct and died on
+                            # direct-blueprint-too-large; >64 rows default to ghost anchored too.
+                            big = [{"name": "wooden-chest", "x": i + 0.5, "y": 0.5} for i in range(65)]
+                            await call("achieve", {"goal": "build_design", "design": big,
+                                                   "x": 0, "y": 0, "dry_run": True}, ["blueprint_run"])
+                            self.assertEqual({"mode": "ghost"}, seen[-1]["contract"]["build"])
                             saved = json.loads((Path(catalog_dir) / (p["pattern_id"] + ".json")).read_text())
                             self.assertEqual(("designed", own), (saved["state"], saved["contract"]))
                             # Macro zoom: the default read never asks for block rows, so the

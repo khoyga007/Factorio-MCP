@@ -957,19 +957,29 @@ function M.attach(ctx)
               -- them and stop. Free the tile, then report(resume=true) picks up from here.
               if j.blocked then error("blueprint-blocked:"..#j.blocked) end
             end
+            if j.connect_until and game.tick<(j.scan_at or 0) then return end
             local es,bad,why=built_entities(j)
             if not es then error("import-geometry-mismatch:"..bad..":"..(why or "")) end
             -- Stamp identity while we still know which entities are ours. Belts, pipes and
             -- rails carry no unit_number; those rows keep the coordinate fallback.
             for i,e in ipairs(es) do j.layout[i].unit=e.unit_number end
             -- Declared infrastructure must be connected BEFORE primer spends fuel.
+            local miss
             for _,rule in ipairs(j.contract.connect) do
               for i,e in ipairs(es) do
-                if e.name==rule.entity and not connected(es,e,rule) then
-                  error("infra-missing:"..(rule.fluid or "power")..":"..e.name.."@"..j.layout[i].x..","..j.layout[i].y)
+                if not miss and e.name==rule.entity and not connected(es,e,rule) then
+                  miss="infra-missing:"..(rule.fluid or "power")..":"..e.name.."@"..j.layout[i].x..","..j.layout[i].y
                 end
               end
             end
+            if miss then
+              -- 23/09 a boiler read unconnected in the tick its build finished and passed on
+              -- report(resume): the link shows up a little later. Re-check for 10 s first.
+              j.connect_until=j.connect_until or game.tick+600
+              if game.tick<j.connect_until then j.scan_at=game.tick+SCAN_TICKS return end
+              j.connect_until=nil error(miss)
+            end
+            j.connect_until=nil
             -- Primer inserts are counted, so a resume does not fuel the same machine twice.
             local primed=0
             for _,p in ipairs(j.contract.primer) do

@@ -1,62 +1,97 @@
-# Factorio Mayor — AI chơi Factorio như một kỹ sư
+# Factorio Mayor
 
-Bộ công cụ cho một AI agent tự chơi **Factorio 2.0**: đọc bản đồ, tự thiết kế dây chuyền theo luật game, xây bằng **vật tư thật**, rồi đo xem dây chuyền có thực sự chạy không. Không spawn đồ, không cheat, không chạy Lua tùy ý.
+Tools that let an AI agent play **Factorio 2.0** like an engineer. The agent reads the map, designs
+production lines from the game's own rules, builds them with **real items**, and then measures
+whether they actually run. Nothing is spawned, there is no cheat mode, and there is no arbitrary
+Lua console.
 
-- **Vạch đích giai đoạn học:** phóng rocket đầu tiên bằng nhà máy do agent xây và vận hành.
-- **Sản phẩm cuối:** bộ tool và tài liệu, để bất kỳ AI nào tiếp quản cũng chơi tiếp được như một kỹ sư: đo trước khi xây, kiểm tra kết quả, sửa khi thực tế lệch dự đoán.
+The project has two parts:
 
-## Cách hoạt động
+- **`factorio-ai-bridge`**: a Factorio mod (Lua) that listens on a localhost UDP port and carries
+  out reads, builds and audits inside the game.
+- **`factorio_goal_mcp.py`**: a Python [MCP](https://modelcontextprotocol.io) server that gives an
+  agent (Claude Code, Codex or any MCP client) three tools: `observe`, `achieve` and `report`.
+
+The first milestone, launching a rocket from a factory the agent built and ran, has been reached.
+See [ROADMAP.md](ROADMAP.md) for what comes next and [LESSONS.md](LESSONS.md) for what it took.
+
+## How it works
 
 ```
-Agent (Claude / Codex / Gemini)
+Agent (any MCP client)
    │  MCP stdio: observe · achieve · report
    ▼
-factorio_goal_mcp.py ── blueprint_library.py (catalog, encode thiết kế → blueprint string)
+factorio_goal_mcp.py ── blueprint_library.py   catalog, design → blueprint string
+   │                    planner.py              recipe tree → machine counts per rate
+   │                    cells.py / chain.py     production cells and chains
    │  UDP localhost:34198
    ▼
-Mod factorio-ai-bridge (Lua, chạy trong game)
-   ├─ control.lua   cổng UDP + bảng HANDLERS (điều phối, không logic)
-   ├─ core.lua      state, response, parse request, kho vật tư, entity view
-   ├─ items.lua     mine / craft / collect / insert / autofuel (đồ thật)
-   ├─ survey.lua    snapshot / brief / spec / audit / index / flow / supply (chỉ đọc)
+factorio-ai-bridge (mod, runs inside the game)
+   ├─ control.lua   UDP entry point + handler table
+   ├─ core.lua      state, responses, stock (treasury), entity views
+   ├─ items.lua     mine / craft / collect / insert / autofuel, real items only
+   ├─ survey.lua    snapshot / brief / spec / audit / flow / supply (read-only)
    ├─ build.lua     recipe / research / launch / place / blueprint import-export
-   ├─ executor.lua  executor blueprint dùng chung: tìm chỗ → gom/craft đồ → xây → nạp → audit
-   │   ├─ site.lua      hình học layout, kiểm điện/ống/inserter, tìm site
-   │   ├─ contract.lua  parse contract + block
-   │   └─ ledger.lua    sổ cái: block, edge, đo flow, cluster
-   └─ field.lua     tìm chỗ đặt bơm nước, thu hồi công trình, route
+   ├─ executor.lua  shared blueprint executor: find site → gather/craft → build → prime → audit
+   │   ├─ site.lua      layout geometry, power / pipe / inserter checks, site search
+   │   ├─ contract.lua  contract parsing
+   │   └─ ledger.lua    base memory: blocks, edges, measured flow, clusters
+   └─ field.lua     water spots, recall, belt/pipe routing
 ```
 
-**Agent thiết kế, tool thực thi.** Agent tự tính layout (kích thước máy, vùng đào, tầm inserter, tỉ lệ) và khai báo một *contract*: cách tìm chỗ, yêu cầu mỏ, điện/nước, đồ nạp ban đầu, và chỉ số nghiệm thu. Executor kiểm tra, xây, rồi chạy **holdout audit**: đo theo từng cửa sổ thời gian, và window cuối phải đạt. Chỉ layout **tự duy trì** (window cuối không cần executor tiếp liệu) mới được lên `verified` trong catalog.
+**The agent designs and the executor carries it out.** The agent works out a layout (machine sizes,
+mining areas, inserter reach, ratios) and declares a *contract*: where to build, which ore patch it
+needs, power and water, starting fuel, and the numbers that count as success. The executor checks
+the site, gathers or crafts the materials from real stock, builds, primes, and then runs a
+**holdout audit**, measuring over time windows where the last window must pass. A layout is marked
+`verified` in the catalog only when it is **self-sustaining**, meaning the last window needed no
+feeding from the executor.
 
-## Cài đặt
+Building blocks the agent can use:
 
-Yêu cầu: Factorio 2.0.77, Python ≥ 3.11, gói `mcp` ≥ 1.27.1.
+- **Designs**: raw entity rows, or saved patterns from `blueprints/catalog/`.
+- **Production cells**: `{cell: recipe}` expands to a row of machines with input/output belts and
+  inserters.
+- **Production chains**: `{chain: item@N/min}` plans the recipe tree and builds one cell per
+  consumer, with the connecting belts routed between them.
+- **Ghost mode**: paste a plan as ghosts and let it build itself as materials arrive, from declared
+  supply chests or by construction robots.
+- **Ledger**: records what was built, what feeds what, and measured output per minute, so the agent
+  can find starved or blocked lines.
 
-1. **Mod:** chép thư mục `factorio-ai-bridge_0.1.0/` vào `%APPDATA%\Factorio\mods\`.
-   > Game nạp **bản sao** chứ không phải repo. Sửa Lua xong phải chép lại và **khởi động lại Factorio**.
-2. **Bật cổng UDP:** chạy `start-factorio-ai.bat`, hoặc tự thêm `--enable-lua-udp 34198` khi mở `factorio.exe`. Sửa đường dẫn exe trong file `.bat` nếu máy khác. Mở một map có bật mod.
-3. **MCP server:**
+## Requirements
 
-   ```powershell
+- Factorio **2.0** (developed against 2.0.77)
+- Python **3.11+**
+- Python package `mcp` ≥ 1.27.1 (see `requirements-mcp.txt`)
+
+## Install
+
+1. **Mod.** Copy `factorio-ai-bridge_0.1.0/` into your Factorio mods folder
+   (`%APPDATA%\Factorio\mods\` on Windows, `~/.factorio/mods/` on Linux).
+   The game loads that **copy**, not this repo. After you edit Lua, copy it again and restart
+   Factorio.
+2. **UDP port.** Start Factorio with `--enable-lua-udp 34198`. On Windows, set `FACTORIO_EXE` to
+   your `factorio.exe` and run `start-factorio-ai.bat`. Then load a map with the mod enabled.
+3. **MCP server.**
+
+   ```sh
    python -m pip install -r requirements-mcp.txt
-   claude mcp add factorio-engineer --scope user -- python E:\FactorioMayor\factorio_goal_mcp.py
-   # hoặc Codex:
-   codex mcp add factorio-engineer -- python E:\FactorioMayor\factorio_goal_mcp.py
+
+   # Claude Code
+   claude mcp add factorio-engineer --scope user -- python /path/to/FactorioMayor/factorio_goal_mcp.py
+   # Codex
+   codex mcp add factorio-engineer -- python /path/to/FactorioMayor/factorio_goal_mcp.py
    ```
 
-   Host/port lấy từ `FACTORIO_HOST` / `FACTORIO_PORT`, mặc định `127.0.0.1:34198`. Sửa Python xong phải khởi động lại phiên agent để nạp schema tool mới.
-4. **Kiểm tra:** gọi `observe(view="situation")`. Kết quả phải có tên build của mod (hiện tại `2026-09-19-ledger`).
+   Host and port come from `FACTORIO_HOST` / `FACTORIO_PORT` (default `127.0.0.1:34198`).
+   After you edit the Python, restart the agent session so it picks up the new tool schema.
+4. **Check.** Call `observe(view="situation")`. The reply should include the mod's build name.
 
-## Ba tool MCP
+## Quickstart
 
-| Tool | Dùng để |
-|---|---|
-| `observe(view=…)` | `situation` · `deposits` (mỏ) · `nearby` (1 lần gọi: lỗi lên đầu, máy, đoạn belt/ống gộp, cột điện) · `entities` (dữ liệu thô, debug) · `water` (chỗ đặt bơm) · `research` (tiến độ, hàng chờ, lab) · `patterns` (catalog, `pattern_id` để xem layout) |
-| `achieve(goal=…)` | `build_design` (layout agent tự thiết kế) · `reuse_blueprint` (mẫu trong catalog) · `capture` (chụp vùng đã xây vào catalog) · `recall` (thu hồi công trình về túi) · `research` · `annotate` (ghi ý đồ vào ledger). Có `dry_run` để xem trước. |
-| `report(job_id)` | Trạng thái job `exec-N`: vị trí, vật tư, từng window audit, `self_sustaining` |
-
-Ví dụ minh họa cú pháp: 1 khoan than quay mặt về Bắc, đổ than vào rương ngay phía trên (layout lấy từ `tests/designs/coal-drill-chest.json`, đã test trong engine).
+One burner drill facing north, dropping coal into a chest just above it. The layout is taken from
+`tests/designs/coal-drill-chest.json` and has been tested in the engine.
 
 ```json
 achieve(goal="build_design",
@@ -69,37 +104,84 @@ achieve(goal="build_design",
                       "metrics":[{"key":"coal","kind":"container_gain","entity":"wooden-chest","item":"coal","min":10}]}})
 ```
 
-Layout này **không tự duy trì**: đốt hết than nạp ban đầu thì khoan tắt. Muốn tự duy trì phải có đường than quay về khoan, ví dụ vòng belt + inserter như mẫu `bp-888ab81fe7579dfd`.
+Then poll `report(job_id="exec-N")` for the audit windows.
 
-Tọa độ là tâm entity: máy có cạnh lẻ đặt ở `.5`, cạnh chẵn đặt ở số nguyên. Hướng dùng hệ 16: `0` Bắc · `4` Đông · `8` Nam · `12` Tây. Chỉ số nghiệm thu gồm `container_gain`, `working_count`, `products_finished`, `research_units`, `electric_output_mw`, `fluid_temperature`, `fuel_min`. Đặc tả đầy đủ ở **[CONTRACT.md](CONTRACT.md)**.
+This layout is **not** self-sustaining: once the starting coal burns out, the drill stops. A
+self-sustaining version needs a path that carries coal back to the drill, for example a belt loop
+with inserters like pattern `bp-888ab81fe7579dfd`.
 
-## Tài liệu
+Coordinates are entity centres. Odd-sized entities sit on `.5`, even-sized ones on whole numbers.
+Directions use 16 steps: `0` north, `4` east, `8` south, `12` west. Add `dry_run=true` to check a
+plan without building it.
 
-| File | Nội dung |
+## Tools
+
+| Tool | Purpose |
 |---|---|
-| [CONTRACT.md](CONTRACT.md) | Đặc tả contract, executor, metric, điện/nước, research, field actions |
-| [MCP.md](MCP.md) | Chạy MCP server, luồng ưu tiên, cache schema |
-| [FIELD_NOTES.md](FIELD_NOTES.md) | Luật game đã đo thực tế và luật chơi của dự án |
-| [LEARNING_PROGRESSION.md](LEARNING_PROGRESSION.md) | Nhật ký quan sát theo thời gian |
-| [BLUEPRINTS.md](BLUEPRINTS.md) | Quy trình tạo và nghiệm thu blueprint |
-| [NEXT_SESSION.md](NEXT_SESSION.md) | Checkpoint cho phiên làm việc tiếp theo |
-| [docs/CLI.md](docs/CLI.md) | CLI `factorio_ai.py`, chỉ dùng để chẩn đoán |
-| `skills/` | Hướng dẫn theo giai đoạn: khai cuộc, nung, science đỏ/xanh/lam, rocket |
-| `blueprints/catalog/` | Mẫu đã lưu, kèm trạng thái `designed` → `built` → `verified` |
-| `reference/` | Mã tham khảo bên ngoài (skyline624, có LICENSE riêng) |
+| `observe(view=…)` | Read the world: `situation`, `deposits`, `nearby`, `entities`, `water`, `research`, `flow`, `supply`, `route`, `plan` (rate planner), `ledger`, `patterns` / `references` (catalog), and more |
+| `achieve(goal=…)` | Act: `build_design`, `reuse_blueprint`, `build_ghosts` / `drop_ghosts`, `capture`, `recall`, `research`, `set_recipe`, `craft` / `collect` / `insert`, `import`, `annotate`, `launch` |
+| `report(job_id)` | Status of an `exec-N` job: site, materials, each audit window, `self_sustaining`. `resume=true` restarts a built job once its blocker is cleared |
 
-## Kiểm thử
+More detail:
 
-```powershell
-python -m unittest discover -s tests                  # unit test + kiểm hợp đồng action
-python tests\verify_metrics_runtime.py --player-save .runtime-test\saves\replica-player.zip
+- [CONTRACT.md](CONTRACT.md): contracts, executor rules, metrics, power and water, ghost builds,
+  the ledger, cells and chains
+- [MCP.md](MCP.md): running the MCP server, schema caching
+- [docs/CLI.md](docs/CLI.md): `factorio_ai.py`, a lower-level CLI for diagnostics only
+- [BLUEPRINTS.md](BLUEPRINTS.md): how blueprints get created and verified
+- [FIELD_NOTES.md](FIELD_NOTES.md) and [LEARNING_PROGRESSION.md](LEARNING_PROGRESSION.md): game
+  rules measured in play (partly in Vietnamese)
+- `skills/`: stage-by-stage guides for an agent, from bootstrap and smelting through science packs
+  to the rocket
+
+## Tests
+
+```sh
+python -m pytest tests -q        # Python unit tests, no game needed
+python contract_check.py         # actions.json, the Lua handler table and the CLI agree
 ```
 
-Mỗi `tests/verify_*_runtime.py` chạy Factorio headless (`--benchmark`) trên **bản sao** save với mod đã chép vào `.runtime-test/`. Thư mục này bị gitignore: cần tự tạo `config.ini` và một save. Đường dẫn `factorio.exe` đang viết cứng trong các script. `contract_check.py` giữ `actions.json`, bảng handler Lua và CLI khớp nhau.
+Engine tests (`tests/verify_*_runtime.py`) run Factorio headless (`--benchmark`) on a **copy** of a
+save, with the mod mirrored into `.runtime-test/`:
 
-## Luật chơi
+```sh
+export FACTORIO_EXE=/path/to/factorio    # or set it in PowerShell / cmd
+python tests/verify_executor_runtime.py --player-save .runtime-test/saves/your-save.zip
+```
 
-- Mọi thao tác trong game đi qua MCP. CLI chỉ để chẩn đoán.
-- Chỉ dùng vật tư thật lấy từ túi hoặc kho của người chơi, và mỗi lần chuyển đồ có receipt. Không spawn.
-- Công nghệ chưa mở thì bị chặn. Không có lệnh Lua tùy ý.
-- Cây, đá nằm trên ô công trình thì executor tự đào trước khi xây, gỗ/đá vào túi có receipt. Ngoài ô công trình không đụng tới (cây hút ô nhiễm). Vách đá (cliff) cần thuốc nổ nên không dọn: vị trí đó bị từ chối với lý do `cliff`.
+`.runtime-test/` is git-ignored. Create it yourself with a `config.ini` and a save.
+
+## Rules the agent plays by
+
+- Every in-game action goes through MCP. The CLI is only for diagnostics.
+- Only real items from the player's inventory or the force's storage are used, and every transfer
+  leaves a receipt. Nothing is spawned.
+- Locked technology is refused. There is no arbitrary Lua.
+- Trees and rocks on a build's own tiles are mined first, and the wood and stone go to the
+  inventory with a receipt. Cliffs and water are cleared only when cliff explosives or landfill are
+  available. The player's own buildings are never mined.
+
+## Repository layout
+
+| Path | Contents |
+|---|---|
+| `factorio-ai-bridge_0.1.0/` | The mod |
+| `factorio_goal_mcp.py` | MCP server (`observe` / `achieve` / `report`) |
+| `blueprint_library.py`, `catalog_add.py` | Blueprint encoding and the pattern catalog |
+| `planner.py`, `cells.py`, `chain.py` | Rate planner, production cells, production chains |
+| `perception.py`, `survey.py`, `factorio_model.py`, `spec_*.py` | Read-side helpers and the game-data model |
+| `factorio_ai.py`, `bridge_client.py` | Diagnostic CLI and the UDP client |
+| `actions.json`, `contract_check.py` | Action registry and its consistency check |
+| `blueprints/catalog/` | Saved patterns, each with a state: `reference` → `designed` → `built` → `verified` |
+| `incoming/` | Raw community blueprint strings, not yet imported |
+| `skills/` | Agent guides per game stage |
+| `tests/` | Unit tests, engine tests and fixtures |
+| `reference/` | Third-party design reference (see below) |
+
+## License
+
+`reference/skyline624/` is third-party code vendored for reference under its own MIT license
+(`reference/skyline624/LICENSE`). See `reference/PORTING.md` for how it is used.
+
+The rest of the repository has no license file yet. Until one is added, default copyright
+applies.

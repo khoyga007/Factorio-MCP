@@ -12,8 +12,8 @@ nạp schema mới, việc bổ sung lựa chọn mẫu/goal không cần đổi
 ## Chạy và đăng ký
 
 ```powershell
-python -m pip install -r E:\FactorioMayor\requirements-mcp.txt
-codex mcp add factorio-engineer -- C:\Python314\python.exe E:\FactorioMayor\factorio_goal_mcp.py
+python -m pip install -r requirements-mcp.txt
+codex mcp add factorio-engineer -- python <repo>\factorio_goal_mcp.py
 codex mcp get factorio-engineer --json
 ```
 

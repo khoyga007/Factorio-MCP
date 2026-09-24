@@ -12,9 +12,9 @@ SANDBOX = ROOT / ".runtime-test"
 sys.path.insert(0, str(ROOT))
 from blueprint_library import encode_blueprint  # noqa: E402
 
-from runtime_mod import sync_mod
+from runtime_mod import FACTORIO_EXE, sync_mod
 MOD = SANDBOX / "mods" / "factorio-ai-bridge_0.1.0"
-EXE = Path(r"D:\Factorio-AnkerGames\Factorio\bin\x64\factorio.exe")
+EXE = FACTORIO_EXE
 # Top-left of the bounding box is (0,0), so an exact site at x=0,y=0 lands these tiles.
 PLAN = [{"name": "wooden-chest", "x": 0.5, "y": 0.5},
         {"name": "wooden-chest", "x": 1.5, "y": 0.5},
@@ -22,7 +22,7 @@ PLAN = [{"name": "wooden-chest", "x": 0.5, "y": 0.5},
         {"name": "assembling-machine-1", "x": 4.5, "y": 1.5, "recipe": "iron-gear-wheel"}]
 # Past the 64 entities the executor used to cap at.
 WIDE = [{"name": "transport-belt", "x": 0.5 + i, "y": 0.5} for i in range(70)]
-# Past the 500 the executor used to cap at: maintainer's starter base is 508 entities.
+# Past the 500 the executor used to cap at: a real starter base is 508 entities.
 POLE = [{"name": "small-electric-pole", "x": 0.5, "y": 0.5}]
 HUGE = [{"name": "transport-belt", "x": 0.5 + (i % 26), "y": 0.5 + (i // 26)} for i in range(520)]
 # Three 1x1 chests the bag never holds, so a ghost plan of them parks instead of reviving.

@@ -2,7 +2,7 @@
 
 Nhật ký quan sát trong Sandbox Factorio 2.0. Các kết luận phụ thuộc prototype, hướng và phiên bản; không dùng mọi câu trong nhật ký như luật tổng quát. Đối chiếu API và test engine trước khi đưa vào tool.
 
-**Đối chiếu 2026-09-17 (agent):** build `2026-09-17-mcp-fixes` đã kiểm tra đọc fluid/ports, insert rương, snapshot vật cản, collect đồ rơi giữ quality/ammo, và đặt hai đầu underground-belt cùng hướng bằng `type` tường minh. `dry-run.can_place` đã độc lập với vật tư từ trước. Các đoạn đo đạc cũ bên dưới là dữ liệu lịch sử.
+**Đối chiếu 2026-09-17:** build `2026-09-17-mcp-fixes` đã kiểm tra đọc fluid/ports, insert rương, snapshot vật cản, collect đồ rơi giữ quality/ammo, và đặt hai đầu underground-belt cùng hướng bằng `type` tường minh. `dry-run.can_place` đã độc lập với vật tư từ trước. Các đoạn đo đạc cũ bên dưới là dữ liệu lịch sử.
 
 ---
 
@@ -280,7 +280,7 @@ Số liệu trích xuất trực tiếp từ Prototype Engine Factorio 2.0 (`tic
 
 ---
 
-## 6. Đặc tả Nâng cấp Bridge Tool cho Team (agent, agent, agent, agent)
+## 6. Đặc tả Nâng cấp Bridge Tool
 
 Đề xuất từ Sandbox, đã đối chiếu với code và API 2.0.77 bên dưới. Số dòng cũ chỉ là mốc lịch sử.
 

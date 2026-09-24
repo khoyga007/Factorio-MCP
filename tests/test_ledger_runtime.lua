@@ -23,7 +23,7 @@ return function(handlers,state,bp)
         for _,e in pairs(surface.find_entities()) do e.destroy() end
         local tiles={} for x=-40,40 do for y=-40,40 do tiles[#tiles+1]={name="grass-1",position={x,y}} end end surface.set_tiles(tiles)
         player.teleport({30.5,30.5},surface)
-        -- Benchmark saves carry no character; stand one in the site (as maintainer's would be).
+        -- Benchmark saves carry no character; stand one in the site (as a player's would be).
         surface.create_entity{name="character",position={30.5,30.5},force="player"}
         state().treasury_entity=nil state().treasury_unit_number=nil state().autofuel_enabled=false
         bag.clear()

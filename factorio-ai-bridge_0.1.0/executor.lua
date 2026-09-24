@@ -393,7 +393,7 @@ function M.attach(ctx)
       if n==0 then return ctx.response(nonce,false,{error="primer-entity-not-in-blueprint",entity=p.entity}) end
       cost[p.item]=(cost[p.item] or 0)+p.count*n
     end
-    -- Parked plans are the point of ghost mode (maintainer 20/09), so a live job no longer
+    -- Parked plans are the point of ghost mode (20/09), so a live job no longer
     -- swallows the call: several plans wait at once. Two guards replace the old one --
     -- a cap on how many run, and tiles another live job already claims are not a site.
     local live,reserved,ids=0,{},{}
@@ -524,7 +524,7 @@ function M.attach(ctx)
 
   -- A parked ghost plan restocks itself: every RESTOCK_TICKS it asks its declared supply
   -- chests for exactly what drain() said it was waiting for. No supply chests = takes
-  -- nothing, which is the safe default (maintainer 20/09, option A). A collect that comes up
+  -- nothing, which is the safe default (20/09, option A). A collect that comes up
   -- short is not a job failure here -- waiting IS the state -- so this never calls
   -- perform(), which would mark the job needs-attention.
   local RESTOCK_TICKS=600
@@ -894,7 +894,7 @@ function M.attach(ctx)
               end
               j.cleared=n
             end
-            -- Cliffs and water: the other two natural blockers (maintainer 20/09). Both are
+            -- Cliffs and water: the other two natural blockers (20/09). Both are
             -- cleared here, after the trees, because both spend items the preparing steps
             -- just collected. A ghost plan that cannot pay yet parks and retries.
             if j.blasted==nil or j.filled==nil then

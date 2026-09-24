@@ -71,7 +71,7 @@ local function parse_contract(raw,r)
     end
     c.resources[#c.resources+1]=v
   end
-  -- Supply chests, maintainer 20/09: a job that waits for materials pulls from THESE chests and
+  -- Supply chests (20/09): a job that waits for materials pulls from THESE chests and
   -- nowhere else. Without them the restock loop takes nothing: a parked ghost plan must
   -- never quietly drain the coal a running base is eating.
   for _,v in ipairs(list(raw.supply)) do

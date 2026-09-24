@@ -1,6 +1,6 @@
 # Porting notes — external designs → FactorioMayor
 
-maintainer approved 2026-09-19. Take DESIGN, not code. Sources vendored read-only under `reference/`; MIT, keep LICENSE + attribution in any file that ports logic.
+Approved 2026-09-19. Take DESIGN, not code. Sources vendored read-only under `reference/`; MIT, keep LICENSE + attribution in any file that ports logic.
 
 - `skyline624/` = skyline624/factorio_llm @ SOURCE_COMMIT. C#, vanilla 2.0.77, RCON, walking character. We: Lua+Python, Space Age + alien-biomes, UDP, no character (treasury model). Their "reach / approach / route" logic = irrelevant for us; drop.
 - FLE = JackHopkins/factorio-learning-environment (MIT). Only the holdout rule taken; not vendored.

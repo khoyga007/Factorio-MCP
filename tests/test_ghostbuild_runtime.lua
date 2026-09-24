@@ -62,7 +62,7 @@ return function(handlers,state,bp)
         check(big.ok and big.state=="planned" and big.plan.count==70 and not big.placed_at,
           "over-64-entities-accepted:"..tostring(big.state)..":"..tostring(big.error))
 
-        -- maintainer's own starter base is 508 entities: past the old 500 cap, so a real
+        -- A real starter base is 508 entities: past the old 500 cap, so a real
         -- blueprint of that size has to plan in one piece, not in hand-cut halves.
         local huge=call("blueprint_run",{blueprint=bp.huge,surface=surface.name,x=0,y=-30,
           contract=CONTRACT,dry_run=true})

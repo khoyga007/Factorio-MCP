@@ -16,7 +16,7 @@ Meta-lessons for any agent driving this bridge. Mechanics live in FIELD_NOTES.md
 7. **Every new consumer on a shared segment/belt steals from someone.** Battery plant drained the acid meant for PU; cracker ate all light oil meant for solid fuel. Before connecting, list who else draws from that fluid segment / belt lane; recall or isolate the thief.
 8. **Cheat crafting speed moves the bottleneck to inserters and their insertion limit.** Limit scales with crafting speed → one inserter dumps ALL of the first ingredient into the machine before touching the next (594 copper in an LDS asm). Load mixed chests with exact recipe totals; expect serial, not parallel, loading.
 9. **Treasury (player bag) full silently blocks jobs** (`player-inventory-full` mid-prepare). Keep a junk chest; dump before big collects.
-10. **Split big jobs, use exact sites** (CONTRACT.md §Anchor: exact site = tile-edge anchor, not a centre bbox).
+10. **Split big jobs, use exact sites** (CONTRACT.md §Site: exact site = tile-edge anchor, not a centre bbox).
 
 ## Tooling
 11. **When work gets heavy, stop and improve the tool — then resume.** Wins: A* `route` for belts and pipes (300-tile acid pipe in one call), `{file:}` design rows, `flow` view, `launch` goal. Each paid back within the same day.

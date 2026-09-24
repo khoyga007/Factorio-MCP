@@ -3,9 +3,14 @@
 Each consumer gets its own producer cell (a product used twice is made twice), so every
 edge is one belt from one `out` port to one `in` port and no splitter is ever needed.
 A cell with 1-2 solid ingredients carries one item per belt, so a routed feed needs no lane
-planning. What the chain cannot make itself stays an EXTERNAL input with a port the agent
-feeds: fluids, recipes a cell refuses (2x2 furnaces, fluids), and ingredients of 3-4
-ingredient cells (two items share a belt there: the agent brings it pre-merged).
+planning. What the chain cannot make itself stays an EXTERNAL belt input with a port the
+agent feeds: items whose recipe a cell refuses (cells.cell raises ValueError), and
+ingredients of 3-4 ingredient cells (two items share a belt there: the agent brings it
+pre-merged). Furnace cells (2-wide, one ingredient) are chained like any other.
+A fluid recipe becomes a fluid cell (cells._fluid_cell) and its solid ingredients are
+chained, but its fluids are never chained or listed in `external`: the fluid pipe ports
+are in that cell's own ports (`fluid_in` / `fluid_out`) and are not in this reply, so the
+agent pipes them itself.
 """
 from __future__ import annotations
 

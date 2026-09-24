@@ -54,3 +54,27 @@ Anh chọn A. Mình đọc `origin/master` @ `b8b5e1f` như một agent mới ch
 - Mục 1: viết lại skills theo MCP. Việc này lớn, vì cần biết chính xác mỗi action cũ ứng với lệnh MCP nào. Mình tra được từ `factorio_goal_mcp.py`, nhưng bạn nên review.
 - Mục 4 và 9: cần bạn quyết cách tổ chức lại và xác nhận hành vi.
 Phần mình sửa sẽ nằm trên nhánh riêng, mở PR nháp, không đụng `executor.lua` hay `site.lua`.
+
+## 2026-09-24 03:55 UTC — test A: docs + skills xong, PR #2 — Claire Doppel
+
+Bạn ơi, việc test A xong rồi. PR #2 (nháp) trên nhánh `claude/docs-newcomer`, mỗi mục một commit theo thứ tự bạn giao. Chỉ sửa docs, skills và docstring `chain.py`, không đụng `*.lua` hay code `*.py`.
+
+1. `bc0e3f3` anchor: ghi rõ `absolute` + `site.ref` là cách khuyến nghị. Với `exact` thì anchor là `floor(min(x - w/2))`. Mình thêm `absolute-site-needs-ref` vào schema và danh sách lỗi.
+2. `b3e25a3` README "From a fresh save", 10 bước.
+3. `0cea7f3` 9/9 skill đã theo MCP (bạn đếm đúng, không phải 6). Orientation có bảng tra CLI → MCP. Mấy action không có đường MCP (`spec`, `mine`, `autofuel`, `ping`) mình ghi là chỉ dùng chẩn đoán qua CLI, không bịa lệnh.
+4. `93088cf` thay số dòng bằng tên hàm, sửa mục 10 và mục 11.
+5. `07e3181` fluid: kết luận là **(b)**. Kèm docstring `chain.py` và CONTRACT.
+6. `ae10635` thêm các bảng trạng thái, lỗi, thuật ngữ, và bổ sung schema.
+7. `5f26a9c` cấu trúc lại CONTRACT: có mục lục, mỗi mục quy tắc trước, `### Evidence` ở cuối. Mình kiểm bằng script: không câu nào bị mất.
+
+Kiểm tra: pytest 89/89, `contract_check` OK, `python chain.py` ok.
+
+**Mấy chỗ bạn nên xem kỹ:**
+- **Mục 11:** `observe(view="situation")` không có trường build. Chỉ `ping` trả `build`. Nên README bước 4 giờ nói `situation` ok là đã nối được, còn muốn biết bản mod thì chạy `python factorio_ai.py ping` (chẩn đoán). Bạn có muốn thêm `build` vào `situation` không? Việc đó là sửa code nên mình không làm.
+- **Treasury chest:** nếu có chest đang được đặt làm treasury thì `blueprint_run` từ chối luôn (`kind~="player"` → `player-treasury-on-target-surface-required`). Skill cũ lại dạy cách đặt chest đó. Giờ mình ghi "do not use".
+- **`insert` không có slot cho rocket-silo** (`items.lua` `handle_insert` không có nhánh cho silo). Skill rocket giờ nạp qua chest + inserter.
+- **Lỗ hổng code về fluid (mình chưa sửa):** reply của chain bỏ mất `fluid_in` / `fluid_out` của các fluid cell. Chain có root chỉ làm ra fluid thì bị KeyError ở `root["ports"]["out"]`.
+- **Số liệu game trong skills** (100 rocket part, tên tech) là mình giữ nguyên nội dung cũ, chỉ gắn cờ "kiểm bằng `observe(plan/research)`". Mình không chắc bản 2.0 đã đổi những gì, nên không tự sửa.
+- **Cấu trúc lại CONTRACT:** mình chỉ chuyển những bullet hay đuôi câu *bắt đầu* bằng `Engine PASS`, `Live dry-run`, `LIVE BUILD`. Những câu "Measured 20/09…" nằm giữa quy tắc, dùng để giải thích lý do, thì mình để nguyên chỗ cũ, vì tách ra sẽ làm quy tắc khó hiểu. Riêng mục "Saved contracts" giữ nguyên, vì bằng chứng gắn với từng pattern id.
+
+Mình không merge. Bạn review xong thì merge nhé.

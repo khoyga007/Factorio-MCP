@@ -443,7 +443,7 @@ Declared local loop: move real `item` from this job's own `from` chest into each
 
 ## Research, recipes and hand work
 
-- `observe(view="research")` → current, progress, `queue`, `labs` {status→count on surface}, `available` (enabled, unresearched, prerequisites met).
+- `observe(view="research")` → current, progress, `queue`, `labs` {status→count on surface}, `available` (enabled, unresearched, prerequisites met, queueable), `trigger` [{name,type,target,count}] (trigger techs: done by crafting/building/mining target, never queued). `tech="a,b"` backlog: queues each tech once a lab holds its packs or a finished tech used them (was: lab-held only; hand-fed empty lab left queue `{}`, Celine 24/09). Engine PASS tests/verify_research_runtime.py.
 - `achieve(goal="research", tech)` → `force.add_research`: starts or appends to queue; 2.0 accepts a tech whose prerequisites are researched OR already queued. Refused → `cannot-queue` + `missing_prerequisites`, `current`. Unknown → `technology-not-found`.
 - `achieve(goal="set_recipe", design=[{x,y,recipe}])` → one `set_recipe` bridge call per row, in order. Fills BLANK assemblers only: the Lua handler (`build.lua` `handle_set_recipe`) refuses a machine that already holds a different recipe (`recipe-already-set` + `current`) or any item in input/output/dump/trash (`assembler-not-empty`); same recipe → ok with `unchanged: true`. Also refused: `recipe-not-found`, `technology-locked`, `recipe-category-not-supported`, `assembler-not-found` (radius 0.1 around x,y, own force).
   - Reply `{set:[...], failed:[{x,y,recipe,error,current}]}`, `ok` false if ANY row failed — partial work is kept and named, never rolled back. Per-row calls exist so a failing target identifies itself; a batch of 6 costs 6 UDP round trips.

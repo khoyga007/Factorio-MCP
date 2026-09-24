@@ -37,6 +37,16 @@ return function(handlers,state,blueprint,contract_json)
         pipe=surface.create_entity{name="pipe",position={-0.5,11.5},force="player"}
         surface.create_entity{name="substation",position={-24,-23},force="player"}
 
+        -- 24/09 connect power on a generator = its steam box touches something. Premise check:
+        -- boiler dir = steam side; engine north of a SOUTH boiler has no connection.
+        for _,case in ipairs{{8,0},{0,1}} do
+          local b=surface.create_entity{name="boiler",position={20.5,-10},direction=case[1],force="player"}
+          local g=surface.create_entity{name="steam-engine",position={20.5,-13.5},direction=0,force="player"}
+          local n=0 for k=1,#g.fluidbox do n=n+#g.fluidbox.get_connections(k) end
+          check((n>0 and 1 or 0)==case[2],"engine-steam-link-dir"..case[1]..":"..n)
+          b.destroy() g.destroy()
+        end
+
         -- per-run override: declared load = radar 0.3 MW -> power min = 0.95*min(load,1.8)
         local declared=0.3
         contract.declared_load_mw=declared

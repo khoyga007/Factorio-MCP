@@ -160,6 +160,14 @@ function M.attach(ctx)
       -- A network id alone can be an island of poles: require a live source on the same network.
       local id=e.electric_network_id
       if not id then return false end
+      -- A generator counts itself as the source: require its steam box to touch something
+      -- (24/09 Celine exec-7: engines north of a south boiler, no steam, verified anyway).
+      if e.type=="generator" then
+        for k=1,#e.fluidbox do
+          if #e.fluidbox.get_connections(k)>0 then return true end
+        end
+        return false
+      end
       for _,g in pairs(e.surface.find_entities_filtered{force=e.force,
         type={"generator","burner-generator","solar-panel","electric-energy-interface","fusion-generator","accumulator"}}) do
         if g.electric_network_id==id and (g.type~="accumulator" or g.energy>0) then return true end

@@ -104,20 +104,16 @@ Nhật ký quan sát trong Sandbox Factorio 2.0. Các kết luận phụ thuộc
   
   | Hướng (`direction`) | Kích thước $(W \times H)$ | Tọa độ Tâm $(X_c, Y_c)$ | Cổng Nước vào/ra (Water Ports) | Cổng Hơi (Steam Output) | Lò đốt than (Fuel Door) |
   | :---: | :---: | :---: | :--- | :--- | :--- |
-  | **`south` (8)** | $3 \times 2$ | $(n + 0.5, m)$ | $2$ cổng xuyên ngang tại hàng Bắc: $(X_c \pm 2.0, Y_c - 0.5)$ | Chĩa về phía Bắc: $(X_c, Y_c - 1.0)$ | Hướng về Nam ($Y_c + 0.5$) |
-  | **`north` (0)** | $3 \times 2$ | $(n + 0.5, m)$ | $2$ cổng xuyên ngang tại hàng Nam: $(X_c \pm 2.0, Y_c + 0.5)$ | Chĩa về phía Nam: $(X_c, Y_c + 1.0)$ | Hướng về Bắc ($Y_c - 0.5$) |
+  | **`north` (0)** | $3 \times 2$ | $(n + 0.5, m)$ | $2$ cổng xuyên ngang tại hàng Nam: $(X_c \pm 2.0, Y_c + 0.5)$ | Chĩa về phía Bắc: $(X_c, Y_c - 1.0)$ | Hướng về Nam ($Y_c + 0.5$) |
+  | **`south` (8)** | $3 \times 2$ | $(n + 0.5, m)$ | $2$ cổng xuyên ngang tại hàng Bắc: $(X_c \pm 2.0, Y_c - 0.5)$ | Chĩa về phía Nam: $(X_c, Y_c + 1.0)$ | Hướng về Bắc ($Y_c - 0.5$) |
   | **`east` (4)** | $2 \times 3$ | $(n, m + 0.5)$ | $2$ cổng xuyên dọc tại cột Tây: $(X_c - 0.5, Y_c \pm 2.0)$ | Chĩa về phía Đông: $(X_c + 1.0, Y_c)$ | Hướng về Tây ($X_c - 0.5$) |
   | **`west` (12)** | $2 \times 3$ | $(n, m + 0.5)$ | $2$ cổng xuyên dọc tại cột Đông: $(X_c + 0.5, Y_c \pm 2.0)$ | Chĩa về phía Tây: $(X_c - 1.0, Y_c)$ | Hướng về Đông ($X_c + 0.5$) |
 
+* **Luật hướng**: `direction` của boiler = hướng steam ra; nước ở hàng/cột phía sau. 24/09 Celine live: bản cũ ghi `south` → steam Bắc (sai), boiler south + engine phía Bắc cho engine `no_input_fluid`. Đúng: boiler north(0) + engine north(0) phía Bắc, như `bp-985eb5fc230538b4` (engine test `tests/verify_steam_runtime.py`).
 * **Định luật Kết nối Nước Boiler**:
-  1. Khi Boiler quay hướng `south` tại tâm $(X_c, Y_c)$:
-     * Đường ống nước xuyên ngang nằm ở **hàng trên** ($Y = Y_c - 0.5$).
-     * Ống nối tiếp giáp bên sườn Tây phải đặt tại $(X_c - 2.0, Y_c - 0.5)$.
-     * Ống nối tiếp giáp bên sườn Đông phải đặt tại $(X_c + 2.0, Y_c - 0.5)$.
-     * *Bẫy kinh điển trước đó*: Đặt ống tại $Y = Y_c$ hoặc $Y = Y_c + 0.5$ sẽ hoàn toàn lệch trục ống ngầm của Boiler, dẫn tới lỗi `no_input_fluid`.
-  2. Cổng hơi nước (Steam Output) nằm ở cạnh $3$-tile đối diện với cửa lò than. Khi nối với `steam-engine`:
-     * Với Boiler `south` tại $(X_c, Y_c)$, cổng steam chĩa thẳng lên hướng Bắc.
-     * Cổng hơi tiếp xúc trực tiếp tại $Y = Y_c - 1.0$, sẵn sàng cắm thẳng vào đầu vào của Steam Engine đặt tại $(X_c, Y_c - 3.5)$ (khi Engine dài 5 ô, tâm $Y_c - 3.5$, mép dưới chạm $Y_c - 1.0$).
+  1. Boiler `north` tại tâm $(X_c, Y_c)$: ống nước ở **hàng dưới** ($Y = Y_c + 0.5$), ống sườn tại $(X_c \pm 2.0, Y_c + 0.5)$. Ống ở hàng kia → `no_input_fluid`.
+  2. Boiler `north`: steam ra tại $Y = Y_c - 1.0$, cắm thẳng Steam Engine dọc (dir 0, dài 5) tâm $(X_c, Y_c - 3.5)$; engine thứ hai tâm $(X_c, Y_c - 8.5)$.
+  3. Audit: `connect` boiler `fluid water` + steam 165°C **không** chứng minh engine nhận steam (exec-7 verified, engine vẫn `no_input_fluid`). Kiểm engine `working` bằng `observe(entities)` sau build.
 
 ---
 
@@ -270,7 +266,7 @@ Số liệu trích xuất trực tiếp từ Prototype Engine Factorio 2.0 (`tic
 | `chemical-plant` | $3 \times 3$ | $(n + 0.5, m + 0.5)$ | 2 cổng dịch vào, 2 cổng dịch ra. Công suất 210 kW. |
 | `oil-refinery` | $5 \times 5$ | $(n + 0.5, m + 0.5)$ | 3 cổng dịch vào, 3 cổng dịch ra. Công suất 420 kW. |
 | `storage-tank` | $3 \times 3$ | $(n + 0.5, m + 0.5)$ | Dung tích 25,000 đơn vị dịch. 4 cổng ở 4 phía chính giữa cạnh ($X \pm 1.5$ hoặc $Y \pm 1.5$). |
-| `boiler` (xoay dọc) | $3 \times 2$ | $(n + 0.5, m)$ | Quay `south`: Nước xuyên ngang tại $Y - 0.5$; Cổng steam chĩa Bắc tại $Y - 1.0$; Lò than tại $Y + 0.5$. |
+| `boiler` (xoay dọc) | $3 \times 2$ | $(n + 0.5, m)$ | Quay `north`: Nước xuyên ngang tại $Y + 0.5$; Cổng steam chĩa Bắc tại $Y - 1.0$; `south` = lật ngược. |
 | `boiler` (xoay ngang)| $2 \times 3$ | $(n, m + 0.5)$ | Quay `east`: Nước xuyên dọc tại $X - 0.5$; Cổng steam chĩa Đông tại $X + 1.0$; Lò than tại $X - 0.5$. |
 | `steam-engine` (dọc) | $3 \times 5$ | $(n + 0.5, m + 0.5)$ | Hai cổng hơi nằm ở 2 đầu cạnh ngắn: $(X, Y \pm 2.5)$. Công suất trần 900 kW, tiêu thụ 30 steam/s. |
 | `rail-ramp` | $2 \times 16$ | $(n, m)$ | Cầu vượt dốc ray leo tầng 2. |

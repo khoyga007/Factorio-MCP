@@ -30,7 +30,11 @@ trees and rocks by itself when a build or craft needs wood or stone.
    ```
 
    The primer needs coal in the treasury; `observe(view="situation")` shows how much you
-   have. `tests/designs/coal-drill-chest.json` is a tested drill-into-chest layout to
+   have. **No coal yet (fresh save: 1 drill, 1 furnace, 1 wood)?** Put the drill on coal
+   first, dropping into a `wooden-chest`, primer `{"item":"wood","count":1}`; collect that
+   coal, `recall` the drill, then do the iron pair (Celine 24/09, verified).
+   `craft` needs every ingredient in the treasury (`insufficient-ingredients` otherwise);
+   `build_design` instead gathers wood/stone and crafts what the layout needs. `tests/designs/coal-drill-chest.json` is a tested drill-into-chest layout to
    copy positions from.
 3. **Fuel and feed by hand while it starts.** `achieve(goal="insert", design=[{"name":"coal",
    "count":5, "x":…, "y":…}])` tops up a fuel slot. `"source": true` puts ore into a

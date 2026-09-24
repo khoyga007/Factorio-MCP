@@ -269,8 +269,21 @@ def _mine_rows(ore: str, to, lane, per_min, surface: str, avoid: list, planned: 
     px, py = to
     marks.sort(key=lambda m: math.hypot(m["x"] + 16 - px, m["y"] + 16 - py))
     bp = encode_blueprint(rel)
+    c = _merge_col(surface, px, py) if lane else px
+    tx, ty, end_dir = ((c, py - 1, 8) if lane == "N" else (c, py + 1, 0) if lane == "S"
+                       else (px, py, 4))
+    # The merge run and the OTHER lane's side tile stay clear of this route.
+    run = [px - k for k in range(int(px - c) + 1)]  # merge column .. port, all facing east
+    port = ([[t - 0.5, py - 0.5, t + 0.5, py + 0.5] for t in run]
+            + [[c - 0.5, 2 * py - ty - 0.5, c + 0.5, 2 * py - ty + 0.5]]) if lane else []
+    block = [[t[0] - 0.5, t[1] - 0.5, t[0] + 0.5, t[1] + 0.5] for t in taken
+             if t != (tx, ty)]
+    held = {(b[0], b[1]) for b in planned} | set(taken)
+    # Site search knows nothing of this plan (24/09 Celine: iron drills sat where the coal
+    # feed's route ended, start tile taken, from-blocked x2). Reject such a site, or one whose
+    # route fails, and try the next patch mark. ponytail: 6 marks, widen if patches are sparse.
     why = "mine-no-patch"
-    for m in marks[:3]:
+    for m in marks[:6]:
         p = _bridge({"action": "blueprint_run", "blueprint": bp, "surface": surface,
                      "force": "player", "x": m["x"] + 16, "y": m["y"] + 16, "radius": 32,
                      "dry_run": True, "detail": True,
@@ -285,29 +298,22 @@ def _mine_rows(ore: str, to, lane, per_min, surface: str, avoid: list, planned: 
         # Drills + the belt beside them; the tile past the belt's end is where the route starts.
         box = [min(e["x"] for e in rows) - 0.5, min(e["y"] for e in drills) - w / 2,
                belt_x + 0.5, max(e["y"] for e in drills) + w / 2]
-        if any(box[0] < b[2] and b[0] < box[2] and box[1] < b[3] and b[1] < box[3] for b in avoid):
+        end = max((e for e in rows if e["name"] == "transport-belt"), key=lambda e: e["y"])
+        start = (end["x"], end["y"] + 1)
+        if (any(box[0] < b[2] and b[0] < box[2] and box[1] < b[3] and b[1] < box[3] for b in avoid)
+                or start in held or any(box[0] < t[0] < box[2] and box[1] < t[1] < box[3] for t in held)):
             why = "mine-overlaps-design"
             continue
-        break
+        p = _bridge({"action": "route", "surface": surface,
+                     "from": {"x": start[0], "y": start[1]}, "to": {"x": tx, "y": ty},
+                     "end_dir": end_dir, "avoid": avoid + [box] + port + block,
+                     "planned_belts": planned + [[e["x"], e["y"], e["direction"]] for e in rows
+                                                 if e["name"] == "transport-belt"]}, 60)
+        if p.get("ok"):
+            break
+        why = f"mine-route:{p.get('error')}:{ore}->{to}"
     else:
         raise ValueError(why)
-    end = max((e for e in rows if e["name"] == "transport-belt"), key=lambda e: e["y"])
-    c = _merge_col(surface, px, py) if lane else px
-    tx, ty, end_dir = ((c, py - 1, 8) if lane == "N" else (c, py + 1, 0) if lane == "S"
-                       else (px, py, 4))
-    # The merge run and the OTHER lane's side tile stay clear of this route.
-    run = [px - k for k in range(int(px - c) + 1)]  # merge column .. port, all facing east
-    port = ([[t - 0.5, py - 0.5, t + 0.5, py + 0.5] for t in run]
-            + [[c - 0.5, 2 * py - ty - 0.5, c + 0.5, 2 * py - ty + 0.5]]) if lane else []
-    block = [[t[0] - 0.5, t[1] - 0.5, t[0] + 0.5, t[1] + 0.5] for t in taken
-             if t != (tx, ty)]
-    p = _bridge({"action": "route", "surface": surface,
-                 "from": {"x": end["x"], "y": end["y"] + 1}, "to": {"x": tx, "y": ty},
-                 "end_dir": end_dir, "avoid": avoid + [box] + port + block,
-                 "planned_belts": planned + [[e["x"], e["y"], e["direction"]] for e in rows
-                                             if e["name"] == "transport-belt"]}, 60)
-    if not p.get("ok"):
-        raise ValueError(f"mine-route:{p.get('error')}:{ore}->{to}")
     rows += p["design"]
     if lane:
         rows += [{"name": "transport-belt", "x": t, "y": py, "direction": 4} for t in run]

@@ -12,6 +12,14 @@ queue several at once with `tech="a,b,c"`. A tech whose prerequisites are neithe
 researched nor queued is refused `cannot-queue` with `missing_prerequisites`. Keep the
 queue non-empty so labs never idle.
 
+`tech="a,b,c"` is a backlog: each tech queues once a lab holds its packs or a finished tech
+already used them, the rest wait in `backlog` and top the queue up as research finishes.
+
+**Trigger techs** are listed apart in `trigger` as `{name, type, target, count}`, never in
+`available`, and cannot be queued: they finish when you do the thing (`craft-item` target
+×count, `build-entity` target, `mine-entity` target). Example: `automation-science-pack`
+fired when Celine got her first `lab` (24/09); read `trigger` for the exact target.
+
 Technology names changed between Factorio versions. **Pick exact names from `available`**
 rather than from the list below, which is a rough order by tier.
 

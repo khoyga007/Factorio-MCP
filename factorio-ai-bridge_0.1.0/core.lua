@@ -1,6 +1,6 @@
 -- Shared bridge core: limits, storage state, response envelope, request parsing, treasury, entity views.
 local BRIDGE_VERSION = 1
-local BRIDGE_BUILD = "2026-09-24-idle"
+local BRIDGE_BUILD = "2026-09-24-engine"
 local MAX_PACKET_BYTES = 32768
 local MAX_RADIUS = 32
 local MAX_ENTITIES = 64

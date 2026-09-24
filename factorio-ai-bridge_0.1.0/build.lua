@@ -76,6 +76,13 @@ local function lab_packs(force)
       for _, it in pairs(inv and inv.get_contents() or {}) do held[it.name] = true end
     end
   end
+  -- A pack some finished tech already used is fed somehow (24/09 Celine: hand-fed lab
+  -- empty at the call, `electric-mining-drill,fast-inserter` sat in the backlog, queue {}).
+  for _, t in pairs(force.technologies) do
+    if t.researched then
+      for _, ing in pairs(t.research_unit_ingredients or {}) do held[ing.name] = true end
+    end
+  end
   return held
 end
 
@@ -163,13 +170,20 @@ local function handle_research(nonce, request)
       labs[key] = (labs[key] or 0) + 1
     end
   end
-  local available = {}
+  local available, trigger = {}, {}
   if request.available then
     for tname, t in pairs(force.technologies) do
       if t.enabled and not t.researched then
         local ready = true
         for _, pre in pairs(t.prerequisites) do if not pre.researched then ready = false break end end
-        if ready then available[#available + 1] = tname end
+        -- Trigger techs (craft/build/mine X) never queue: listed apart with what fires them
+        -- (24/09 Celine: automation-science-pack in available -> cannot-queue, lab build fired it).
+        local rt = ready and t.prototype.research_trigger
+        if rt then
+          local what = rt.item or rt.entity or rt.fluid
+          trigger[#trigger + 1] = {name = tname, type = rt.type,
+            target = type(what) == "table" and what.name or what, count = rt.count or rt.amount}
+        elseif ready then available[#available + 1] = tname end
       end
     end
     table.sort(available)
@@ -177,6 +191,7 @@ local function handle_research(nonce, request)
   return response(nonce, true, {
     action = "research", tick = game.tick, force = force.name,
     queue = queue, labs = labs, available = request.available and available or nil,
+    trigger = request.available and next(trigger) and trigger or nil,
     backlog = bridge_state().research_backlog,
     current = current and current.name or nil,
     progress = current and force.research_progress or nil,

@@ -12,6 +12,17 @@ recipes.
 
 ## Build
 
+**First, unlock it.** Fresh base 2.0: the red recipe unlocks with your first `lab`
+(trigger tech, see research-progression). The chain needs `assembling-machine-1`
+(tech `automation`) plus inserters: hand-`craft` 10 red packs, `insert` them in the lab,
+`achieve(research, tech="automation")`. Research `logistics` too (underground belts) before
+`feed:true`: chain routes use them.
+
+**`feed:true` cost.** It lays one drill column + belt per ore per port, coal included:
+Celine 24/09 dry-run 316-355 belts, 4 mines, when the patches sit 30-70 tiles away. Early
+on it is cheaper to belt plates from the drill→furnace pairs you already have: an inserter
+off each furnace onto a belt, `observe(route, …)` into the chain's `ports.external`.
+
 1. **Plan.** `observe(view="plan", query="automation-science-pack@30/min")` gives the
    gear and science assembler counts and the plates per minute they need.
 2. **Chain.** One build row can lay the whole thing:

@@ -12,9 +12,9 @@ SANDBOX = ROOT / ".runtime-test"
 sys.path.insert(0, str(ROOT))
 from blueprint_library import encode_blueprint  # noqa: E402
 
-from runtime_mod import sync_mod
+from runtime_mod import FACTORIO_EXE, sync_mod
 MOD = SANDBOX / "mods" / "factorio-ai-bridge_0.1.0"
-EXE = Path(r"D:\Factorio-AnkerGames\Factorio\bin\x64\factorio.exe")
+EXE = FACTORIO_EXE
 # lab + a pole beside it + a pole 7 tiles out: the far pole stretches the bounding box
 # well past the tiles the design actually occupies.
 MAIN = [{"name": "lab", "x": 1.5, "y": 1.5},

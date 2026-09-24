@@ -4,8 +4,8 @@ Các quy tắc dưới đây được rút từ những lần xây và đo thự
 
 ## Phân vai và tài nguyên
 
-1. maintainer cung cấp nguyên liệu thô ban đầu; AI chế tạo, bố trí và xây automation bằng bridge. AI được xây tại bất kỳ vị trí hợp lệ nào, không cần mô phỏng bước đi hoặc tầm với của nhân vật.
-2. Không spawn item hoặc tài nguyên miễn phí. Mọi lần xây, craft và nạp nhiên liệu phải dùng item thật từ inventory nhân vật hoặc storage thuộc phe người chơi, kể cả khi ở xa. Thiếu item thì báo maintainer khai thác thêm.
+1. Người chơi cung cấp nguyên liệu thô ban đầu; AI chế tạo, bố trí và xây automation bằng bridge. AI được xây tại bất kỳ vị trí hợp lệ nào, không cần mô phỏng bước đi hoặc tầm với của nhân vật.
+2. Không spawn item hoặc tài nguyên miễn phí. Mọi lần xây, craft và nạp nhiên liệu phải dùng item thật từ inventory nhân vật hoặc storage thuộc phe người chơi, kể cả khi ở xa. Thiếu item thì báo người chơi khai thác thêm.
 3. Mỗi hành động chuyển item phải ghi nguồn, đích, số lượng và receipt trước–sau. Nếu hành động thất bại sau khi trừ item, phải hoàn trả đủ.
 4. `autofuel` chỉ là cách khởi động tạm thời: lấy nhiên liệu thật từ storage, chỉ nạp khi burner hết cả fuel stack lẫn năng lượng đang cháy. Khi một nhánh đã có logistics nhiên liệu vật lý và được xác nhận hoạt động, tắt fallback cho nhánh đó.
 

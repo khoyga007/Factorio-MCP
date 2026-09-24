@@ -12,9 +12,9 @@ SANDBOX = ROOT / ".runtime-test"
 sys.path.insert(0, str(ROOT))
 from blueprint_library import encode_blueprint  # noqa: E402
 
-from runtime_mod import sync_mod
+from runtime_mod import FACTORIO_EXE, sync_mod
 MOD = SANDBOX / "mods" / "factorio-ai-bridge_0.1.0"
-EXE = Path(r"D:\Factorio-AnkerGames\Factorio\bin\x64\factorio.exe")
+EXE = FACTORIO_EXE
 # One of the three lands on a tile the test occupies first, so the run measures what the
 # engine does with a layout that only partly fits.
 TRIO = [{"name": "assembling-machine-1", "x": 0.5, "y": 0.5, "recipe": "iron-gear-wheel"},

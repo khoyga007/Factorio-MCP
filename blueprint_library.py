@@ -20,7 +20,7 @@ ID = re.compile(r"bp-[0-9a-f]{16}\Z")
 # `reference` ranks below everything: imported human material never overrides what the
 # agent designed, built or verified, and any of those promote a reference record.
 RANK = {"reference": 0, "designed": 1, "captured": 1, "built": 2, "verified": 3}
-# The executor builds at most 1000 entities: a whole starter base is one paste (maintainer's
+# The executor builds at most 1000 entities: a whole starter base is one paste (a real
 # lab blueprint is 508), and ghost mode drains it 12 entities per tick. The reply that
 # carries one row per entity still fits a UDP datagram (~34 B/row). Reference material is
 # only ever read, so it keeps a looser cap.

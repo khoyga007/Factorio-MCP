@@ -6,14 +6,14 @@ import shutil
 import subprocess
 import sys
 
-from runtime_mod import sync_mod
+from runtime_mod import FACTORIO_EXE, sync_mod
 
 HERE = Path(__file__).resolve().parent
 ROOT = HERE.parent
 SANDBOX = ROOT / ".runtime-test"
 sys.path.insert(0, str(ROOT))
 MOD = SANDBOX / "mods" / "factorio-ai-bridge_0.1.0"
-EXE = Path(r"D:\Factorio-AnkerGames\Factorio\bin\x64\factorio.exe")
+EXE = FACTORIO_EXE
 
 
 def main():

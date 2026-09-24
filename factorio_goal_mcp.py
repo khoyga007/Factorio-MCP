@@ -210,7 +210,7 @@ def _hand(goal: str, rows, surface: str, force: str, x, y) -> CallToolResult:
     """craft / collect / insert, one design row per item.
 
     The bridge has had these three handlers since the CLI days; what was missing was an
-    MCP door to them, and maintainer's 20/09 rule is MCP-only, so without one the agent cannot
+    MCP door to them, and the 20/09 rule is MCP-only, so without one the agent cannot
     feed a furnace. They reuse `design` instead of adding `recipe`/`item`/`count`/`source`
     parameters because the three tools' schemas have ~18 bytes of headroom under the
     4000-byte budget. A row is {name, count, x?, y?, source?}; x/y fall back to the call's

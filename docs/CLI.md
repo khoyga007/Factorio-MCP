@@ -4,7 +4,7 @@
 
 Prototype tối thiểu để nghiên cứu cách AI đọc một vùng bản đồ và xây trực tiếp trong Factorio 2.0.77.
 
-**Vạch đích giai đoạn học hỏi (maintainer chốt 2026-09-16): phóng thành công rocket đầu tiên** bằng nhà máy do agent xây/vận hành với tài nguyên thật, không spawn miễn phí. Các mốc nghiên cứu, sản lượng và hạ tầng chỉ là bước trung gian phục vụ vạch đích; không mở rộng vô hạn chỉ vì còn có thể xây.
+**Vạch đích giai đoạn học hỏi (chốt 2026-09-16): phóng thành công rocket đầu tiên** bằng nhà máy do agent xây/vận hành với tài nguyên thật, không spawn miễn phí. Các mốc nghiên cứu, sản lượng và hạ tầng chỉ là bước trung gian phục vụ vạch đích; không mở rộng vô hạn chỉ vì còn có thể xây.
 
 **Mục tiêu cuối của dự án:** bàn giao bộ công cụ và tài liệu để bất kỳ AI tiếp quản nào cũng có thể chơi Factorio như một kỹ sư thực thụ: đọc luật từ game, dự đoán bằng số trước khi xây, kiểm tra vị trí và nguồn lực, xây bằng vật tư thật, đo kết quả, sửa mô hình khi thực tế khác dự đoán, ứng phó sự cố và tiếp tục từ một handoff rõ ràng. Lần phóng rocket là bài kiểm tra tích hợp của bộ công cụ này, không phải điểm kết thúc của việc đóng gói và bàn giao.
 
@@ -35,13 +35,13 @@ Các phát hiện, mức độ chắc chắn và quy tắc thử nghiệm nằm 
 4. Kiểm tra cầu nối:
 
 ```powershell
-python E:\FactorioMayor\factorio_ai.py ping
-python E:\FactorioMayor\factorio_ai.py snapshot
-python E:\FactorioMayor\factorio_ai.py brief --x 10 --y -28 --radius 64
-python E:\FactorioMayor\survey.py 10 -28 32
-python E:\FactorioMayor\factorio_ai.py snapshot --x 27 --y -2 --radius 28 --offset 64
-python E:\FactorioMayor\factorio_ai.py index
-python E:\FactorioMayor\factorio_ai.py ore-marks --name iron-ore
+python factorio_ai.py ping
+python factorio_ai.py snapshot
+python factorio_ai.py brief --x 10 --y -28 --radius 64
+python survey.py 10 -28 32
+python factorio_ai.py snapshot --x 27 --y -2 --radius 28 --offset 64
+python factorio_ai.py index
+python factorio_ai.py ore-marks --name iron-ore
 ```
 
 Khai cuộc và mọi layout khác đi qua executor dùng chung: agent khai `design` +
@@ -54,33 +54,33 @@ cùng 3 planner Lua hard-code. CLI tương ứng bây giờ là `blueprint-run` 
 Để thử xây thật, đặt một rương, bỏ vật phẩm xây dựng vào đó, rồi dùng tọa độ rương:
 
 ```powershell
-python E:\FactorioMayor\factorio_ai.py treasury 10.5 20.5
-python E:\FactorioMayor\factorio_ai.py place transport-belt 14.5 20.5 --direction east
-python E:\FactorioMayor\factorio_ai.py insert coal 1 14.5 20.5
-python E:\FactorioMayor\factorio_ai.py craft iron-gear-wheel 2
-python E:\FactorioMayor\factorio_ai.py mine stone-furnace 4 -23
-python E:\FactorioMayor\factorio_ai.py collect iron-plate 6 9.5 -26.5
-python E:\FactorioMayor\factorio_ai.py collect iron-plate 20 14 -29
-python E:\FactorioMayor\factorio_ai.py autofuel on
+python factorio_ai.py treasury 10.5 20.5
+python factorio_ai.py place transport-belt 14.5 20.5 --direction east
+python factorio_ai.py insert coal 1 14.5 20.5
+python factorio_ai.py craft iron-gear-wheel 2
+python factorio_ai.py mine stone-furnace 4 -23
+python factorio_ai.py collect iron-plate 6 9.5 -26.5
+python factorio_ai.py collect iron-plate 20 14 -29
+python factorio_ai.py autofuel on
 ```
 
 Đọc mặt đất trước khi xây (không tiêu gì, không xây gì):
 
 ```powershell
-python E:\FactorioMayor\factorio_ai.py snapshot --tiles --obstacles --x 10 --y -28 --radius 32
-python E:\FactorioMayor\factorio_ai.py place offshore-pump 12.5 -30.5 --direction south --dry-run
-python E:\FactorioMayor\factorio_ai.py spec recipe --entity lab
-python E:\FactorioMayor\factorio_ai.py spec entity burner-mining-drill
-python E:\FactorioMayor\factorio_ai.py spec entity stone-furnace
-python E:\FactorioMayor\factorio_ai.py spec entity iron-ore
-python E:\FactorioMayor\factorio_ai.py spec recipe iron-plate
-python E:\FactorioMayor\factorio_ai.py audit iron-plate --expected-per-second 0.625
-python E:\FactorioMayor\factorio_ai.py set-recipe iron-gear-wheel 26.5 -27.5
-python E:\FactorioMayor\factorio_ai.py set-recipe automation-science-pack 26.5 -23.5
-python E:\FactorioMayor\factorio_ai.py research
-python E:\FactorioMayor\factorio_ai.py research fast-inserter --start
-python E:\FactorioMayor\factorio_ai.py insert automation-science-pack 10 30.5 -23.5
-python E:\FactorioMayor\factorio_ai.py insert firearm-magazine 5 13 24
+python factorio_ai.py snapshot --tiles --obstacles --x 10 --y -28 --radius 32
+python factorio_ai.py place offshore-pump 12.5 -30.5 --direction south --dry-run
+python factorio_ai.py spec recipe --entity lab
+python factorio_ai.py spec entity burner-mining-drill
+python factorio_ai.py spec entity stone-furnace
+python factorio_ai.py spec entity iron-ore
+python factorio_ai.py spec recipe iron-plate
+python factorio_ai.py audit iron-plate --expected-per-second 0.625
+python factorio_ai.py set-recipe iron-gear-wheel 26.5 -27.5
+python factorio_ai.py set-recipe automation-science-pack 26.5 -23.5
+python factorio_ai.py research
+python factorio_ai.py research fast-inserter --start
+python factorio_ai.py insert automation-science-pack 10 30.5 -23.5
+python factorio_ai.py insert firearm-magazine 5 13 24
 ```
 
 Blueprint: xuất một cụm đã xây thành string có thể nhập trong Factorio, rồi xây
@@ -88,8 +88,8 @@ lại cụm đó bằng vật tư thật tại nơi khác. Không cần robot. F
 64×64 ô và string tối đa 24.000 ký tự.
 
 ```powershell
-python E:\FactorioMayor\factorio_ai.py blueprint-export 0 -20 20 0 E:\FactorioMayor\my-smelter.txt
-python E:\FactorioMayor\factorio_ai.py blueprint-import E:\FactorioMayor\my-smelter.txt 40 20
+python factorio_ai.py blueprint-export 0 -20 20 0 my-smelter.txt
+python factorio_ai.py blueprint-import my-smelter.txt 40 20
 ```
 
 `blueprint-import` mặc định kiểm tra tổng vật tư trong treasury, đặt ghost theo

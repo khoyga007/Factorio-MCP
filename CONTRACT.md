@@ -13,15 +13,15 @@ Job id `exec-N`; read with `report(job_id)` (action `blueprint_job`). Receipt + 
 
 - Inserter `direction` = pickup side (dir 0 N: picks from north, drops south). Both ends must hold a receiver or `inserter-unconnected` (see §Site).
 - `pipe-to-ground` pairs need `dirB == (dirA+8)%16`, same row/column, ≤10 tiles apart, else `pipe-unconnected` (see §Site). Checked at dry_run.
-- Each entity's tiles + `clearance` must contain NO own-force entity → `occupied` (per entity, not the design bounding box). `character` = a player (maintainer's or agent's) stands in it: move the player, not the site.
+- Each entity's tiles + `clearance` must contain NO own-force entity → `occupied` (per entity, not the design bounding box). `character` = a player (human or agent) stands in it: move the player, not the site.
 - Trees/rocks in footprints auto-mined (products to bag). Cliffs blasted (1 `cliff-explosives` each), water tiles filled (1 `landfill` each) — see **Ground clearing**.
 - Items come from bag → own chests / furnace+assembler outputs → mining → hand craft. NOT from belts.
-- Job `needs-attention` with `insufficient-items` mid-build: rerun the IDENTICAL call; the executor regathers (Sonnet live 19/09).
+- Job `needs-attention` with `insufficient-items` mid-build: rerun the IDENTICAL call; the executor regathers (live 19/09).
 - Job `needs-attention` AFTER the import (`infra-missing:*`, a primer insert with no room, a failed audit): fix the cause, then `report(job_id, resume=true)`. Never recall + rebuild for this.
 - World coords of what gets built = `placed_at`, never recompute from anchor+rotation.
 - Every job is a ledger block; declare intent with `contract.block` (§Ledger).
 
-## Ground clearing — cliffs and water (maintainer 20/09)
+## Ground clearing — cliffs and water
 
 `site.mode` search rejects a cliff or a water tile ONLY when the base cannot pay to clear it. `affordable(force,stock,item)` = the item is in the treasury OR its recipe is unlocked. Otherwise the blocker is priced into the job and cleared before the build.
 
@@ -32,7 +32,7 @@ Job id `exec-N`; read with `report(job_id)` (action `blueprint_job`). Receipt + 
 - A short bag **parks** a ghost job (`ground` = {item: needed}, re-scan every `SCAN_TICKS`); a direct job fails with `ground-not-clear`.
 - Report fields: `blasted`, `filled` (counts, omitted when 0), `ground` (what the clear step is short of).
 - Water detection is `tile.prototype.fluid`, same as `survey.lua fluid_tile_names` and `field.lua:84`. `decode` still refuses a blueprint that CARRIES tiles (`executor.lua:25`) — a plan over water no longer needs one.
-- Own-force entities are still never mined. maintainer 20/09: clearing means nature, not the base.
+- Own-force entities are still never mined. Clearing means nature, not the base.
 - Engine PASS tests/verify_ghostbuild_runtime.py (63 checks): pond under plan + landfill recipe locked → `water` reject; unlocked → `site.fill=1`, `materials.landfill=1`, job parks with `ground={landfill:1}` and the pond stays wet; landfill delivered → tile filled, neighbour tile still water, pole built, `filled=1`. Cliff with recipe locked and empty bag → `cliff` reject; one explosive in the bag → `site.blast=1`, cliff destroyed, `blasted=1`, bag charged, job `verified`.
 
 ## Ledger (base memory, build `2026-09-21-ledger-zoom`)
@@ -110,13 +110,13 @@ the executor picks up on its own.
 
 `achieve(goal="build_design", design=[{name,x,y,direction?,recipe?,type?}], contract, x?, y?, dry_run?)`. Agent designs from game rules (sizes, drill area/drop, inserter reach, ratios); no human template required. `design` = entity centers in tiles: odd-size entity on .5, even-size on integer (2x2 drill center `1,2`); direction 16-way 0N 4E 8S 12W. Python `encode_blueprint` → native string (≤1000 entities, bad row → `invalid-design-entity:<i>`) → same `blueprint_run` path as reuse. Not dry → catalog pattern state `designed` + contract saved; report(exec-N) verified → upgraded to `verified`. Read any saved pattern's layout: `observe(view="patterns", pattern_id)` → entities shifted by whole tiles (parity kept) + contract; edit and resubmit as `design`. Human blueprint = optional reference only.
 
-Engine PASS 2026-09-19 (tests/verify_design_runtime.py, tests/designs/coal-drill-chest.json): 2 burner drills facing N drop straight into own chest, feed chest→drill keep 2; 4 entities, windows coal 34/36/34, active 2/2, feed 12 total. NOT self-sustaining: no physical return path, feed moved 4 every window; live exec-2 (19/09) drills went no_fuel after job end with coal still in chests. Proves the build_design path only, not a good layout. Physical closed loop found live by Sonnet-agent: belt ring + 2 burner inserters feeding drills (pattern bp-888ab81fe7579dfd, exec-3).
+Engine PASS 2026-09-19 (tests/verify_design_runtime.py, tests/designs/coal-drill-chest.json): 2 burner drills facing N drop straight into own chest, feed chest→drill keep 2; 4 entities, windows coal 34/36/34, active 2/2, feed 12 total. NOT self-sustaining: no physical return path, feed moved 4 every window; live exec-2 (19/09) drills went no_fuel after job end with coal still in chests. Proves the build_design path only, not a good layout. Physical closed loop found live by an agent session: belt ring + 2 burner inserters feeding drills (pattern bp-888ab81fe7579dfd, exec-3).
 
 `report(exec-N)` → `self_sustaining` = last window `feed_moved`==0. Catalog upgrade on verified: self-sustaining → `verified`, fed → `built` only.
 
 ## Rate plan + production cells (23/09, step 3)
 - `observe(view="plan", query="item@rate/min[;recipe=item:name,...]")` (`planner.py`): recipe tree from live read-only `spec` → per-recipe machine + exact/ceil count, raw per min (drills/pumps), kW, belt lanes per edge, surplus. No LP: multi-product recipes via `recipe=` override, byproducts = surplus.
-  - maintainer's cheat lives in PROTOTYPES (live: rocket-silo crafting_speed 1e6, asm2 750k) → every count ceils to 1. Real limit = inserters/belts; size cells by `flow`, widen (count) when an output belt saturates.
+  - A modded save may cheat in PROTOTYPES (live: rocket-silo crafting_speed 1e6, asm2 750k) → every count ceils to 1. Real limit = inserters/belts; size cells by `flow`, widen (count) when an output belt saturates.
 - `build_design` row `{cell:recipe, x, y, count?, machine?, belt?, inserter?, long_inserter?, pole?}` (`cells.py`): `count` machines in a row, x,y = top-left TILE. Top→bottom: [belt B] belt A, input row (long|fast|pole per machine), machines, output row (-|fast|pole), output belt. All belts run east; inserters dir 0.
   - 1-2 ingredients: one item per belt (A = 1st, B = 2nd via long inserters), so a feed needs no lane planning. 3-4: two items per belt, lane order = `items` (left = north). Fluid ingredient/product → `cell-fluid-unsupported:<name>` (needs pipe connection positions in spec).
   - Machine default = cheapest UNLOCKED machine for the category (first live try picked locked asm3).
@@ -167,7 +167,7 @@ Unknown keys ignored (notes: `source`). Contract errors (refused, nothing built)
 - Resource rule area = `mining_drill_radius` of that entity (burner drill: its 2x2). `full_cover` (default): every tile in area holds `resource` ≥ `min_per_tile`. `exclusive` (default): other resource in area rejects. Sum ≥ `min_total`.
 - None fits → `state=blocked, error=no-site, rejects={reason: n}, checks`. `rejects.at` carries up to 8 `[name,x,y]` of what actually stood in the way (added 20/09: `occupied: 1` with no tile is a treasure hunt). Agent picks a new area / relaxes contract.
 - `build.mode="ghost"` + `site.mode="exact"`: `occupied` and `collision` stop counting as rejects. The agent named the tiles; the engine gets to decide per entity, and drain() reports the ones it refuses. Every other reject (`character`, `enemies`, `cliff`, `water`, resources, `no-power`) still stands.
-- Inserter ends (after site found, before any debit, dry_run too): every inserter's pickup AND drop tile (prototype `inserter_pickup_position`/`inserter_drop_position`, dir 0 = pickup north, rotated by dir) must hold a receiver: planned entity of a receiver type (belt/underground/splitter/loader, chest, furnace, assembler, lab, drill, boiler, turret, wagon, silo...) or an existing own-force one. Else `state=blocked, error=inserter-unconnected, unconnected=[{inserter:[x,y], side:pickup|drop, tile:[x,y], hint?}]`. `hint={entity, from, to, design_shift:[dx,dy]}` only when exactly one planned receiver one tile away covers the tile, the move clashes with no planned entity AND lowers total gaps; `design_shift` is in the agent's design frame (rotation undone). Never auto-moved: agent edits design and resubmits (maintainer 19/09: pre-build check + hint over post-build snap — no wasted build, catalog blueprint = what was built, no guessing when a machine serves several inserters). Engine PASS tests/verify_inserter_runtime.py: lab 1 tile off → drop gap + shift [-1,0] (also under rotation 4), fixed → planned, pickup from existing belt counts, engine pickup/drop positions match.
+- Inserter ends (after site found, before any debit, dry_run too): every inserter's pickup AND drop tile (prototype `inserter_pickup_position`/`inserter_drop_position`, dir 0 = pickup north, rotated by dir) must hold a receiver: planned entity of a receiver type (belt/underground/splitter/loader, chest, furnace, assembler, lab, drill, boiler, turret, wagon, silo...) or an existing own-force one. Else `state=blocked, error=inserter-unconnected, unconnected=[{inserter:[x,y], side:pickup|drop, tile:[x,y], hint?}]`. `hint={entity, from, to, design_shift:[dx,dy]}` only when exactly one planned receiver one tile away covers the tile, the move clashes with no planned entity AND lowers total gaps; `design_shift` is in the agent's design frame (rotation undone). Never auto-moved: agent edits design and resubmits (19/09: pre-build check + hint over post-build snap — no wasted build, catalog blueprint = what was built, no guessing when a machine serves several inserters). Engine PASS tests/verify_inserter_runtime.py: lab 1 tile off → drop gap + shift [-1,0] (also under rotation 4), fixed → planned, pickup from existing belt counts, engine pickup/drop positions match.
 - Underground pipes (after the inserter check, before any debit, dry_run too), build `2026-09-20-pipe-pairs`: every `pipe-to-ground` in the layout must have a partner. MEASURED in the engine, not assumed: the prototype carries a `normal` connection facing the entity's own direction and an `underground` connection 8 (180 degrees) away, `max_underground_distance` 10 — centres exactly 10 apart link, 11 do not. So a pair needs `dirB == (dirA+8)%16`, same row/column, distance ≤ 10. Partners may be planned in this layout OR already built (own force). Else `state=blocked, error=pipe-unconnected, unconnected=[{pipe:[x,y], dir, reason}]`, nothing built.
   - `no-partner` (+`within`): nothing of that name down its tunnel inside range — run one tile too long, or the other end missing.
   - `wrong-facing` (+`at`, `found_dir`, `expected_dir`): the first same-name underground down the ray does not face back. It steals the pairing, so reporting "no partner" would send the agent looking in the wrong place.
@@ -188,7 +188,7 @@ Unknown keys ignored (notes: `source`). Contract errors (refused, nothing built)
   site to (-8,82)). Pass `x,y = floor(min x), floor(min y)` of the intended layout.
 - Ghosts in reads, build `2026-09-20-ghosts-visible`: ghosts are plans, not machines, and
   `ENTITY_TYPES` never listed them — a pasted blueprint read back as an empty field (20/09:
-  maintainer pasted one, `observe` returned 0 entities, only `capture(area)` saw it). Now
+  a human pasted one, `observe` returned 0 entities, only `capture(area)` saw it). Now
   `observe(view="entities")` carries `ghosts` / `ghosts_total` / `ghosts_next_offset`
   (rows `{ghost=true, name, type, x, y, direction, bounding_box}`, paged like entities) and
   `observe(view="nearby"|"situation")` carries `ghost_total`, `ghost_counts` (per name) and
@@ -256,7 +256,7 @@ Re-check site + stock right before build. Then trees/rocks inside any entity foo
   - Reply `{set:[...], failed:[{x,y,recipe,error,current}]}`, `ok` false if ANY row failed — partial work is kept and named, never rolled back. Per-row calls exist so a failing target identifies itself; a batch of 6 costs 6 UDP round trips.
   - `design` rows carry `recipe`; no top-level recipe arg (schema byte budget). No `dry_run`: the handler has none.
 - `achieve(goal="craft"|"collect"|"insert", design=[{name,count,x?,y?,source?}])` — hand work
-  with no blueprint behind it, added 20/09 because maintainer's MCP-only rule left no path to feed a
+  with no blueprint behind it, added 20/09 because the MCP-only rule left no path to feed a
   furnace or stock the bag. One bridge call per row, in order, at most 8 rows. Reply
   `{rows:[{name, ok, error?, count, requested?, slot?, remaining?, source_remaining?,
   player_total?, have?, need?, craftable?}]}`, `ok` false if ANY row failed; partial work is

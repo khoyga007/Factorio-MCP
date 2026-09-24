@@ -1,5 +1,5 @@
 {
- "source": "agent-authored, no template: drills drop into own chest; executor feed returns coal. Path test only; NOT self-sustaining (no physical return, drills starve after job end).",
+ "source": "Agent-authored, no template: drills drop into own chest; executor feed returns coal. Path test only; NOT self-sustaining (no physical return, drills starve after job end).",
  "design": [
   {
    "name": "burner-mining-drill",

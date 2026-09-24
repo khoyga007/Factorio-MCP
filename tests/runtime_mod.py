@@ -4,10 +4,14 @@ One copy list, not eleven. Files deleted from the mod (replica.lua, the old
 per-pattern planners) are dropped from the sandbox too, so a stale require()
 can never keep a deleted planner alive in an engine test.
 """
+import os
 from pathlib import Path
 import shutil
 
 SOURCE = Path(__file__).resolve().parent.parent / "factorio-ai-bridge_0.1.0"
+# Factorio binary for headless --benchmark runs. Set FACTORIO_EXE to its full path;
+# the default only works when `factorio` is on PATH.
+FACTORIO_EXE = Path(os.environ.get("FACTORIO_EXE", "factorio"))
 
 
 def sync_mod(mod: Path, source: Path = SOURCE) -> None:

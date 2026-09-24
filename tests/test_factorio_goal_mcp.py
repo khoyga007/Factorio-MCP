@@ -272,7 +272,7 @@ class GoalMCPTest(unittest.IsolatedAsyncioTestCase):
                             self.assertEqual(1, len(p["set"]))
                             self.assertEqual("technology-locked", p["failed"][0]["error"])
                             self.assertEqual(4.5, p["failed"][0]["x"])
-                            # maintainer's 20/09 rule is MCP-only, so hand work needs a door of
+                            # The 20/09 rule is MCP-only, so hand work needs a door of
                             # its own: one bridge call per row, batched in one agent call.
                             p = await call("achieve", {"goal": "craft", "design": [
                                 {"name": "stone-furnace", "count": 4},

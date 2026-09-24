@@ -314,7 +314,7 @@ local function handle_insert(nonce, request)
     index, slot = defines.inventory.furnace_source, "source"
   elseif entity.type == "roboport" then
     -- Robots go in the robot slots, repair packs in the material slots (21/09: 10
-    -- construction robots had no way in short of maintainer loading them by hand).
+    -- construction robots had no way in short of a human loading them by hand).
     if prototypes.item[request.item].type == "repair-tool" then
       index, slot = defines.inventory.roboport_material, "material"
     else

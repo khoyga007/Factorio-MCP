@@ -53,6 +53,7 @@ trees and rocks by itself when a build or craft needs wood or stone.
 Verify with `observe(view="situation")` (treasury contents, issues) and
 `observe(view="entities", x, y, radius)` (furnace and drill status). A layout you keep
 refuelling by hand is not self-sustaining yet; that is fine for the bootstrap. Then move
-on to the smelting-setup skill to scale up with electricity. Automatic ore feeding
-(`{"mine":...}` rows, chain `"feed":true`) needs electric mining drills, so it starts
-there, not here.
+on to the smelting-setup skill to scale up with electricity. A `{"mine":...}` row with
+`"drill":"burner-mining-drill"` plans burner drills with no poles; the bridge's autofuel
+tops them up with coal from a chest. It is dry-run checked but not yet proven in a real
+build, so watch the drills' fuel after the first few minutes.

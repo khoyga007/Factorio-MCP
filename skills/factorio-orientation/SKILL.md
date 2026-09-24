@@ -86,7 +86,7 @@ to play.
 | `mine <name> <x> <y>` | no MCP goal. The executor mines trees and rocks itself when a build needs wood or stone; ore comes from drills |
 | `treasury <x> <y>` | **do not use.** The treasury must be your character's inventory: the executor refuses to build while a chest is named (`player-treasury-on-target-surface-required`) |
 | `autofuel on\|off` | diagnostic CLI only |
-| `ping` | diagnostic CLI only; an answer from `observe(view="situation")` already shows the bridge is up |
+| `ping` | `observe(view="situation")`: its `build {loaded, repo, stale}` says which mod build the game runs and whether it is older than the repo |
 
 ## The treasury
 

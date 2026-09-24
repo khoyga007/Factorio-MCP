@@ -109,6 +109,9 @@ local PRODUCERS={"generator","burner-generator","solar-panel","electric-energy-i
   "fusion-generator","accumulator"}
 local PRODUCER={} for _,t in ipairs(PRODUCERS) do PRODUCER[t]=true end
 local live_cache={}
+-- One request = one snapshot. The tick key alone went stale 23/09: a dry run's `unpowered`
+-- warning cached an empty set, then a grid built in the same tick read as dead.
+local function reset_live() live_cache={} end
 local function live_networks(surface,force)
   local key=surface.index..":"..force.index
   local c=live_cache[key]
@@ -594,6 +597,7 @@ return {
   place_list = place_list,
   placed_at = placed_at,
   pole_covers = pole_covers,
+  reset_live = reset_live,
   sorted_keys = sorted_keys,
   tile_keys = tile_keys,
   water_keys = water_keys,

@@ -335,6 +335,7 @@ function M.attach(ctx)
   local SCAN_TICKS=60
 
   function M.start(nonce,r)
+    site.reset_live()
     local base,err=decode(r.blueprint)
     if not base then return ctx.response(nonce,false,{error=err}) end
     local surface,force=game.get_surface(r.surface or "nauvis"),game.forces[r.force or "player"]

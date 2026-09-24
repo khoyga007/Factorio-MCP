@@ -118,20 +118,27 @@ def _power_rows(rows: list[dict], boxes: list, surface: str, pole: str,
     own = {(r["x"], r["y"]) for r in rows}
     x1, y1 = min(b[0] for b in boxes), min(b[1] for b in boxes)
     x2, y2 = max(b[2] for b in boxes), max(b[3] for b in boxes)
-    cx, cy = (x1 + x2) / 2, (y1 + y2) / 2
-    err, _, found, *_ = _pull(surface, cx, cy, 64)
-    if err:
-        raise ValueError(f"power-scan:{err.get('error')}")
+
+    def gap(e):  # distance from the layout bbox to a pole
+        return math.hypot(max(x1 - e["x"], 0, e["x"] - x2), max(y1 - e["y"], 0, e["y"] - y2))
+    # Lua clamps a snapshot to radius 32 (a 64-wide square), so tile the bbox grown by 64
+    # (Ariel 23/09: a tall chain's centre scan missed a pole 41.8 tiles out ->
+    # power-no-pole-within-64). ponytail: a 200-tall chain is ~24 snapshots; fine at this size.
+    found = []
+    for sx in range(int(x1 - 64) + 32, int(x2 + 64) + 64, 64):
+        for sy in range(int(y1 - 64) + 32, int(y2 + 64) + 64, 64):
+            err, _, part, *_ = _pull(surface, sx, sy, 32)
+            if err:
+                raise ValueError(f"power-scan:{err.get('error')}")
+            found += part
     poles = [e for e in found if ("electric-pole" in e["name"] or "substation" in e["name"])
-             and (e["x"], e["y"]) not in own]
+             and (e["x"], e["y"]) not in own and gap(e) <= 64]
     # Poles the same design already plans (a chain's line) count as grid: a mine 80 tiles
     # out has no world pole within 64, but the chain it feeds does.
     poles += [{"name": pole, "x": px, "y": py} for px, py in planned_poles]
     if not poles:
         raise ValueError("power-no-pole-within-64")
 
-    def gap(e):  # distance from the layout bbox to a pole
-        return math.hypot(max(x1 - e["x"], 0, e["x"] - x2), max(y1 - e["y"], 0, e["y"] - y2))
     to = min(poles, key=gap)
     is_pole = lambda n: "electric-pole" in n or "substation" in n
     cell_poles = [(r["x"], r["y"]) for r in rows if is_pole(r["name"])]

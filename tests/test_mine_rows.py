@@ -31,3 +31,20 @@ class MergeCol(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class PowerScan(unittest.TestCase):
+    def test_pole_past_the_32_clamp_is_found(self):
+        # Ariel 23/09: layout centre y=106, live pole at y=65.5 (41.8 away) -> the old single
+        # radius-64 scan was clamped to 32 in Lua and raised power-no-pole-within-64.
+        pole = {"name": "small-electric-pole", "x": -20.5, "y": 65.5}
+
+        def pull(surface, x, y, radius, obstacles=False):
+            seen = abs(pole["x"] - x) <= radius and abs(pole["y"] - y) <= radius
+            return None, {}, [pole] if seen else [], [], [], None
+        with mock.patch.object(g, "_pull", pull), \
+                mock.patch.object(g, "_pole_line", lambda *a: [(-20.5, 72.5)]), \
+                mock.patch.object(g, "_pole_bridges", lambda *a: []):
+            rows = g._power_rows([{"name": "small-electric-pole", "x": -20.5, "y": 80.5}],
+                                 [[-24, 80, -16, 132]], "nauvis", "small-electric-pole")
+        self.assertEqual([(-20.5, 72.5)], [(r["x"], r["y"]) for r in rows])

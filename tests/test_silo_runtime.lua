@@ -28,8 +28,8 @@ return function(handlers,state)
         check(r.ok and r.slot=="input" and input.get_item_count(item)==10 and bag.get_item_count(item)==0,
           "input:"..item..":"..helpers.table_to_json(r))
       end
-      -- Not a part ingredient: rocket cargo (base 2.0 has no satellite; the cargo slots
-      -- exist before any rocket is built, 20 of them measured 24/09).
+      -- Not a part ingredient: rocket cargo. The sandbox runs Space Age, which removes the
+      -- satellite, so iron-plate stands in. Cargo slots exist before any rocket (20, 24/09).
       local r=put("iron-plate",5)
       local rocket=silo.get_inventory(defines.inventory.rocket_silo_rocket)
       check(r.ok and r.slot=="rocket" and rocket.get_item_count("iron-plate")==5

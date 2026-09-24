@@ -34,8 +34,9 @@ circuit), and the satellite line researched. Check the exact names and state wit
    inserters. For a manual push, `achieve(goal="insert", design=[{name, count, x, y}])`
    at the silo's centre: rocket-part ingredients go to its input, anything else to the
    rocket cargo. The silo crafts the rocket parts itself.
-3. Base 2.0 has no satellite item: the rocket launches with empty cargo. Anything you
-   want sent up goes in with the same `insert` (it lands in the rocket cargo).
+3. Base game: craft a `satellite`
+   (`achieve(goal="craft", design=[{"name":"satellite","count":1}])`) and `insert` it at
+   the silo; a non-ingredient lands in the rocket cargo. Space Age removes the satellite.
 4. Watch part production with `observe(view="flow", query="rocket-part@10m")` and the silo
    status with `observe(view="entities")`.
 5. When the rocket is ready, `achieve(goal="launch", x=…, y=…)` launches the silo at that

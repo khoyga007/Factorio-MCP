@@ -284,26 +284,26 @@ Số liệu trích xuất trực tiếp từ Prototype Engine Factorio 2.0 (`tic
 
 Đề xuất từ Sandbox, đã đối chiếu với code và API 2.0.77 bên dưới. Số dòng cũ chỉ là mốc lịch sử.
 
-### Vá 1: Xóa bỏ "Mù chất lỏng" trong `snapshot` (`control.lua:238`)
+### Vá 1: Xóa bỏ "Mù chất lỏng" trong `snapshot` (then in `control.lua`; now `survey.lua` `handle_snapshot`)
 * **Hiện trạng**: `entity_data` không đọc `fluidbox`. AI không thể biết ống hoặc máy có nước hay không.
 * **Bản vá**: Đọc mảng `entity.fluidbox` và trích xuất `{name, amount, temperature}` vào `data.fluids`.
 
-### Vá 2: Sửa lệnh `insert` hỗ trợ Rương (`control.lua:1071`)
+### Vá 2: Sửa lệnh `insert` hỗ trợ Rương (then in `control.lua`; now `items.lua` `handle_insert`)
 * **Hiện trạng**: `handle_insert` coi mọi entity không phải lab/assembler/furnace_source là `fuel`. Khi nạp vào rương (`container`, `logistic-container`), lệnh văng lỗi `entity-has-no-fuel-inventory`.
 * **Đã sửa**: Dùng `defines.inventory.chest` cho `container`, `logistic-container`, `linked-container`; chuyển và trừ đúng item thật. Rương vô hạn không thuộc nguồn vật tư gameplay.
 
-### Vá 3: Thêm `fluidbox_prototypes` vào lệnh `spec entity` (`control.lua:827`)
+### Vá 3: Thêm `fluidbox_prototypes` vào lệnh `spec entity` (then in `control.lua`; now `survey.lua` `handle_spec`)
 * **Hiện trạng**: AI không biết vector offset cổng của prototype, phải dùng phương pháp thử-sai.
 * **Đã sửa**: Xuất `fluidbox_prototypes` với index, filter, production_type và `pipe_connections` native. API dùng `positions` gồm 4 vị trí tương ứng hướng cardinal, không phải một trường `position`; kèm direction, flow_direction, connection_type và khoảng cách ngầm khi có.
 
-### Vá 4: Tách độc lập `can_place_geometry` trong `place --dry-run` (`control.lua:1145`)
+### Vá 4: Tách độc lập `can_place_geometry` trong `place --dry-run` (then in `control.lua`; now `build.lua` `handle_place`)
 * **Đính chính**: Code đã trả `can_place = surface.can_place_entity(...)` độc lập với kho. `would_build` mới tổng hợp mọi blocker. Test engine xác nhận `can_place=true`, `would_build=false`, `have=0` khi thiếu lò nhưng đất hợp lệ. Giữ nguyên contract.
 
-### Vá 5: Whitelist `infinity-container` cho Chế độ Sandbox (`control.lua:8, 369`)
+### Vá 5: Whitelist `infinity-container` cho Chế độ Sandbox (then in `control.lua`; now the receiver type list in `site.lua`)
 * **Hiện trạng**: `CHEST_TYPES` chỉ chứa `container`, `logistic-container`, `linked-container`. Khi chơi Sandbox/Creative, rương vô hạn có prototype type là `infinity-container` nên lệnh `set_treasury` và `collect` hoàn toàn từ chối nhận diện.
 * **Phạm vi**: Đây là đề xuất riêng cho fixture Sandbox, không phải lỗi luồng gameplay. Chưa mở rương vô hạn làm nguồn vật tư. Test tự tạo fixture trong bản sao save tách biệt, không thay đổi save đang chơi.
 
-### Vá 6: Xóa bỏ "Mù vật cản tự nhiên" trong `snapshot` (`control.lua:494`)
+### Vá 6: Xóa bỏ "Mù vật cản tự nhiên" trong `snapshot` (then in `control.lua`; now `survey.lua` `handle_snapshot`)
 * **Hiện trạng**: `surface.find_entities_filtered` chỉ lọc danh sách `ENTITY_TYPES` thuộc `force = force` người chơi. Các vật cản tự nhiên như cây cối (`tree`), tảng đá lớn (`simple-entity` / `rock`) và vách đá (`cliff`) bị bỏ qua hoàn toàn, dẫn tới hiện tượng AI thấy tile đất trống nhưng lệnh `place` lại báo lỗi `cannot-place`.
 * **Đã sửa**: `snapshot --obstacles` quét riêng cây/đá/vách đá không giới hạn force; trả `obstacles_total` và `obstacles_next_offset`, dùng cùng offset/limit để giới hạn payload.
 

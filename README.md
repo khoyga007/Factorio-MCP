@@ -86,7 +86,11 @@ Building blocks the agent can use:
 
    Host and port come from `FACTORIO_HOST` / `FACTORIO_PORT` (default `127.0.0.1:34198`).
    After you edit the Python, restart the agent session so it picks up the new tool schema.
-4. **Check.** Call `observe(view="situation")`. The reply should include the mod's build name.
+4. **Check.** Call `observe(view="situation")`. An `ok` reply with your `treasury` means the
+   game, the mod and the server are connected. To see which mod build is loaded, run the
+   diagnostic `python factorio_ai.py ping`: its `build` field is `BRIDGE_BUILD` from
+   `factorio-ai-bridge_0.1.0/core.lua` (for example `2026-09-23-split`). If it is older than the
+   repo's, the game is still running a stale copy of the mod.
 
 ## From a fresh save
 

@@ -34,7 +34,10 @@ mcp = FastMCP(
         "native blueprints; achieve(build_design) builds a layout the agent designed itself. Use report(job_id) for the outcome and observe for blockers. "
         "observe(plan) sizes a chain; build_design {cell:recipe} lays one machine row between "
         "belts, {chain:item@N/min} stacks cells and routes their belts; both return ports "
-        "(external inputs to feed, output); power:true adds a pole line to the nearest pole. Design rows are entity centers. Goal details: CONTRACT.md. "
+        "(external inputs to feed, output); power:true adds a pole line to the nearest pole. "
+        "{mine:ore,to:[x,y],lane?:N|S,per_min?} drills the nearest patch and belts it into a port; "
+        "chain feed:true does that for every ore its ports want (no achieve x,y). "
+        "Design rows are entity centers. Goal details: CONTRACT.md. "
         "Detailed actions remain in the CLI for diagnosis. Never spawn free items."
     ),
     log_level="WARNING",
@@ -106,7 +109,7 @@ def _chain_rows(row: dict) -> tuple[list[dict], dict]:
 
 
 def _power_rows(rows: list[dict], boxes: list, surface: str, pole: str,
-                free=()) -> list[dict]:
+                free=(), planned_poles=()) -> list[dict]:
     """Pole line from the nearest box edge to the nearest existing pole (row `power:true`).
     Path = the belt router's A* over free tiles; a pole every <=7 tiles of it. Whether that
     pole is LIVE is the executor's power check (`unpowered` in the reply), not this one."""
@@ -120,6 +123,9 @@ def _power_rows(rows: list[dict], boxes: list, surface: str, pole: str,
         raise ValueError(f"power-scan:{err.get('error')}")
     poles = [e for e in found if ("electric-pole" in e["name"] or "substation" in e["name"])
              and (e["x"], e["y"]) not in own]
+    # Poles the same design already plans (a chain's line) count as grid: a mine 80 tiles
+    # out has no world pole within 64, but the chain it feeds does.
+    poles += [{"name": pole, "x": px, "y": py} for px, py in planned_poles]
     if not poles:
         raise ValueError("power-no-pole-within-64")
 
@@ -208,6 +214,137 @@ def _pole_bridges(planned, grid, taken, boxes, reach) -> list:
         added.append(t)
         taken = taken | {t}
         lit.append(t)
+
+
+def _bridge(body: dict, timeout: float = 30) -> dict:
+    return request(body, host=os.environ.get("FACTORIO_HOST", DEFAULT_HOST),
+                   port=int(os.environ.get("FACTORIO_PORT", DEFAULT_PORT)), timeout=timeout)
+
+
+def _is_ore(item: str) -> bool:
+    return (_bridge({"action": "spec", "kind": "entity", "name": item}).get("entity_type")
+            == "resource")
+
+
+def _mine_rows(ore: str, to, lane, per_min, surface: str, avoid: list, planned: list,
+               drill: str = "electric-mining-drill", pole: str = "small-electric-pole",
+               taken=(), grid=()) -> tuple[list[dict], dict]:
+    """Drill column on the nearest `ore` patch + a belt routed into the port tile `to`.
+
+    23/09 exec-16 fed its chain by hand: drill search, three routes, then port belts laid
+    LAST so the port stayed straight. Here it is one plan. lane N/S = side-load the port
+    belt (east-facing) from that side, so two feeds (ore N, coal S) share it lane by lane;
+    no lane = the route ends ON the port tile, facing east.
+    Drills: column facing east onto a south belt, a pole west of every two. The site is
+    the executor's own search under a resource rule (full cover, no foreign ore), dry run.
+    """
+    d = _bridge({"action": "spec", "kind": "entity", "name": drill})
+    r = _bridge({"action": "spec", "kind": "entity", "name": ore})
+    if not d.get("mining_speed") or not r.get("mining_time"):
+        raise ValueError(f"mine-spec:{drill}:{ore}")
+    if d.get("burner_effectivity"):
+        raise ValueError("mine-drill-must-be-electric")  # ponytail: burner drills need a fuel lane
+    w = d["tile_width"]
+    n = min(8, max(1, math.ceil((per_min or 0) / (d["mining_speed"] / r["mining_time"] * 60) - 1e-9)))
+    rel = [{"name": drill, "x": w / 2, "y": w / 2 + w * i, "direction": 4} for i in range(n)]
+    rel += [{"name": "transport-belt", "x": w + 0.5, "y": y + 0.5, "direction": 8}
+            for y in range(w * n)]
+    rel += [{"name": pole, "x": -0.5, "y": w * (2 * k + 1) + 0.5, "direction": 0}
+            for k in range((n + 1) // 2)]
+    marks, offset = [], 0
+    while offset is not None:
+        p = _bridge({"action": "ore_marks", "surface": surface, "name": ore, "offset": offset,
+                     "limit": 50})
+        marks += p.get("marks") or []
+        offset = p.get("next_offset")
+    px, py = to
+    marks.sort(key=lambda m: math.hypot(m["x"] + 16 - px, m["y"] + 16 - py))
+    bp = encode_blueprint(rel)
+    why = "mine-no-patch"
+    for m in marks[:3]:
+        p = _bridge({"action": "blueprint_run", "blueprint": bp, "surface": surface,
+                     "force": "player", "x": m["x"] + 16, "y": m["y"] + 16, "radius": 32,
+                     "dry_run": True, "detail": True,
+                     "contract": {"site": {"rotations": [0]}, "build": {"mode": "ghost"},
+                                  "resources": [{"entity": drill, "resource": ore}]}}, 60)
+        if p.get("state") != "planned" or not p.get("placed_at"):
+            why = f"mine-site:{p.get('error')}:{json.dumps(p.get('rejects'))}"
+            continue
+        rows = [{"name": e[0], "x": e[1], "y": e[2], "direction": e[3]} for e in p["placed_at"]]
+        drills = [e for e in rows if e["name"] == drill]
+        belt_x = max(e["x"] for e in rows)
+        # Drills + the belt beside them; the tile past the belt's end is where the route starts.
+        box = [min(e["x"] for e in rows) - 0.5, min(e["y"] for e in drills) - w / 2,
+               belt_x + 0.5, max(e["y"] for e in drills) + w / 2]
+        if any(box[0] < b[2] and b[0] < box[2] and box[1] < b[3] and b[1] < box[3] for b in avoid):
+            why = "mine-overlaps-design"
+            continue
+        break
+    else:
+        raise ValueError(why)
+    end = max((e for e in rows if e["name"] == "transport-belt"), key=lambda e: e["y"])
+    c = _merge_col(surface, px, py) if lane else px
+    tx, ty, end_dir = ((c, py - 1, 8) if lane == "N" else (c, py + 1, 0) if lane == "S"
+                       else (px, py, 4))
+    # The merge run and the OTHER lane's side tile stay clear of this route.
+    run = [px - k for k in range(int(px - c) + 1)]  # merge column .. port, all facing east
+    port = ([[t - 0.5, py - 0.5, t + 0.5, py + 0.5] for t in run]
+            + [[c - 0.5, 2 * py - ty - 0.5, c + 0.5, 2 * py - ty + 0.5]]) if lane else []
+    block = [[t[0] - 0.5, t[1] - 0.5, t[0] + 0.5, t[1] + 0.5] for t in taken
+             if t != (tx, ty)]
+    p = _bridge({"action": "route", "surface": surface,
+                 "from": {"x": end["x"], "y": end["y"] + 1}, "to": {"x": tx, "y": ty},
+                 "end_dir": end_dir, "avoid": avoid + [box] + port + block,
+                 "planned_belts": planned + [[e["x"], e["y"], e["direction"]] for e in rows
+                                             if e["name"] == "transport-belt"]}, 60)
+    if not p.get("ok"):
+        raise ValueError(f"mine-route:{p.get('error')}:{ore}->{to}")
+    rows += p["design"]
+    if lane:
+        rows += [{"name": "transport-belt", "x": t, "y": py, "direction": 4} for t in run]
+    # Drills sit away from any cell: their own line to the nearest pole.
+    rows += _power_rows(rows, [box], surface, pole, planned_poles=grid)
+    return rows, {"ore": ore, "to": [px, py], "lane": lane, "drills": n, "box": box,
+                  "route_belts": len(p["design"])}
+
+
+def _merge_col(surface: str, px: float, py: float) -> float:
+    """Where two side-loads join a port: the port tile, or up to 4 tiles west of it when a
+    cell pole or inserter holds a side tile (live 24/09: exec-19's iron port had its own
+    pole on the south side). Both lanes of one port compute the same column from the world."""
+    g = _read(_grid(surface, px - 2, py, 4))
+    rows = {float(r.split(" ", 1)[0]): r.split(" ", 1)[1] for r in g.get("rows") or []}
+
+    def free(x, y):
+        line = rows.get(y)
+        i = int(round(x - g["x0"]))
+        return line is not None and 0 <= i < len(line) and line[i] in ".*"
+    for k in range(5):
+        c = px - k
+        if free(c, py - 1) and free(c, py + 1) and all(free(px - t, py) for t in range(k + 1)):
+            return c
+    raise ValueError(f"mine-port-sides-blocked:{px},{py}")
+
+
+def _feed_rows(port: dict, surface: str, planned: list, grid: list) -> tuple[list[dict], list]:
+    """chain `feed:true`: mine every ore an external port asks for; the rest stays external.
+    Two items on one port = lane N (items[0], left) + lane S; one item = rear feed."""
+    avoid = [c["box"] for c in port["cells"]]
+    taken = [(e["x"], e["y"]) for e in port["external"]]
+    rows, fed = [], []
+    for ext in port["external"]:
+        items = ext["items"]
+        for i, item in enumerate(items):
+            if not _is_ore(item):
+                continue
+            lane = ("N", "S")[i] if len(items) == 2 else None
+            got, info = _mine_rows(item, (ext["x"], ext["y"]), lane, (ext["per_min"] or [None])[i],
+                                   surface, avoid, planned, taken=taken, grid=grid)
+            rows += got
+            avoid.append(info["box"])
+            planned += [[e["x"], e["y"], e["direction"]] for e in got if "belt" in e["name"]]
+            fed.append(info)
+    return rows, fed
 
 
 def _cell_rows(row: dict) -> tuple[list[dict], dict]:
@@ -846,8 +983,41 @@ craft|collect|insert(design=[{name,count,x?,y?,source?}]<=8) import(pattern_id=b
                                             [(e["x"], e["y"]) for e in port.get("external", [])])
                     except (OSError, ValueError, KeyError, TimeoutError) as exc:
                         return _result({"ok": False, "error": str(exc)}, True)
+                if row.get("feed") and "chain" in row:
+                    if x is not None:
+                        return _result({"ok": False, "error": "feed-needs-world-rows-no-x-y"}, True)
+                    try:
+                        fed_rows, port["fed"] = _feed_rows(
+                            port, surface, [[r["x"], r["y"], r["direction"]]
+                                            for r in expanded + rows if "belt" in r["name"]],
+                            [(r["x"], r["y"]) for r in expanded + rows if "electric-pole" in r["name"]])
+                    except (OSError, ValueError, KeyError, TimeoutError) as exc:
+                        return _result({"ok": False, "error": str(exc)}, True)
+                    seen = {(r["x"], r["y"]) for r in rows}
+                    for r in fed_rows:  # two lanes into one port both lay its belt
+                        if (r["x"], r["y"]) not in seen:
+                            seen.add((r["x"], r["y"]))
+                            rows.append(r)
                 expanded += rows
                 ports.append({"cell" if "cell" in row else "chain": row.get("cell") or row["chain"], **port})
+            elif "mine" in row:
+                if x is not None:
+                    return _result({"ok": False, "error": "mine-needs-world-rows-no-x-y"}, True)
+                try:
+                    rows, info = _mine_rows(row["mine"], tuple(row["to"]), row.get("lane"),
+                                            row.get("per_min"), surface, [],
+                                            [[r["x"], r["y"], r["direction"]] for r in expanded
+                                             if "belt" in r["name"]],
+                                            row.get("drill", "electric-mining-drill"),
+                                            row.get("pole", "small-electric-pole"),
+                                            grid=[(r["x"], r["y"]) for r in expanded
+                                                  if "electric-pole" in r["name"]])
+                except (OSError, ValueError, KeyError, TimeoutError) as exc:
+                    return _result({"ok": False, "error": str(exc)}, True)
+                have = {(r["name"], r["x"], r["y"], r["direction"]) for r in expanded}
+                # Two lanes into one port both lay its merge run.
+                expanded += [r for r in rows if (r["name"], r["x"], r["y"], r["direction"]) not in have]
+                ports.append({"mine": row["mine"], **info})
             elif "route" in row:
                 if row["route"] not in ROUTES:
                     return _result({"ok": False, "error": f"unknown-route:{row['route']}"}, True)

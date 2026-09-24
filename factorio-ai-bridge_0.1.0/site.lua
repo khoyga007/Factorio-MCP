@@ -398,7 +398,10 @@ local function lane_joins(surface,force,placed)
         local b=DIRV[td]
         local bt,bd=belt(tx-b[1],ty-b[2])
         local side=(p.dir+8)%16
-        local kind=(bt and bd==td) and "sideload" or "curve"
+        -- A belt fed from BOTH sides and not from behind stays straight too (the 23/09
+        -- ore N + coal S port merge); only a lone side input turns it into a curve.
+        local ot,od=belt(tx+v[1],ty+v[2])
+        local kind=((bt and bd==td) or (ot=="transport-belt" and od==side)) and "sideload" or "curve"
         out=out or {}
         if #out<12 then out[#out+1]={from={p.x,p.y},to={tx,ty},kind=kind,
           lane=kind=="curve" and "both" or COMPASS[side]} end

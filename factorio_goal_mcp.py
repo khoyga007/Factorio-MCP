@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import math
 import os
+import re
 from pathlib import Path
 from typing import Annotated
 
@@ -242,15 +243,16 @@ def _mine_rows(ore: str, to, lane, per_min, surface: str, avoid: list, planned: 
     r = _bridge({"action": "spec", "kind": "entity", "name": ore})
     if not d.get("mining_speed") or not r.get("mining_time"):
         raise ValueError(f"mine-spec:{drill}:{ore}")
-    if d.get("burner_effectivity"):
-        raise ValueError("mine-drill-must-be-electric")  # ponytail: burner drills need a fuel lane
+    # ponytail: burner drills get no fuel lane; the mod's autofuel tops them up (1 fuel per
+    # 5 s when empty) from chests. A real fuel belt + inserters when autofuel is off.
+    burner = bool(d.get("burner_effectivity"))
     w = d["tile_width"]
     n = min(8, max(1, math.ceil((per_min or 0) / (d["mining_speed"] / r["mining_time"] * 60) - 1e-9)))
     rel = [{"name": drill, "x": w / 2, "y": w / 2 + w * i, "direction": 4} for i in range(n)]
     rel += [{"name": "transport-belt", "x": w + 0.5, "y": y + 0.5, "direction": 8}
             for y in range(w * n)]
-    rel += [{"name": pole, "x": -0.5, "y": w * (2 * k + 1) + 0.5, "direction": 0}
-            for k in range((n + 1) // 2)]
+    rel += [] if burner else [{"name": pole, "x": -0.5, "y": w * (2 * k + 1) + 0.5,
+                               "direction": 0} for k in range((n + 1) // 2)]
     marks, offset = [], 0
     while offset is not None:
         p = _bridge({"action": "ore_marks", "surface": surface, "name": ore, "offset": offset,
@@ -303,9 +305,10 @@ def _mine_rows(ore: str, to, lane, per_min, surface: str, avoid: list, planned: 
     if lane:
         rows += [{"name": "transport-belt", "x": t, "y": py, "direction": 4} for t in run]
     # Drills sit away from any cell: their own line to the nearest pole.
-    rows += _power_rows(rows, [box], surface, pole, planned_poles=grid)
+    if not burner:
+        rows += _power_rows(rows, [box], surface, pole, planned_poles=grid)
     return rows, {"ore": ore, "to": [px, py], "lane": lane, "drills": n, "box": box,
-                  "route_belts": len(p["design"])}
+                  "route_belts": len(p["design"]), **({"fuel": "autofuel"} if burner else {})}
 
 
 def _merge_col(surface: str, px: float, py: float) -> float:
@@ -686,7 +689,13 @@ def observe(view: str = "situation",
                                         offset=offset)})
     if view == "situation":
         p = _read(invoke("brief", surface=surface, x=x, y=y, radius=radius))
-        return _result({"ok": p.get("ok", False), "view": view, **_fields(p,
+        # Loaded mod build vs this repo's: a stale copy in the game cost a live session 24/09.
+        build = _bridge({"action": "ping"}, 5).get("build")
+        core = Path(__file__).parent / "factorio-ai-bridge_0.1.0" / "core.lua"
+        repo = re.search(r'BRIDGE_BUILD = "([^"]+)"', core.read_text(encoding="utf-8"))
+        p["build"] = {"loaded": build, "repo": repo and repo.group(1),
+                      "stale": bool(repo) and build != repo.group(1)}
+        return _result({"ok": p.get("ok", False), "view": view, **_fields(p, "build",
             "center", "counts", "ghost_total", "ghost_counts", "ghost_box",
             "issue_total", "issues", "enemy_total",
             "nearest_enemies", "ore_total", "ore_patches", "treasury", "error")},

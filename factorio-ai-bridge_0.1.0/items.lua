@@ -306,6 +306,15 @@ local function handle_insert(nonce, request)
   local slot
   if entity.type == "lab" then
     index, slot = defines.inventory.lab_input, "input"
+  elseif entity.type == "rocket-silo" then
+    -- Rocket-part ingredients go in the input slots, anything else is rocket cargo
+    -- (24/09: the rocket skill had to stage silo loads through a chest + inserter).
+    local input = entity.get_inventory(defines.inventory.rocket_silo_input)
+    if input and input.can_insert {name = request.item, count = 1} then
+      index, slot = defines.inventory.rocket_silo_input, "input"
+    else
+      index, slot = defines.inventory.rocket_silo_rocket, "rocket"
+    end
   elseif entity.type == "assembling-machine" then
     index, slot = defines.inventory.assembling_machine_input, "input"
   elseif entity.type == "ammo-turret" then

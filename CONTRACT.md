@@ -61,7 +61,6 @@ Every refusal carries `error`; many also carry the facts to act on. Argument err
 | `absolute-site-needs-ref` | plan | `site.mode="absolute"` without `site.ref`. |
 | `power-route:*` / `power-bridge:x,y` / `power-no-pole-within-64` | plan | Row `power:true` could not reach the grid. Build a pole nearer, or route by hand. |
 | `mine-needs-world-rows-no-x-y` / `feed-needs-world-rows-no-x-y` | plan | `{mine:...}` rows and chain `feed:true` work on world rows only: drop the `achieve` `x,y`. |
-| `mine-drill-must-be-electric` | plan | Mine rows place electric drills only; burner drills are built by hand design. |
 | `mine-no-patch` / `mine-site:<error>:<rejects>` / `mine-overlaps-design` | plan | No ore patch near enough passed the drill search, or the only ones overlap a cell. Check `observe(view="deposits", resource=…)`, move the chain. |
 | `mine-route:*` / `mine-port-sides-blocked:x,y` | plan | The belt from the drills could not reach the port, or both side tiles of the port (and 4 tiles west) are taken. Free them or feed that port by hand. |
 | `mine-spec:<drill>:<ore>` | plan | `drill` is not a mining drill or `ore` is not a resource. Check the names. |
@@ -410,7 +409,7 @@ Declared local loop: move real `item` from this job's own `from` chest into each
   - Chain routes may cross the external port's west approach (exec-16: the x -63.5 column) → feed from N/S with underground; route tool finds it once chain is BUILT (router sees entities, not dry-run rows).
   - Gaps hit live 23/09, fixed 24/09 (engine suite 14/15; live 24/09 exec-19: electronic-circuit@60 anchored + power:true, 101 rows ghost, 2 bridge poles, verified, assemblers powered; replan + connect-wait not triggered live yet): >64-row designs default to ghost even with an anchor (was: anchored chain went direct → `direct-blueprint-too-large`). `power:true` tries up to 8 start tiles within wire reach of a cell pole (was: one start beside a chain belt → `power-route:from-blocked`), then adds one bridge pole per pole island no wire joins to the grid (was: cells 8 apart needed a hand pole); a gap one pole cannot bridge → `power-bridge:x,y`. `prepare` claims each planned item so later crafts cannot eat it (was: steam-engine ate the pipes); a direct job whose bag changed replans and returns to `preparing`, max 3 rounds, then `materials-changed:<item>`. `connect` checks re-run once a second for 10 s before `infra-missing` (was: boiler read dry in its build tick).
 - `build_design` row `{mine:ore, to:[x,y], lane?:"N"|"S", per_min?, drill?, pole?}` and chain row flag `feed:true` (24/09, gap "a built cell never wires itself to mines"). World rows only: refused with an achieve `x,y` (`mine-needs-world-rows-no-x-y` / `feed-needs-world-rows-no-x-y`).
-  - Drills: `ceil(per_min / (mining_speed/mining_time*60))`, 1..8 (no `per_min` = 1), a column facing east onto a south belt, a pole west of every two. Electric only (`mine-drill-must-be-electric`).
+  - Drills: `ceil(per_min / (mining_speed/mining_time*60))`, 1..8 (no `per_min` = 1), a column facing east onto a south belt, a pole west of every two. `drill:"burner-mining-drill"` → no poles, no fuel lane: the mod's autofuel refuels empty burners from chests every 300 ticks, info carries `fuel:"autofuel"` (keep coal in a chest; dry-run only 24/09, not proven live).
   - Site: the nearest 3 `ore_marks` bins of that ore, each an executor dry-run search (radius 32, rotation 0) under resource rule `{entity: drill, resource: ore}` (full cover, no foreign ore). None → `mine-site:<error>:<rejects>` / `mine-no-patch`; overlapping a cell box → next bin (`mine-overlaps-design`).
   - Route: Lua `route` from the tile past the drill belt's end into the port. `lane` N/S side-loads an east-facing port: ore N (left lane = `items[0]`), coal S. The merge column is the port tile or up to 4 tiles west when a side tile is taken (exec-19's iron port has its cell pole on the south side); a belt run then carries both lanes east into the port. Nothing free → `mine-port-sides-blocked:x,y`. No lane = the route ends on the port facing east (single-item port).
   - Power: `_power_rows` per mine; poles the same design already plans (the chain's `power:true` line) count as grid, so a mine 80 tiles out still finds a target.
@@ -468,7 +467,8 @@ Declared local loop: move real `item` from this job's own `from` chest into each
     `player-inventory-full`, `entity-not-found`. `recall` is NOT a substitute: it destroys
     the machine.
   - `insert` wraps `handle_insert`: bag → fuel slot by default; `source: true` picks the
-    furnace ore slot (lab/assembler/ammo-turret get their input slot, chests storage).
+    furnace ore slot (lab/assembler/ammo-turret get their input slot, chests storage;
+    rocket-silo: rocket-part ingredients → input, anything else → rocket cargo).
     Refusals: `insufficient-items`, `fuel-not-accepted`/`input-rejects-item`,
     `insufficient-input-capacity`, `insert-failed-refunded`.
   - No Lua change: all three handlers have existed since the CLI days and are in

@@ -26,7 +26,9 @@ class GoalMCPTest(unittest.IsolatedAsyncioTestCase):
                 seen.append(body)
                 action = body["action"]
                 reply = {"nonce": body["nonce"], "ok": True, "action": action}
-                if action == "brief":
+                if action == "ping":
+                    reply.update(build="old-build")
+                elif action == "brief":
                     reply.update(center={"x": 0, "y": 0}, counts={"stone-furnace": 1})
                 elif action == "ore_marks":
                     reply.update(total=1, marks=[{"name": "iron-ore", "x": 0, "y": 0}])
@@ -108,8 +110,10 @@ class GoalMCPTest(unittest.IsolatedAsyncioTestCase):
                                 self.assertEqual(actions, [p["action"] for p in seen[before:]])
                                 return json.loads(result.content[0].text)
 
-                            p = await call("observe", {}, ["brief"])
+                            p = await call("observe", {}, ["brief", "ping"])
                             self.assertEqual(1, p["counts"]["stone-furnace"])
+                            self.assertEqual(("old-build", True),
+                                             (p["build"]["loaded"], p["build"]["stale"]))
                             p = await call("observe", {"view": "deposits", "resource": "iron-ore"},
                                            ["ore_marks"])
                             self.assertEqual(1, p["total"])

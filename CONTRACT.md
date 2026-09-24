@@ -468,7 +468,8 @@ Declared local loop: move real `item` from this job's own `from` chest into each
     the machine.
   - `insert` wraps `handle_insert`: bag → fuel slot by default; `source: true` picks the
     furnace ore slot (lab/assembler/ammo-turret get their input slot, chests storage;
-    rocket-silo: rocket-part ingredients → input, anything else → rocket cargo).
+    rocket-silo: rocket-part ingredients → input, anything else → rocket cargo, 20 slots
+    present before a rocket exists; engine PASS tests/verify_silo_runtime.py 24/09).
     Refusals: `insufficient-items`, `fuel-not-accepted`/`input-rejects-item`,
     `insufficient-input-capacity`, `insert-failed-refunded`.
   - No Lua change: all three handlers have existed since the CLI days and are in

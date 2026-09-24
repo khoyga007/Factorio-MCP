@@ -32,11 +32,10 @@ circuit), and the satellite line researched. Check the exact names and state wit
    first. Check it with `observe(view="entities", x, y, radius)`.
 2. Feed it low-density-structure, rocket-fuel and processing-unit with belts and
    inserters. For a manual push, `achieve(goal="insert", design=[{name, count, x, y}])`
-   at the silo's centre: rocket-part ingredients go to its input, anything else (a
-   satellite) to the rocket cargo. The silo crafts the rocket parts itself.
-3. If the launch needs a satellite, craft it
-   (`achieve(goal="craft", design=[{"name":"satellite","count":1}])`) and `insert` it
-   into the silo the same way.
+   at the silo's centre: rocket-part ingredients go to its input, anything else to the
+   rocket cargo. The silo crafts the rocket parts itself.
+3. Base 2.0 has no satellite item: the rocket launches with empty cargo. Anything you
+   want sent up goes in with the same `insert` (it lands in the rocket cargo).
 4. Watch part production with `observe(view="flow", query="rocket-part@10m")` and the silo
    status with `observe(view="entities")`.
 5. When the rocket is ready, `achieve(goal="launch", x=…, y=…)` launches the silo at that

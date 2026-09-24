@@ -142,7 +142,7 @@ Engine PASS 2026-09-19 (tests/verify_design_runtime.py, tests/designs/coal-drill
 
 ```json
 {
-  "site": {"mode": "search|exact", "rotations": [0,4,8,12], "clearance": 1,
+  "site": {"mode": "search|exact|absolute", "ref": {"x": 0.5, "y": 0.5}, "rotations": [0,4,8,12], "clearance": 1,
            "enemy_radius": 16, "max_checks": 20000},
   "build": {"mode": "ghost|direct"},
   "resources": [{"entity": "burner-mining-drill", "resource": "coal",
@@ -157,11 +157,15 @@ Engine PASS 2026-09-19 (tests/verify_design_runtime.py, tests/designs/coal-drill
 }
 ```
 
-Unknown keys ignored (notes: `source`). Contract errors (refused, nothing built): `invalid-build-mode`, `invalid-site`, `invalid-rotation`, `exact-site-needs-one-rotation`, `invalid-connect`, `invalid-declared-load`, `invalid-metric[-item|-fluid|-fraction|-load-fraction|-min]:<metric key>`, `declared-load-required:<metric key>`.
+Unknown keys ignored (notes: `source`). Contract errors (refused, nothing built): `invalid-build-mode`, `invalid-site`, `absolute-site-needs-ref`, `invalid-rotation`, `exact-site-needs-one-rotation`, `invalid-connect`, `invalid-declared-load`, `invalid-metric[-item|-fluid|-fraction|-load-fraction|-min]:<metric key>`, `declared-load-required:<metric key>`.
 
 ## Site
 
-- Anchor = top-left TILE EDGE of the rotated blueprint footprint (`min(entity.x - tile_width/2)`), NOT an entity centre. `exact`: anchor = `floor(x), floor(y)`. `search`: x,y = search center (default treasury player position), `radius` limit.
+- Three site modes:
+  - `absolute` (**recommended for `build_design`**): the design rows ARE world entity centres and are built where they stand. `site.ref = {x, y}` is the world position of the FIRST design row; the executor derives the anchor from it, so the agent does no floor/min-corner math. Missing or non-finite `ref` → `absolute-site-needs-ref`. Every `exact` rule applies (one rotation, no search). `build_design` with no `x,y` AND no `contract.site` fills this in by itself (`ref` = row 1's `x,y`).
+  - `exact`: anchor = `floor(x), floor(y)` of the `x,y` passed to `achieve` (see the last bullet of this section for what that `x,y` must be).
+  - `search`: `x,y` = search centre (default: the treasury player's position), `radius` limit.
+- Anchor = top-left TILE EDGE of the rotated blueprint footprint (`min(entity.x - tile_width/2)`), NOT an entity centre.
   - Two frames, build `2026-09-21-exact-anchor`: every `bbox` the bridge reports (`plan.bbox`, a pattern's `layout.bbox`) is measured in entity CENTRES, while the anchor is a tile EDGE. They differ by half a footprint, and the half differs per prototype: a 3x3 drill centres on `.5`, a 2x2 furnace on an integer, a 1x1 pole on `.5`. So NO floor() of a bbox is the anchor. Measured 21/09 (exec-21..24): a peer session floored the centre bbox, every rebuilt row landed one tile east of the ghosts a human had placed, and the job revived its own second set.
   - `capture(area)` and `build_ghosts(area)` therefore return `site {x,y}` — the exact anchor, computed in Lua from `create_blueprint`'s blueprint-index -> source-entity mapping, so it covers exactly the entities the blueprint holds, ghosts included. Hand that back to `reuse_blueprint` with `site.mode="exact"`; never re-derive it. Engine PASS tests/verify_ghostbuild_runtime.py: three mixed footprints (drill 3x3 at `.5`, furnace 2x2 at integer, pole 1x1 at `.5`) export anchor `(-29,-11)`, the anchor round-trips through `blueprint_run`, and the planned centres come back exactly where the ghosts stand.
 - Rotations 16-way units, default `[0]`. `exact` needs exactly ONE rotation (agent placed water/pole for that orientation; spinning would miss them). Rotation turns every entity position AND direction; W/H swap for east/west entities.
@@ -169,7 +173,7 @@ Unknown keys ignored (notes: `source`). Contract errors (refused, nothing built)
 - Per candidate, reject reason counted: `out-of-area`, `occupied` (own-force entity inside SOME entity's own tiles + `clearance` — NOT the design bounding box: a layout whose pole run reaches 10 tiles away does not claim the base in between; the bbox is only a fast path, one count query, and only a non-zero count triggers the per-entity pass), `character` (only own characters there: player in the way), `enemies` (within `enemy_radius`), `collision` (`can_place_entity` manual check, every entity; a failure whose footprint holds only trees/rocks passes if a `forced` blueprint_ghost check passes → clearable), `cliff` (cliff inside footprint AND no explosives in bag, recipe locked), `water` (fluid tile under footprint AND no landfill in bag, recipe locked), `foreign-resource`, `resource-cover`, `resource-reserve`.
 - Resource rule area = `mining_drill_radius` of that entity (burner drill: its 2x2). `full_cover` (default): every tile in area holds `resource` ≥ `min_per_tile`. `exclusive` (default): other resource in area rejects. Sum ≥ `min_total`.
 - None fits → `state=blocked, error=no-site, rejects={reason: n}, checks`. `rejects.at` carries up to 8 `[name,x,y]` of what actually stood in the way (added 20/09: `occupied: 1` with no tile is a treasure hunt). Agent picks a new area / relaxes contract.
-- `build.mode="ghost"` + `site.mode="exact"`: `occupied` and `collision` stop counting as rejects. The agent named the tiles; the engine gets to decide per entity, and drain() reports the ones it refuses. Every other reject (`character`, `enemies`, `cliff`, `water`, resources, `no-power`) still stands.
+- `build.mode="ghost"` + `site.mode="exact"` (or `absolute`): `occupied` and `collision` stop counting as rejects. The agent named the tiles; the engine gets to decide per entity, and drain() reports the ones it refuses. Every other reject (`character`, `enemies`, `cliff`, `water`, resources, `no-power`) still stands.
 - Inserter ends (after site found, before any debit, dry_run too): every inserter's pickup AND drop tile (prototype `inserter_pickup_position`/`inserter_drop_position`, dir 0 = pickup north, rotated by dir) must hold a receiver: planned entity of a receiver type (belt/underground/splitter/loader, chest, furnace, assembler, lab, drill, boiler, turret, wagon, silo...) or an existing own-force one. Else `state=blocked, error=inserter-unconnected, unconnected=[{inserter:[x,y], side:pickup|drop, tile:[x,y], hint?}]`. `hint={entity, from, to, design_shift:[dx,dy]}` only when exactly one planned receiver one tile away covers the tile, the move clashes with no planned entity AND lowers total gaps; `design_shift` is in the agent's design frame (rotation undone). Never auto-moved: agent edits design and resubmits (19/09: pre-build check + hint over post-build snap — no wasted build, catalog blueprint = what was built, no guessing when a machine serves several inserters). Engine PASS tests/verify_inserter_runtime.py: lab 1 tile off → drop gap + shift [-1,0] (also under rotation 4), fixed → planned, pickup from existing belt counts, engine pickup/drop positions match.
 - Underground pipes (after the inserter check, before any debit, dry_run too), build `2026-09-20-pipe-pairs`: every `pipe-to-ground` in the layout must have a partner. MEASURED in the engine, not assumed: the prototype carries a `normal` connection facing the entity's own direction and an `underground` connection 8 (180 degrees) away, `max_underground_distance` 10 — centres exactly 10 apart link, 11 do not. So a pair needs `dirB == (dirA+8)%16`, same row/column, distance ≤ 10. Partners may be planned in this layout OR already built (own force). Else `state=blocked, error=pipe-unconnected, unconnected=[{pipe:[x,y], dir, reason}]`, nothing built.
   - `no-partner` (+`within`): nothing of that name down its tunnel inside range — run one tile too long, or the other end missing.
@@ -186,9 +190,13 @@ Unknown keys ignored (notes: `source`). Contract errors (refused, nothing built)
 - Direct build caps at 64 entities (`build.lua` handle_place, `direct-blueprint-too-large`,
   `{entities, limit}`); ghost mode caps at 1000. A 194-belt run is four direct jobs — that
   cap is a reason to PREFER `build.mode="ghost"`, not a reason to hand-cut a plan.
-- An exact site needs `x,y` on `achieve` AND `site.mode="exact"`. Without x,y the executor
-  searches and the design lands somewhere else entirely (measured 20/09: a dry run moved a
-  site to (-8,82)). Pass `x,y = floor(min x), floor(min y)` of the intended layout.
+- To build at a known place, prefer `absolute` (above): write the design in world centres and
+  pass no `x,y`. An `exact` site needs `x,y` on `achieve` AND `site.mode="exact"`; without x,y
+  the executor searches and the design lands somewhere else entirely (measured 20/09: a dry
+  run moved a site to (-8,82)). That `x,y` is the footprint's top-left TILE EDGE:
+  `x = floor(min over rows of (entity.x - tile_width/2))`, same for `y` with `tile_height`.
+  NOT `floor(min x)` of the centres: that is off by up to half a footprint whenever the
+  extreme row is wider than one tile (a 3x3 drill centred at `1.5` has its edge at `0`).
 - Ghosts in reads, build `2026-09-20-ghosts-visible`: ghosts are plans, not machines, and
   `ENTITY_TYPES` never listed them — a pasted blueprint read back as an empty field (20/09:
   a human pasted one, `observe` returned 0 entities, only `capture(area)` saw it). Now

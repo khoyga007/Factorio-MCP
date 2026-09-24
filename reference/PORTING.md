@@ -1,4 +1,4 @@
-# Porting notes — external designs → FactorioMayor
+# Porting notes — external designs → Factorio-MCP
 
 Approved 2026-09-19. Take DESIGN, not code. Sources vendored read-only under `reference/`; MIT, keep LICENSE + attribution in any file that ports logic.
 

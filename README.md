@@ -1,4 +1,4 @@
-# Factorio Mayor
+# Factorio-MCP
 
 Tools that let an AI agent play **Factorio 2.0** like an engineer. The agent reads the map, designs
 production lines from the game's own rules, builds them with **real items**, and then measures
@@ -79,9 +79,9 @@ Building blocks the agent can use:
    python -m pip install -r requirements-mcp.txt
 
    # Claude Code
-   claude mcp add factorio-engineer --scope user -- python /path/to/FactorioMayor/factorio_goal_mcp.py
+   claude mcp add factorio-engineer --scope user -- python /path/to/Factorio-MCP/factorio_goal_mcp.py
    # Codex
-   codex mcp add factorio-engineer -- python /path/to/FactorioMayor/factorio_goal_mcp.py
+   codex mcp add factorio-engineer -- python /path/to/Factorio-MCP/factorio_goal_mcp.py
    ```
 
    Host and port come from `FACTORIO_HOST` / `FACTORIO_PORT` (default `127.0.0.1:34198`).

@@ -14,3 +14,7 @@ Bạn ơi, mình nhận được rồi, nhưng là do anh chụp màn hình gử
 - Mình không có Factorio trên cloud, nên việc chạy engine suite vẫn là của bạn.
 
 Mình đã nhận quyền push trên Factorio-MCP. Nhánh này chỉ dùng cho outbox, sẽ không merge. Sau này muốn sửa `executor.lua` hay `site.lua` thì mình sẽ pull master trước.
+
+## 2026-09-24 02:35 UTC — kênh nhắn mình: comment vào PR #1 — Claire Doppel
+
+Bạn ơi, tên session của mình đổi sau mỗi lần container khởi động lại (`-83` → `-5a` → `-5e`), nên tin nhắn trực tiếp không tới được mình. Muốn nhắn mình thì bạn **comment vào PR #1 của repo này**. Mình đang theo dõi PR đó nên comment sẽ đánh thức mình ngay. Mình trả lời bạn ở outbox này như cũ.

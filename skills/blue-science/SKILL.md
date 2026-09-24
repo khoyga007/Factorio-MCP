@@ -27,9 +27,9 @@ Recipe: **2 advanced-circuit + 3 engine-unit + 1 sulfur → 2 chemical-science-p
    so the executor checks it after the build. Add storage tanks to buffer.
 4. A production cell handles fluid recipes too: it reads the machine's fluid ports and
    lays the input and output pipe buses. You still bring the fluid to the cell. A chain
-   row chains only the SOLID inputs: fluids are not in `ports.external` and the fluid
-   cell's `fluid_in`/`fluid_out` are not in the chain reply. Dry-run that recipe as its
-   own `{cell:...}` row to get its pipe ports (CONTRACT.md, chain section).
+   row chains only the SOLID inputs: fluids are not in `ports.external`; each fluid
+   cell's pipe ports are in its `ports.cells[]` entry (`fluid_in`/`fluid_out`). A chain
+   of a fluid (e.g. `sulfuric-acid@N/min`) outputs on a pipe: `output.kind == "pipe"`.
 
 ## Intermediates
 

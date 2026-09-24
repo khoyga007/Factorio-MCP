@@ -8,9 +8,9 @@ agent feeds: items whose recipe a cell refuses (cells.cell raises ValueError), a
 ingredients of 3-4 ingredient cells (two items share a belt there: the agent brings it
 pre-merged). Furnace cells (2-wide, one ingredient) are chained like any other.
 A fluid recipe becomes a fluid cell (cells._fluid_cell) and its solid ingredients are
-chained, but its fluids are never chained or listed in `external`: the fluid pipe ports
-are in that cell's own ports (`fluid_in` / `fluid_out`) and are not in this reply, so the
-agent pipes them itself.
+chained, but its fluids are never chained or listed in `external`: the reply's `cells`
+entry carries that cell's pipe ports (`fluid_in` / `fluid_out`) and the agent pipes them.
+A fluid-only root outputs on its pipe bus (`output.kind == "pipe"`).
 """
 from __future__ import annotations
 
@@ -86,12 +86,24 @@ def chain(p: dict, cell_of, route, x: int, y: int, gap: int = 4) -> tuple[list[d
         routed += rows
         planned += [[r["x"], r["y"], r["direction"], r.get("type") == "input"] for r in rows
                     if r.get("direction") is not None]
-    out = root["ports"]["out"]
+    out = root["ports"].get("out")
+    if out:
+        output = {"item": p["item"], "x": out["x"] + 1, "y": out["y"], "dir": E}
+    else:
+        # Fluid-only root: the product leaves on the cell's own pipe bus, east end.
+        pipe = next((f for f in root["ports"].get("fluid_out", []) if f["fluid"] == p["item"]),
+                    None)
+        if pipe is None:
+            raise ValueError(f"chain-root-no-output:{p['item']}")
+        output = {"item": p["item"], "kind": "pipe", "x": pipe["x"], "y": pipe["y"]}
     design = [r for c in reversed(cells) for r in c["rows"]] + routed
-    return design, {"output": {"item": p["item"], "x": out["x"] + 1, "y": out["y"], "dir": E},
+    return design, {"output": output,
                     "external": external,
+                    # Fluid cells: pipe ports the agent connects itself (never chained).
                     "cells": [{"recipe": c["recipe"], "count": c["count"],
-                               "box": c["ports"]["box"]} for c in cells],
+                               "box": c["ports"]["box"],
+                               **{k: c["ports"][k] for k in ("fluid_in", "fluid_out")
+                                  if c["ports"].get(k)}} for c in cells],
                     "edges": len(edges), "route_belts": len(routed)}
 
 
@@ -125,4 +137,21 @@ if __name__ == "__main__":
     frm, to, avoid, planned = calls[0]
     assert to == (-0.5, boxes[2][1] + 1.5) and frm == (3.5, boxes[0][3] - 0.5), (frm, to)
     assert [a for a in avoid[3:] if a[0] + 0.5 == frm[0] and a[1] + 0.5 == frm[1]] == []
+
+    # Fluid cells: pipe ports reach the reply; a fluid-only root outputs on its pipe.
+    def fluid_cell_of(recipe, count, cx, cy):
+        if recipe != "acid":
+            return cell_of(recipe, count, cx, cy)
+        return [{"name": "chem", "x": cx + 1.5, "y": cy + 4}], {
+            "box": [cx, cy, cx + 3, cy + 8], "in_a": {"x": cx + 0.5, "y": cy + 2.5, "dir": E, "items": ["plate"]},
+            "fluid_in": [{"kind": "pipe", "x": cx + 0.5, "y": cy + 0.5, "fluid": "water"}],
+            "fluid_out": [{"kind": "pipe", "x": cx + 2.5, "y": cy + 7.5, "fluid": "acid"}]}
+
+    plan = {"item": "acid", "per_min": 10, "rows": [
+        {"recipe": "acid", "out": {"acid": 10}, "surplus": {}, "exact_count": 0.5,
+         "in": {"plate": 10, "water": 100}}]}
+    design, ports = chain(plan, fluid_cell_of, route, 0, 0)
+    assert ports["output"] == {"item": "acid", "kind": "pipe", "x": 2.5, "y": 7.5}, ports["output"]
+    assert ports["cells"][0]["fluid_in"][0]["fluid"] == "water", ports["cells"]
+    assert [e["items"] for e in ports["external"]] == [["plate"]]
     print("ok")

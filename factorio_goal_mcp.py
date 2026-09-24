@@ -126,41 +126,88 @@ def _power_rows(rows: list[dict], boxes: list, surface: str, pole: str,
     def gap(e):  # distance from the layout bbox to a pole
         return math.hypot(max(x1 - e["x"], 0, e["x"] - x2), max(y1 - e["y"], 0, e["y"] - y2))
     to = min(poles, key=gap)
-    if gap(to) <= reach - 3:  # a cell pole sits <=3 tiles inside the box edge
-        return []
-    # Start on the free tile just outside the box, facing the target pole.
-    sx = min(max(to["x"], x1 + 0.5), x2 - 0.5)
-    sy = min(max(to["y"], y1 + 0.5), y2 - 0.5)
-    if to["x"] < x1: sx = x1 - 0.5
-    elif to["x"] > x2: sx = x2 + 0.5
-    elif to["y"] < y1: sy = y1 - 0.5
-    else: sy = y2 + 0.5
-    ends = [(to["x"] + dx, to["y"] + dy) for dx, dy in ((1, 0), (-1, 0), (0, 1), (0, -1))]
-    ends.sort(key=lambda t: math.hypot(t[0] - sx, t[1] - sy))
+    is_pole = lambda n: "electric-pole" in n or "substation" in n
+    cell_poles = [(r["x"], r["y"]) for r in rows if is_pole(r["name"])]
     belts = [[r["x"], r["y"], r["direction"]] for r in rows if "belt" in r["name"]]
     keep = [(b[0], b[1]) for b in belts] + list(free)  # external feed tiles stay open
-    last = None
-    for ex, ey in ends:
-        p = request({"action": "route", "surface": surface, "from": {"x": sx, "y": sy},
-                     "to": {"x": ex, "y": ey}, "planned_belts": belts,
-                     "avoid": boxes + [[kx - .5, ky - .5, kx + .5, ky + .5] for kx, ky in keep]},
-                    host=os.environ.get("FACTORIO_HOST", DEFAULT_HOST),
-                    port=int(os.environ.get("FACTORIO_PORT", DEFAULT_PORT)), timeout=60)
-        if p.get("ok"):
-            break
-        last = p.get("error")
-    else:
-        raise ValueError(f"power-route:{last}")
-    path = [(r["x"], r["y"]) for r in p["design"]]
-    out, at = [], (sx, sy)
-    out.append(at)
-    for prev, nxt in zip(path, path[1:]):
-        if math.hypot(nxt[0] - at[0], nxt[1] - at[1]) > reach:
-            at = prev
-            out.append(at)
-    if math.hypot(to["x"] - at[0], to["y"] - at[1]) > reach:
-        out.append(path[-1])
-    return [{"name": pole, "x": px, "y": py, "direction": 0} for px, py in dict.fromkeys(out)]
+    line = [] if gap(to) <= reach - 3 else _pole_line(
+        surface, to, (x1, y1, x2, y2), cell_poles, belts, keep, boxes, reach)
+    placed = [{"name": pole, "x": px, "y": py, "direction": 0} for px, py in line]
+    bridge = _pole_bridges(cell_poles + line, [(e["x"], e["y"]) for e in poles],
+                           {(e["x"], e["y"]) for e in found} | own | set(keep), boxes, reach)
+    return placed + [{"name": pole, "x": px, "y": py, "direction": 0} for px, py in bridge]
+
+
+def _pole_line(surface, to, box, cell_poles, belts, keep, boxes, reach) -> list:
+    """Routed pole line from just outside `box` to pole `to`. Start tiles = the box's outer
+    ring within wire reach of a cell pole, nearest the target first: 23/09 the single
+    projected start sat beside a chain belt and the whole line died on from-blocked."""
+    x1, y1, x2, y2 = box
+    ring = ([(x, y) for x in _halves(x1 - 0.5, x2 + 0.5) for y in (y1 - 0.5, y2 + 0.5)]
+            + [(x, y) for y in _halves(y1 + 0.5, y2 - 0.5) for x in (x1 - 0.5, x2 + 0.5)])
+    starts = sorted((t for t in ring if any(math.dist(t, c) <= reach for c in cell_poles)),
+                    key=lambda t: math.dist(t, (to["x"], to["y"])))[:8]  # ponytail: 8 tries
+    ends = [(to["x"] + dx, to["y"] + dy) for dx, dy in ((1, 0), (-1, 0), (0, 1), (0, -1))]
+    last = "no-start-near-cell-pole"
+    for sx, sy in starts:
+        for ex, ey in sorted(ends, key=lambda t: math.hypot(t[0] - sx, t[1] - sy)):
+            p = request({"action": "route", "surface": surface, "from": {"x": sx, "y": sy},
+                         "to": {"x": ex, "y": ey}, "planned_belts": belts,
+                         "avoid": boxes + [[kx - .5, ky - .5, kx + .5, ky + .5] for kx, ky in keep]},
+                        host=os.environ.get("FACTORIO_HOST", DEFAULT_HOST),
+                        port=int(os.environ.get("FACTORIO_PORT", DEFAULT_PORT)), timeout=60)
+            if p.get("ok"):
+                path = [(r["x"], r["y"]) for r in p["design"]]
+                out, at = [(sx, sy)], (sx, sy)
+                for prev, nxt in zip(path, path[1:]):
+                    if math.dist(nxt, at) > reach:
+                        at = prev
+                        out.append(at)
+                if math.dist((to["x"], to["y"]), at) > reach:
+                    out.append(path[-1])
+                return list(dict.fromkeys(out))
+            last = p.get("error")
+            if last == "from-blocked":
+                break
+    raise ValueError(f"power-route:{last}")
+
+
+def _halves(a, b):
+    return [a + i for i in range(int(round(b - a)) + 1)]
+
+
+def _pole_bridges(planned, grid, taken, boxes, reach) -> list:
+    """One extra pole per planned pole island that no wire joins to the grid (23/09: chain
+    cells 8 apart left the upper cell dark until a hand pole). Tile free = outside every
+    cell box and not on a known entity/row/port tile."""
+    # ponytail: world entities counted by centre tile only, fine on the open ground a
+    # chain is planned on; one pole per island, raises if a gap needs two.
+    lit = list(grid)
+    dark = list(dict.fromkeys(planned))
+    added = []
+    inside = lambda t: any(b[0] < t[0] < b[2] and b[1] < t[1] < b[3] for b in boxes)
+    while True:
+        grew = True
+        while grew:  # flood: anything within reach of a lit pole is lit
+            grew = False
+            for d in list(dark):
+                if any(math.dist(d, g) <= reach for g in lit):
+                    dark.remove(d)
+                    lit.append(d)
+                    grew = True
+        if not dark:
+            return added
+        d, g = min(((d, g) for d in dark for g in lit), key=lambda p: math.dist(*p))
+        cands = [(x, y) for x in _halves(math.floor(d[0]) - reach + 0.5, math.floor(d[0]) + reach + 0.5)
+                 for y in _halves(math.floor(d[1]) - reach + 0.5, math.floor(d[1]) + reach + 0.5)
+                 if (x, y) not in taken and not inside((x, y))
+                 and math.dist((x, y), d) <= reach and math.dist((x, y), g) <= reach]
+        if not cands:
+            raise ValueError(f"power-bridge:{d[0]},{d[1]}")
+        t = min(cands, key=lambda t: max(math.dist(t, d), math.dist(t, g)))
+        added.append(t)
+        taken = taken | {t}
+        lit.append(t)
 
 
 def _cell_rows(row: dict) -> tuple[list[dict], dict]:

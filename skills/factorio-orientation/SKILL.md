@@ -50,7 +50,8 @@ for the human maintainer, not a way to play. The full tool contract is in
 `achieve(goal=...)`, acts:
 - `build_design` (`design=[rows]`, `contract`): build from rows you designed. Rows may
   be plain entities `{name,x,y,direction?,recipe?}`, production cells
-  `{cell:recipe,...}`, chains `{chain:"item@N/min",...}`, or `{route:id}`.
+  `{cell:recipe,...}`, chains `{chain:"item@N/min",...,feed?:true}`, ore feeds
+  `{mine:ore,to:[x,y],lane?}`, or `{route:id}`.
 - `reuse_blueprint` (`pattern_id`): build a saved pattern.
 - `research` (`tech="name"`, or `"a,b,c"` to queue several).
 - `set_recipe` (`design=[{x,y,recipe}]`): commission empty assemblers.

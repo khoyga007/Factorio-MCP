@@ -60,6 +60,11 @@ Every refusal carries `error`; many also carry the facts to act on. Argument err
 | `reference-pattern-needs-contract` | plan | A community pattern: pass your own `contract`. |
 | `absolute-site-needs-ref` | plan | `site.mode="absolute"` without `site.ref`. |
 | `power-route:*` / `power-bridge:x,y` / `power-no-pole-within-64` | plan | Row `power:true` could not reach the grid. Build a pole nearer, or route by hand. |
+| `mine-needs-world-rows-no-x-y` / `feed-needs-world-rows-no-x-y` | plan | `{mine:...}` rows and chain `feed:true` work on world rows only: drop the `achieve` `x,y`. |
+| `mine-drill-must-be-electric` | plan | Mine rows place electric drills only; burner drills are built by hand design. |
+| `mine-no-patch` / `mine-site:<error>:<rejects>` / `mine-overlaps-design` | plan | No ore patch near enough passed the drill search, or the only ones overlap a cell. Check `observe(view="deposits", resource=…)`, move the chain. |
+| `mine-route:*` / `mine-port-sides-blocked:x,y` | plan | The belt from the drills could not reach the port, or both side tiles of the port (and 4 tiles west) are taken. Free them or feed that port by hand. |
+| `mine-spec:<drill>:<ore>` | plan | `drill` is not a mining drill or `ore` is not a resource. Check the names. |
 | `cell-*` / `chain-*` | plan | A cell or chain row cannot be expanded: the suffix says why (too many ingredients, machine too narrow, no fluid ports, route failed). |
 | `insufficient-items` | preparing | Stock ran short mid-job. Rerun the identical call; the executor regathers. |
 | `materials-changed:<item>` | preparing | The bag changed under a direct job and the replan came up short, or it changed more than three times. Restock, then rerun. |

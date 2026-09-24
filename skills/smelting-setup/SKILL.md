@@ -34,6 +34,12 @@ Electric drills and assemblers need power. Build a starter steam setup:
 - A furnace production cell is one build row: `{"cell":"iron-plate", "x":…, "y":…,
   "count":8}` lays furnaces with input and output belts and inserters. Burner furnaces
   take coal on the input belt's second lane.
+- **Feed it from the ore patch without hand routing** (electric drills only): a row
+  `{"mine":"iron-ore", "to":[px, py], "lane":"N", "per_min":60}` plans the drill column on
+  the nearest patch, routes its belt into the port at `px,py`, side-loads the given lane
+  and runs power to the grid. Add a second row with `"mine":"coal", "lane":"S"` for a
+  burner furnace's fuel. Write the design in world positions and pass no `x,y` to
+  `achieve` (`mine-needs-world-rows-no-x-y` otherwise).
 - **Steel**: a furnace cell for `steel-plate` fed with iron plates (5 iron plate → 1
   steel, slow). Dedicate furnaces to steel as rocket-tier demand grows.
 

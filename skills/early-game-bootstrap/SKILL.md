@@ -53,4 +53,6 @@ trees and rocks by itself when a build or craft needs wood or stone.
 Verify with `observe(view="situation")` (treasury contents, issues) and
 `observe(view="entities", x, y, radius)` (furnace and drill status). A layout you keep
 refuelling by hand is not self-sustaining yet; that is fine for the bootstrap. Then move
-on to the smelting-setup skill to scale up with electricity.
+on to the smelting-setup skill to scale up with electricity. Automatic ore feeding
+(`{"mine":...}` rows, chain `"feed":true`) needs electric mining drills, so it starts
+there, not here.

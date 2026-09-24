@@ -17,7 +17,10 @@ recipes.
 2. **Chain.** One build row can lay the whole thing:
    `{"chain":"automation-science-pack@30/min", "x":…, "y":…, "power":true}` builds one
    cell per recipe (gears, then science) with the belt between them routed for you.
-   Its `ports.external` lists the plate inputs you must feed by belt.
+   Add `"feed":true` to the chain row and it also mines every ore its external ports
+   want: drill columns on the nearest patches, belts routed into the ports, power run
+   to the grid (electric drills only; world positions, no `x,y` on `achieve`). What is
+   not ore stays in `ports.external` for you to feed by belt.
    Or build single cells: `{"cell":"iron-gear-wheel", "x":…, "y":…, "count":2}`.
    Dry-run first; cells set each assembler's recipe themselves.
 3. **Plain assemblers.** If you place `assembling-machine-1` rows yourself, give each row

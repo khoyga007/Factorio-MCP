@@ -20,7 +20,8 @@ assembling-machine-1). Confirm with `observe(view="plan", query="logistic-scienc
    (`{"chain":"logistic-science-pack@30/min", "x":…, "y":…, "power":true}`) or as
    separate cells for copper-cable, electronic-circuit, inserter, transport-belt and
    logistic-science-pack. A chain feeds 1-2 ingredient recipes by belt; anything it
-   cannot make itself comes back in `ports.external` for you to feed. Dry-run first.
+   cannot make itself comes back in `ports.external` for you to feed. `"feed":true` on
+   the chain row mines the ore inputs for you (see red-science). Dry-run first.
 3. Feed the green-science output to the same labs as red science (labs consume each pack
    type they hold).
 

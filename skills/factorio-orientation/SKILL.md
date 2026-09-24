@@ -1,86 +1,134 @@
 ---
 name: factorio-orientation
-description: Load this FIRST whenever automating Factorio through the bridge. Explains the coordinate system, the perceive-act-verify loop, the 15 bridge actions (and how they map from the old factorio_* MCP names), the legit-economy rules, and how to recover from common errors.
+description: Load this FIRST whenever automating Factorio through the bridge. Explains the coordinate system, the three MCP tools (observe / achieve / report) and how the old CLI action names map onto them, the perceive-act-verify loop, the real-economy rules, and how to recover from common errors.
 ---
 
 # Factorio orientation
 
 You control a single-player Factorio 2.0 game (base game, no Space Age, peaceful)
-through the Factorio AI Bridge's UDP actions (`python factorio_ai.py <action> ...`).
-Your objective is to bootstrap a factory and ultimately **launch a rocket**, playing
-under the real game economy.
+through the `factorio-engineer` MCP server and its three tools: `observe`, `achieve`
+and `report`. Your objective is to bootstrap a factory and ultimately **launch a
+rocket**, playing under the real game economy.
+
+**Every in-game action goes through MCP.** `python factorio_ai.py` is a diagnostic CLI
+for the human maintainer, not a way to play. The full tool contract is in
+`CONTRACT.md`; the README has the fresh-save walkthrough.
 
 ## Golden rules
 
-1. **Perceive before acting.** Start with `brief` (one-call base survey) and `index`
-   (whole-map ore/enemy/water). Use `snapshot` to list entities around a point.
-   Never assume positions.
-2. **Act, then verify.** After any mutating action (`place`, `set_recipe`, `insert`,
-   `research --start`, ...), confirm with a read (`brief`, `snapshot`, `research`,
-   `audit`). Action errors carry the game's own message — read it and adjust.
-3. **Respect the economy.** You must mine real ore, craft real items, and feed labs
-   real science packs. `place` consumes the item from the treasury, so craft/obtain it
-   first. Research completes only as labs consume science over time — poll `research`.
+1. **Perceive before acting.** Start with `observe(view="situation")` (treasury,
+   machine counts, top issues, nearest enemies, ore patches). Never assume positions.
+2. **Dry-run, act, then verify.** Every build goes through `achieve(..., dry_run=true)`
+   first, then for real, then `report(job_id="exec-N")` until it is `verified` or
+   `needs-attention`. Hand actions (`craft`, `collect`, `insert`, `set_recipe`) reply
+   per row; read the result back with `observe`.
+3. **Respect the economy.** Everything is built from real items in your character's
+   inventory (the *treasury*). The executor gathers what a build needs from the
+   treasury, your own chests and machine outputs, trees and rocks, and hand crafting.
+   Nothing is spawned; locked technology is refused.
+4. **Plan by numbers, measure by flow.** `observe(view="plan", query="item@N/min")`
+   before building a line; `observe(view="flow", query="item@10m")` before claiming a
+   bottleneck.
 
-## Bridge actions (15)
+## The three tools
 
-Read:
-- `ping` — bridge alive + advertised actions.
-- `brief [--x --y --radius]` — one reply: owned machine counts, top issues, nearest
-  enemies, ore patches, nearest water, treasury contents.
-- `index` — whole-map survey: ore patches, enemy clusters, water (cached).
-- `snapshot [--x --y --radius --offset --limit --tiles [--name]]` — entities around a
-  point (paged); with `--tiles` also map tile names (default: pumpable water).
-- `spec <entity|item|recipe> <name> [--entity]` — prototype reads; `kind=recipe` is
-  force-level (enabled state, live `have` counts, unlocking technology).
-- `research [name]` — read one technology; `research --start <name>` — start it.
-- `audit <item> [--precision]` — measured production/consumption per minute.
+`observe(view=...)`, read only:
+- `situation`: one-call base survey around the player (or `x,y,radius`).
+- `deposits` (`resource=` optional): ore patches, paged with `offset`.
+- `water`: offshore-pump spots with the tile the pump's pipe must use.
+- `nearby` / `entities` (`query=name`) / `grid` / `lanes`: what stands around `x,y`:
+  a summary, full rows (paged), a tile map, or belt lane contents.
+- `research`: current tech, queue, labs, and the `available` list (what can be queued
+  now).
+- `plan` (`query="item@N/min"`): recipe tree → machine counts, raw inputs, power.
+- `flow` (`query="a,b@10m"`): measured production and consumption per minute.
+- `supply` (`query=item`): where an item is and how much is spare.
+- `route` (`x,y`, `query="tx,ty[,dir][,belt|pipe]"`): an A* belt or pipe path.
+- `ledger`: what was built, what feeds what, measured output per block.
+- `patterns` / `references`: saved layouts in the catalog.
 
-Write:
-- `place <name> <x> <y> [--direction] [--dry-run]` — place a building (consumes the item
-  from treasury); `--dry-run` reports blockers and builds nothing.
-- `set-recipe <recipe> <x> <y>` — commission an empty assembler.
-- `craft <recipe> [count]` — craft items into the treasury.
-- `mine <name> <x> <y>` — mine a resource tile by hand.
-- `insert <item> <count> <x> <y>` — move items into a lab/assembler/turret input, or a
-  machine's fuel slot (burners).
-- `collect <item> <count> <x> <y>` — take items out of a chest or machine output.
-- `treasury <x> <y>` — name a chest the treasury (where craft/place draw from).
-- `autofuel on|off` — auto-fuel drills/furnaces every 5 seconds.
+`achieve(goal=...)`, acts:
+- `build_design` (`design=[rows]`, `contract`): build from rows you designed. Rows may
+  be plain entities `{name,x,y,direction?,recipe?}`, production cells
+  `{cell:recipe,...}`, chains `{chain:"item@N/min",...}`, or `{route:id}`.
+- `reuse_blueprint` (`pattern_id`): build a saved pattern.
+- `research` (`tech="name"`, or `"a,b,c"` to queue several).
+- `set_recipe` (`design=[{x,y,recipe}]`): commission empty assemblers.
+- `craft` / `collect` / `insert` (`design=[{name,count,x?,y?,source?}]`, ≤8 rows).
+- `recall` (`area` or `design`): mine your own buildings back into the treasury.
+- `capture` / `build_ghosts` (`area`), `drop_ghosts`, `import`, `annotate`, `launch`.
 
-## Treasury pattern (replaces get_inventory)
+`report(job_id="exec-N", resume?)`: state of a build job: site, materials, each audit
+window. `resume=true` continues a built job once you fixed what stopped it.
 
-The bridge tracks one **treasury**: place a chest, then `treasury <x> <y>` to name it.
-`craft` puts results there, `place` takes buildings from there, and `brief` reports its
-contents. Move items with `insert` (into a machine) or `collect` (out of a chest/machine
-at x,y). There is no "read arbitrary machine inventory" action — read the treasury
-instead.
+## Old CLI names → MCP
+
+Older notes and logs use the CLI action names. Map them like this; never call the CLI
+to play.
+
+| Old CLI action | MCP call |
+|---|---|
+| `brief` | `observe(view="situation")` |
+| `index` | `observe(view="deposits")` + `observe(view="water")`; enemies are in `situation` |
+| `snapshot` | `observe(view="nearby" \| "entities" \| "grid", x, y, radius)` |
+| `snapshot --tiles` (water) | `observe(view="water")` |
+| `research <name>` | `observe(view="research")` |
+| `research --start <name>` | `achieve(goal="research", tech="<name>")` |
+| `audit <item>` | `observe(view="flow", query="<item>@10m")` |
+| `place <name> <x> <y>` | `achieve(goal="build_design", design=[{"name":…, "x":…, "y":…, "direction":…}])` |
+| `place --dry-run` | the same call with `dry_run=true` |
+| `set-recipe <recipe> <x> <y>` | `achieve(goal="set_recipe", design=[{"x":…, "y":…, "recipe":…}])`, or `recipe` on the build row |
+| `craft <recipe> [n]` | `achieve(goal="craft", design=[{"name":"<recipe>", "count":n}])` |
+| `insert <item> <n> <x> <y> [--source]` | `achieve(goal="insert", design=[{"name":…, "count":n, "x":…, "y":…, "source":true}])` (`source` only for a furnace's ore slot) |
+| `collect <item> <n> <x> <y>` | `achieve(goal="collect", design=[{"name":…, "count":n, "x":…, "y":…}])` |
+| `spec <kind> <name>` | diagnostic CLI only; `observe(view="plan")` reads recipes for you |
+| `mine <name> <x> <y>` | no MCP goal. The executor mines trees and rocks itself when a build needs wood or stone; ore comes from drills |
+| `treasury <x> <y>` | **do not use.** The treasury must be your character's inventory: the executor refuses to build while a chest is named (`player-treasury-on-target-surface-required`) |
+| `autofuel on\|off` | diagnostic CLI only |
+| `ping` | diagnostic CLI only; an answer from `observe(view="situation")` already shows the bridge is up |
+
+## The treasury
+
+The treasury is **player 1's main inventory**. `craft` puts results there, builds take
+their items from there, `collect` pulls into it and `insert` moves out of it.
+`observe(view="situation")` reports its contents. Keep space free: a full inventory
+stops jobs (`player-inventory-full`).
 
 ## Coordinates and grid
 
 - World coordinates are floating-point tiles: **+x = east, +y = south**.
-- Most buildings occupy whole tiles; align to tile centers (x.5, y.5) or integers.
-  A stone furnace is 2x2, an assembling machine 3x3, a burner miner 2x2 — leave room
-  and a tile for belts/inserters.
-- `--direction` takes north/east/south/west (internally Factorio's 16-step encoding:
-  0 = North, 4 = East, 8 = South, 12 = West). Inserters *take from behind and drop in
-  front*, so a north-facing inserter picks up from the south tile.
-- There is no teleport/pathfinding action — operate by absolute coordinates only.
+- Design rows use **entity centres**: an odd-sized entity sits on `.5`, an even-sized one
+  on a whole number (a 3x3 assembler at `x.5`, a 2x2 stone furnace at an integer).
+- Directions use 16 steps: `0` north, `4` east, `8` south, `12` west. An inserter's
+  direction is its **pickup** side: direction `0` picks up from the north and drops to
+  the south.
+- To build at a known place, write the design in world centres and pass no `x,y`: the
+  executor builds the rows where they stand (`site.mode="absolute"`). To let it find a
+  spot, pass `contract.site.mode="search"`.
+- There is no teleport or pathfinding goal; the executor works by coordinates.
 
 ## The core loop
 
 ```
-brief/index -> decide -> craft missing items -> place -> set_recipe -> insert -> verify (brief/audit) -> repeat
+observe(situation / deposits / plan)
+  -> achieve(build_design, dry_run=true) -> fix what it names
+  -> achieve(build_design) -> report(exec-N) until verified
+  -> set_recipe / insert if needed -> observe(flow / ledger) -> repeat
 ```
 
 ## Recovering from errors
 
-- "missing item to place" -> `craft` it first, or build the production for it.
-- "cannot place ... here (blocked)" -> the spot collides; `snapshot`/`place --dry-run` and pick a
-  clear tile, mind footprints.
-- "already researched" / "unknown technology" -> re-check `research <name>`.
-- Empty/slow production -> `audit <item>` and machine `status` from `brief` (e.g.
-  "no_power", "no_ingredients").
+- `blocked` + `missing` / `locked`: items you lack, or a recipe not yet researched.
+  Build the production for it, or research it.
+- `blocked` + `no-site`: `rejects` counts why each spot failed and `rejects.at` names what
+  stood in the way. Pick another area or relax the contract.
+- `inserter-unconnected` / `pipe-unconnected`: an inserter end or an underground pipe
+  has no partner. The reply names the tile and often a `hint` shift.
+- `needs-attention` after the build (`infra-missing:*`, a failed audit): fix the cause,
+  then `report(job_id, resume=true)`. Do not recall and rebuild.
+- Empty or slow production: `observe(view="flow")` and machine status in
+  `observe(view="entities")` (e.g. `no_power`, `no_ingredients`).
 
-When you need a plan for a specific stage, the other skills cover early bootstrap,
-smelting, each science pack, research progression, mall builds, and the rocket.
+CONTRACT.md has the full state and error tables. When you need a plan for a specific
+stage, the other skills cover early bootstrap, smelting, each science pack, research
+progression, mall builds, and the rocket.

@@ -180,8 +180,7 @@ python tests/verify_executor_runtime.py --player-save .runtime-test/saves/your-s
 
 ## License
 
+MIT, see [LICENSE](LICENSE).
+
 `reference/skyline624/` is third-party code vendored for reference under its own MIT license
 (`reference/skyline624/LICENSE`). See `reference/PORTING.md` for how it is used.
-
-The rest of the repository has no license file yet. Until one is added, default copyright
-applies.

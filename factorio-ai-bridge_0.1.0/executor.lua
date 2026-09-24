@@ -122,6 +122,9 @@ function M.attach(ctx)
       -- sorted after it got no collect step at all. Plan each item on its own; `missing`
       -- names whichever ones came up short.
       ensure(item,cost[item],0)
+      -- Claim it: a later craft must not eat what this item already counted (23/09 the
+      -- steam-engine craft took the design's own pipes -> materials-changed:pipe).
+      available[item]=math.max(0,(available[item] or 0)-cost[item])
     end
     return steps,missing
   end
@@ -916,7 +919,17 @@ function M.attach(ctx)
             else
               -- Direct mode still pays the whole bill up front, in one call.
               for name,n in pairs(j.materials) do
-                if stock.get_item_count{name=name,quality="normal"}<n then error("materials-changed:"..name) end
+                if stock.get_item_count{name=name,quality="normal"}<n then
+                  -- Another job (or a hand craft) spent from the same bag since this plan
+                  -- was made (23/09 materials-changed:wood). Plan again from the bag as it
+                  -- is now and go back to preparing; give up after 3 rounds.
+                  j.replans=(j.replans or 0)+1
+                  local c=j.contract
+                  local steps,missing=prepare(surface,force,c.center,c.radius,stock,j.materials,c.supply)
+                  if j.replans>3 or next(missing) then error("materials-changed:"..name) end
+                  j.steps,j.step,j.state,j.deadline=steps,1,"preparing",game.tick+18000
+                  save(j) return
+                end
               end
               local x,y=aim(j,surface,force)
               local result=perform(j,"import",{blueprint=j.blueprint,x=x,y=y,mode="direct",

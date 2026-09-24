@@ -78,3 +78,14 @@ Kiểm tra: pytest 89/89, `contract_check` OK, `python chain.py` ok.
 - **Cấu trúc lại CONTRACT:** mình chỉ chuyển những bullet hay đuôi câu *bắt đầu* bằng `Engine PASS`, `Live dry-run`, `LIVE BUILD`. Những câu "Measured 20/09…" nằm giữa quy tắc, dùng để giải thích lý do, thì mình để nguyên chỗ cũ, vì tách ra sẽ làm quy tắc khó hiểu. Riêng mục "Saved contracts" giữ nguyên, vì bằng chứng gắn với từng pattern id.
 
 Mình không merge. Bạn review xong thì merge nhé.
+
+## 2026-09-24 04:20 UTC — PR #2 đã theo kịp `6142217` — Claire Doppel
+
+Bạn ơi, PR #2 hết conflict rồi. Mình **merge** master vào nhánh (commit `075e033`), không rebase. Rebase thì phải force-push, mà lúc đầu bạn dặn không force-push. Nếu bạn muốn lịch sử thẳng thì lúc merge PR cứ chọn squash là được.
+
+- **CONTRACT:** 8 dòng mine/feed nằm trong mục "Rate plan, production cells and chains", ngay sau các quy tắc về chain. Dòng `Live dry-run 24/09` chuyển xuống `### Evidence`. Ghi chú cũ về cách tự nối port bằng tay (exec-16) giờ trỏ sang `feed:true` / `{mine:...}` là cách nên dùng.
+- **Bảng lỗi** (`029e771`): thêm `mine-needs-world-rows-no-x-y`, `feed-needs-world-rows-no-x-y`, `mine-drill-must-be-electric`, `mine-spec:<drill>:<ore>`, `mine-site:*`, `mine-no-patch`, `mine-overlaps-design`, `mine-route:*`, `mine-port-sides-blocked:x,y`.
+- **Skills:** smelting-setup dạy dùng row `{mine:...}` cho furnace cell. red-science và green-science thêm `"feed":true` vào chain. Orientation liệt kê thêm loại row `mine`. Riêng early-game-bootstrap chỉ ghi chú là tính năng này cần máy khoan điện (`mine-drill-must-be-electric`), nên chưa dùng được ở giai đoạn burner. Nếu bạn định cho mine row hỗ trợ máy khoan burner thì mình sửa lại skill này sau.
+- **Kiểm tra:** pytest 92/92.
+
+Mình chờ bạn review.

@@ -88,6 +88,51 @@ Building blocks the agent can use:
    After you edit the Python, restart the agent session so it picks up the new tool schema.
 4. **Check.** Call `observe(view="situation")`. The reply should include the mod's build name.
 
+## From a fresh save
+
+The path a new agent takes from an empty map to its first automated line. The target setup is
+the one the skills are written for: **base game, no Space Age, peaceful, single player**.
+
+1. **Create the map.** New game → Freeplay. If you own Space Age, disable the `space-age`,
+   `quality` and `elevated-rails` mods first. Tick **peaceful mode** in the enemy settings. Keep
+   `factorio-ai-bridge` enabled.
+2. **Launch with the UDP port.** Set `FACTORIO_EXE` to your `factorio.exe` and run
+   `start-factorio-ai.bat` (or start Factorio yourself with `--enable-lua-udp 34198`). Load the
+   save in the game client and leave your character in the world: the executor takes and pays
+   for everything through that player's inventory, and refuses to build without it
+   (`player-treasury-on-target-surface-required`).
+3. **Connect the agent.** Register the MCP server (Install, step 3) and start a fresh agent
+   session, so it loads the current tool schema.
+4. **Look first.** `observe(view="situation")` for the treasury, counts and nearby ore, then
+   `observe(view="deposits")` for the ore patches and `observe(view="water")` for pump spots.
+5. **Give the agent the skills.** Point it at `skills/` (or copy the folders into its skills
+   directory, e.g. `~/.claude/skills/` for Claude Code). Load them in this order:
+
+   | # | Skill | Stage |
+   |---|---|---|
+   | 1 | `factorio-orientation` | Always first: coordinates, the three tools, economy rules, error recovery |
+   | 2 | `early-game-bootstrap` | Hand mining → first burner drills and furnaces |
+   | 3 | `smelting-setup` | Iron, copper and steel lines; steam power; electric drills |
+   | 4 | `red-science` | Automation science and the first labs |
+   | 5 | `research-progression` | Keep open from here on: what to research next |
+   | 6 | `green-science` | Logistic science |
+   | 7 | `mall-build-patterns` | Assemblers that make buildings, so the agent stops hand-crafting |
+   | 8 | `blue-science` | Oil, plastic, sulfur, advanced circuits |
+   | 9 | `rocket-launch` | Silo, rocket parts, launch |
+
+6. **Plan by numbers.** Before a production line, `observe(view="plan", query="item@N/min")`
+   gives machine counts and raw input per minute.
+7. **Dry-run every build.** Pass `dry_run=true` to `achieve` first. It checks the site, the
+   inserter and pipe ends, power and the material bill without spending anything.
+8. **Build, then read the job.** Drop `dry_run` and poll `report(job_id="exec-N")` until the job
+   is `verified` or `needs-attention`. The state table in [CONTRACT.md](CONTRACT.md) says how to
+   get out of each state.
+9. **Measure, don't guess.** `observe(view="flow")` and `observe(view="ledger")` show what each
+   block really made per minute and which links are starved.
+10. **Automate, don't haul.** A line the agent keeps feeding by hand is a bootstrap step, not the
+    goal (see [LESSONS.md](LESSONS.md) #2). The milestone is a base that keeps launching rockets
+    with no agent in the loop.
+
 ## Quickstart
 
 One burner drill facing north, dropping coal into a chest just above it. The layout is taken from
